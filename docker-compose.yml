@@ -1,0 +1,97 @@
+# Serviços locais usados pela Transcritor lib.
+# Portas no host (todas presas a 127.0.0.1):
+#   Speaches        -> http://localhost:8000   (arquivo, REST compatível com OpenAI)
+#   WhisperLiveKit  -> ws://localhost:8001/asr (tempo real)
+#   Ollama          -> http://localhost:11434  (tradução)
+#
+# Requisitos: Docker Desktop com WSL2 + suporte a GPU NVIDIA.
+# Primeira subida:  docker compose up -d --build
+# Modelos de tradução (uma vez):
+#   docker exec ollama ollama pull translategemma:4b   (frases)
+#   docker exec ollama ollama pull gemma3:4b           (palavra no contexto)
+
+name: transcritor
+
+services:
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    container_name: speaches
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # Baixa o modelo na subida; o Speaches não baixa sozinho na 1ª requisição.
+      PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'
+      # Descarrega da VRAM após 5 min sem uso (libera GPU para os outros serviços).
+      STT_MODEL_TTL: "300"
+      LOG_LEVEL: info
+    volumes:
+      - hf-cache-speaches:/home/ubuntu/.cache/huggingface/hub
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://0.0.0.0:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  whisperlivekit:
+    # Não há imagem publicada: build a partir da tag fixada do repositório.
+    build:
+      context: https://github.com/QuentinFuxa/WhisperLiveKit.git#v0.2.27
+      dockerfile: Dockerfile
+      args:
+        # Acrescente ",translation" se for usar a tradução NLLB do próprio WLK.
+        EXTRAS: cu129
+    image: transcritor/whisperlivekit:0.2.27
+    container_name: whisperlivekit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    # ENTRYPOINT da imagem: wlk --host 0.0.0.0
+    # --pcm-input: aceita PCM s16le 16 kHz mono (o que o Transcritor.Captura entrega).
+    command: ["--model", "medium", "--language", "auto", "--backend-policy", "simulstreaming", "--pcm-input"]
+    volumes:
+      - hf-cache-wlk:/root/.cache/huggingface/hub
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: "10m"
+      OLLAMA_CONTEXT_LENGTH: "8192"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf-cache-speaches:
+  hf-cache-wlk:
+  ollama:

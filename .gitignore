@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+TestResults/
+.cache-transcritor/
+*.pdf
+prompt_project.txt
