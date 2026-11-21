@@ -19,7 +19,8 @@ public sealed class TranscritorArquivo(
     ICacheResultado cache,
     IOptions<OpcoesArquivo> opcoes,
     ITradutor? tradutor = null,
-    IAnalisadorSentido? analisador = null) : ITranscritorArquivo
+    IAnalisadorSentido? analisador = null,
+    ICorretorTranscricao? corretor = null) : ITranscritorArquivo
 {
     private readonly OpcoesArquivo _opcoes = opcoes.Value;
 
@@ -50,6 +51,22 @@ public sealed class TranscritorArquivo(
         {
             transcricao = await TranscreverAsync(caminho, hash, progresso, cancellationToken).ConfigureAwait(false);
             await cache.GravarAsync(chave, transcricao, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Correção de palavras ouvidas errado (opcional): antes da tradução, que passa a usar o texto corrigido.
+        if (corretor is { Ativo: true })
+        {
+            var chaveCorrecao = $"{chave}.corr.{corretor.Identificador}".Replace('/', '_');
+            var corrigido = await cache.LerAsync(chaveCorrecao, cancellationToken).ConfigureAwait(false);
+            if (corrigido is null)
+            {
+                tudoDoCache = false;
+                corrigido = await CorrigirAsync(corretor, transcricao, progresso, cancellationToken).ConfigureAwait(false);
+                await cache.GravarAsync(chaveCorrecao, corrigido, cancellationToken).ConfigureAwait(false);
+            }
+
+            transcricao = corrigido;
+            chave = chaveCorrecao;
         }
 
         var resultado = transcricao;
@@ -218,6 +235,38 @@ public sealed class TranscritorArquivo(
 
         var frases = transcricao.Frases.Select((f, i) => f with { Traducao = traducoes[i] }).ToList();
         return transcricao with { Frases = frases };
+    }
+
+    private static async Task<ResultadoTranscricao> CorrigirAsync(
+        ICorretorTranscricao corretor,
+        ResultadoTranscricao transcricao,
+        IProgress<ProgressoProcessamento>? progresso,
+        CancellationToken cancellationToken)
+    {
+        progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, 0));
+        var frases = transcricao.Frases;
+        var corrigidas = new List<Frase>(frases.Count);
+        for (var i = 0; i < frases.Count; i++)
+        {
+            var f = frases[i];
+            var pedido = new PedidoCorrecao(
+                f.Palavras.Select(p => p.Texto).ToList(),
+                transcricao.Arquivo.Idioma,
+                frases.Skip(Math.Max(0, i - 2)).Take(Math.Min(i, 2)).Select(x => x.Texto).ToList(),
+                frases.Skip(i + 1).Take(1).Select(x => x.Texto).ToList(),
+                f.Palavras.Select(p => p.Confianca).ToList());
+            var correcoes = f.Palavras.Count == 0 ? [] : await corretor.CorrigirAsync(pedido, cancellationToken).ConfigureAwait(false);
+            var palavras = f.Palavras.ToList();
+            foreach (var c in correcoes.Where(c => c.Indice >= 0 && c.Indice < palavras.Count))
+            {
+                palavras[c.Indice] = palavras[c.Indice] with { Texto = c.Corrigida, Ouvida = palavras[c.Indice].Ouvida ?? palavras[c.Indice].Texto };
+            }
+
+            corrigidas.Add(correcoes.Count == 0 ? f : f with { Palavras = palavras, Texto = string.Join(' ', palavras.Select(p => p.Texto)) });
+            progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, (i + 1) * 100d / frases.Count));
+        }
+
+        return transcricao with { Frases = corrigidas };
     }
 
     private static async Task<ResultadoTranscricao> AnalisarAsync(

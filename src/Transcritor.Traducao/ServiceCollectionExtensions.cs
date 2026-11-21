@@ -10,7 +10,7 @@ namespace Transcritor.Traducao;
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registra <see cref="ITradutor"/> (Ollama) e o cache de palavras em disco.</summary>
+    /// <summary>Registra <see cref="ITradutor"/>, <see cref="IAnalisadorSentido"/> e <see cref="ICorretorTranscricao"/> (Ollama) e o cache de palavras em disco.</summary>
     public static IServiceCollection AddTranscritorTraducao(this IServiceCollection services, Action<OpcoesTraducao>? configurar = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -36,6 +36,10 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<Analise.AnalisadorOllama>();
         services.TryAddTransient<IAnalisadorSentido>(sp => sp.GetRequiredService<Analise.AnalisadorOllama>());
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<Analise.AnalisadorOllama>());
+
+        services.TryAddTransient<Correcoes.CorretorOllama>();
+        services.TryAddTransient<ICorretorTranscricao>(sp => sp.GetRequiredService<Correcoes.CorretorOllama>());
+        services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<Correcoes.CorretorOllama>());
         return services;
     }
 }

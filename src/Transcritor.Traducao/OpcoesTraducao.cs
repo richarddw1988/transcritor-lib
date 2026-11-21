@@ -30,6 +30,22 @@ public sealed class OpcoesTraducao
     /// <summary>Modelo para unidades de sentido e "o que quis dizer" (análise do arquivo).</summary>
     public string ModeloAnalise { get; set; } = "gemma3:12b";
 
+    /// <summary>
+    /// Liga a correção de palavras ouvidas errado no processamento de arquivos (antes de traduzir): o modelo troca uma
+    /// palavra por outra de som parecido quando a frase não faz sentido ("night" → "knight"). Experimental e desligada
+    /// por padrão: no teste ainda trocou palavras certas (docs/modelos.md).
+    /// </summary>
+    public bool CorrigirTranscricao { get; set; }
+
+    /// <summary>Modelo da correção de palavras ouvidas errado.</summary>
+    public string ModeloCorrecao { get; set; } = "gemma3:12b";
+
+    /// <summary>
+    /// Só palavras com confiança do reconhecimento abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo.
+    /// Palavra sem confiança informada (tempo real) sempre pode.
+    /// </summary>
+    public double LimiteConfiancaCorrecao { get; set; } = 0.95;
+
     /// <summary>Quantas frases anteriores vão como contexto.</summary>
     public int FrasesAntes { get; set; } = 2;
 

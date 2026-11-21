@@ -33,7 +33,11 @@ public sealed record Frase(
 /// Probabilidade de 0 a 1 que o reconhecedor deu à palavra (baixa = provável erro de reconhecimento); nula quando o
 /// motor não informa (tempo real) ou em JSON gravado antes deste campo existir.
 /// </param>
-public sealed record Palavra(string Texto, double Inicio, double Fim, double? Confianca = null);
+/// <param name="Ouvida">
+/// Palavra como o reconhecimento ouviu, quando a correção (<see cref="Contratos.ICorretorTranscricao"/>) trocou
+/// <paramref name="Texto"/>; nula se não houve troca.
+/// </param>
+public sealed record Palavra(string Texto, double Inicio, double Fim, double? Confianca = null, string? Ouvida = null);
 
 public enum TipoBloco
 {

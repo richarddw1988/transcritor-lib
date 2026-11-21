@@ -25,6 +25,7 @@ Sumário:
 | Microfone em tempo real | Eventos `Provisorio` (texto que ainda muda) e `Confirmado` (texto final), com tradução | WhisperLiveKit + Ollama |
 | Som do sistema em tempo real | O mesmo, com o que está tocando no computador | WhisperLiveKit + Ollama |
 | Tradução | Português ↔ inglês pelo sentido: frase com as vizinhas como contexto; palavra solta com a frase | Ollama |
+| Correção da transcrição (opcional, experimental) | Troca palavras que o reconhecimento ouviu errado por outra de som parecido, pelo sentido da frase ("night" → "knight"), antes de traduzir | Ollama + dicionário |
 | Dicionário local (opcional) | Sentidos reais de uma palavra ou expressão, inglês ↔ português, com a forma base das flexões ("gave" → "give") | SQLite gerado do Wiktionary |
 
 Nos três modos você escolhe a saída: `Portugues`, `Ingles` ou `Ambos`. O texto sai sempre no idioma falado; a
@@ -97,7 +98,8 @@ Opções do script:
 | `-SoConferir` | Só confere; não constrói, não sobe, não baixa |
 | `-SemTempoReal` | Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB); arquivo e tradução continuam |
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
-| `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
+| `-ComCorrecao` | Também baixa o `gemma3:12b` (correção de palavras ouvidas errado, ~8 GB; o mesmo da análise) |
+| `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
 | `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~30 s). Ver 4.6 |
 
 4. Rode os testes (não precisam dos serviços):
@@ -129,6 +131,10 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 - `--sentido` também gera os blocos (expressões) e o "o que quis dizer" de cada frase. É lento (~10–13 s por frase)
   e precisa do `gemma3:12b` (`preparar-ambiente.ps1 -ComAnaliseDeSentido`); com 12 GB de GPU, pare o tempo real antes
   (`docker stop whisperlivekit`).
+- `--corrigir` corrige palavras ouvidas errado antes de traduzir (`CorrigirTranscricao`, seção 6). **Experimental:** no
+  teste, ajudou pouco na fala ao microfone e trocou palavras certas no audiolivro (ver `docs/modelos.md`). Só frases com
+  alguma palavra de confiança abaixo de 0,95 vão ao modelo (~2,5 s cada); a palavra trocada guarda a original em
+  `ouvida` no JSON.
 
 Tempo de referência (RTX 3060): 6 min de áudio em inglês → ~8 min com a tradução 12b (7 min só da tradução);
 ~16 min com `--sentido`. Só na 1ª vez; depois vem do cache.
@@ -252,6 +258,11 @@ Uma resposta conta como certa se contém uma das `aceitas`.
    de `--limite-confianca` (padrão 0,5) e quantas certas também ficaram (alarmes falsos). `--frases`, `--pasta` e
    `--banco` trocam os caminhos.
    - O Whisper escreve números como dígitos ("sete" → "7"), o que conta como troca: evite números nas frases.
+3. Meça a correção de palavras ouvidas errado (`ModeloCorrecao`, com o dicionário):
+   ```powershell
+   dotnet run --project src/Transcritor.Cli -- avaliar-fala --corrigir
+   ```
+   Mostra cada troca feita (marcando as que pioraram a frase) e, no fim, o WER antes e depois e o tempo por frase.
 
 ## 5. Usar a lib no seu projeto
 
@@ -309,6 +320,8 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 - `sentido` e `blocos` só com `AnalisarSentido = true`; `palavraInicial/palavraFinal` são índices em `palavras`.
 - `confianca` (0 a 1) é a probabilidade que o Whisper deu à palavra; baixa indica provável erro de reconhecimento.
   Não aparece quando o motor não informa, nem em JSON gravado antes deste campo existir (`Palavra.Confianca` nulo).
+- `ouvida` só aparece com `CorrigirTranscricao = true`, na palavra que a correção trocou: `texto` traz a corrigida
+  e `ouvida` a que o Whisper escreveu (`{ "texto": "knight", "ouvida": "night", … }`). O `texto` da frase já vem corrigido.
 - Formato detalhado: [etapa-2.md](etapa-2.md) (regra da saída) e [etapa-4.md](etapa-4.md) (blocos).
 
 ### 5.2 Tradução
@@ -357,7 +370,24 @@ foreach (var v in sentidos)
 - Palavras de som parecido: `dicionario.ProcurarParecidas("weather", "en")` devolve `Parecida(Termo, DistanciaPronuncia,
   DistanciaEscrita, Sentidos)` — ex.: `feather`, `whether`, `water`…; a própria palavra não entra.
 
-### 5.5 Erros
+### 5.5 Correção da transcrição
+O arquivo usa sozinho quando `CorrigirTranscricao = true`. Para corrigir uma frase avulsa (ex.: do tempo real):
+```csharp
+var corretor = sp.GetRequiredService<ICorretorTranscricao>();
+IReadOnlyList<Correcao> trocas = await corretor.CorrigirAsync(
+    new PedidoCorrecao("The night rode through the forest.".Split(' '), "en", Anteriores: [], Seguintes: []), ct);
+foreach (var t in trocas)
+    Console.WriteLine($"{t.Indice}: {t.Ouvida} → {t.Corrigida}"); // 1: night → knight
+```
+- O modelo devolve a frase corrigida, mas só valem trocas de uma palavra de 4+ letras, com confiança abaixo de
+  `LimiteConfiancaCorrecao` (passe `Confiancas` no pedido), por outra de 4+ letras que soa parecido (chave de
+  pronúncia igual ou a uma letra) e não é flexão dela ("take" → "taken"). Palavras acrescentadas, removidas ou de som
+  diferente são ignoradas: a correção não reescreve a frase nem corrige gramática.
+- Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
+- Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
+- `CorrigirAsync` funciona mesmo com `CorrigirTranscricao = false`; `Ativo` só diz se o arquivo deve usar.
+
+### 5.6 Erros
 Todos herdam de `TranscritorException`:
 
 | Exceção | Quando | O que fazer |
@@ -393,6 +423,9 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloFrasesTempoReal` | `translategemma:4b` | Frases no tempo real e comando `traduzir` (vazio = `ModeloFrases`) |
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
 | `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta recebe os sentidos do dicionário como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
+| `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
+| `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
+| `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |
 | `ModeloAnalise` | `gemma3:12b` | Modelo da análise |
 | `FrasesAntes` / `FrasesDepois` | `2` / `2` | Janela de contexto da tradução do arquivo |
@@ -431,7 +464,7 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 ## 7. Cache
 
 - Resultados de arquivo: um JSON por chave em `%LOCALAPPDATA%\Transcritor\cache`. A chave junta o hash do arquivo, o
-  modelo e as versões da montagem, do reparo de trechos, da tradução e da análise; trocar modelo ou prompt gera
+  modelo e as versões da montagem, do reparo de trechos, da correção, da tradução e da análise; trocar modelo ou prompt gera
   resultado novo.
 - Palavras: `palavras.json` na mesma pasta.
 - Para limpar: apague a pasta (os serviços refazem tudo na próxima vez).

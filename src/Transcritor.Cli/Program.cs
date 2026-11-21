@@ -30,9 +30,14 @@ var optSaida = new Option<Saida>("--saida")
 
 var optSentido = new Option<bool>("--sentido") { Description = "Também gera blocos (expressões) e o que quis dizer em cada frase (lento: ~13 s/frase com gemma3:12b)." };
 
+var optCorrigirArquivo = new Option<bool>("--corrigir")
+{
+    Description = "Experimental: corrige palavras ouvidas errado antes de traduzir (troca por outra de som parecido; ~2,5 s por frase duvidosa).",
+};
+
 var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um arquivo e grava o JSON com frases e palavras.")
 {
-    argCaminho, optSaida, optModelo, optIdioma, optJson, optSentido,
+    argCaminho, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
@@ -42,6 +47,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
     var idioma = resultado.GetValue(optIdioma);
     var json = resultado.GetValue(optJson);
     var sentido = resultado.GetValue(optSentido);
+    var corrigirArquivo = resultado.GetValue(optCorrigirArquivo);
 
     using var sp = CriarServicos(
         o =>
@@ -52,6 +58,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
         t =>
         {
             if (sentido) t.AnalisarSentido = true;
+            if (corrigirArquivo) t.CorrigirTranscricao = true;
         });
 
     return await Executar(async () =>
@@ -456,9 +463,13 @@ var optLimite = new Option<double>("--limite-confianca")
     Description = "Palavra com confiança abaixo disto conta como suspeita.",
     DefaultValueFactory = _ => 0.5,
 };
+var optCorrigir = new Option<bool>("--corrigir")
+{
+    Description = "Passa cada frase pela correção de palavras ouvidas errado (modelo de ModeloCorrecao) e mede antes e depois.",
+};
 var cmdAvaliarFala = new Command("avaliar-fala", "Transcreve as gravações, compara com o texto certo e mede erros, confiança e palavras parecidas.")
 {
-    optFrasesFala, optPastaFala, optLimite, optBanco,
+    optFrasesFala, optPastaFala, optLimite, optBanco, optCorrigir,
 };
 cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
 {
@@ -467,7 +478,10 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
     var limite = resultado.GetValue(optLimite);
     var banco = resultado.GetValue(optBanco)!;
     using var dicionario = banco.Exists ? DicionarioSqlite.Abrir(banco.FullName) : null;
+    var corrigir = resultado.GetValue(optCorrigir);
     int palavras = 0, trocas = 0, faltas = 0, sobras = 0, erradasSuspeitas = 0, certasSuspeitas = 0, trocasNaLista = 0, frases = 0;
+    int errosAntes = 0, corrigidasCertas = 0, corrigidasErradas = 0;
+    var tempoCorrecao = TimeSpan.Zero;
     foreach (var item in doc.RootElement.EnumerateArray())
     {
         var id = item.GetProperty("id").GetString()!;
@@ -487,11 +501,45 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
         var r = await sp.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(
             wav, idioma == Idiomas.Ingles ? Saida.Ingles : Saida.Portugues, null, ct);
         var reconhecidas = r.Frases.SelectMany(f => f.Palavras).ToList();
+        Console.WriteLine($"{id}: {texto}");
+        Console.WriteLine($"     {string.Join(' ', reconhecidas.Select(p => p.Texto))}");
+        if (corrigir)
+        {
+            errosAntes += AlinharPalavras(PalavrasNormalizadas(texto), reconhecidas).Count(a => a.Certa != a.Ouvida);
+            var relogioCorrecao = Stopwatch.StartNew();
+            var correcoes = await sp.GetRequiredService<ICorretorTranscricao>().CorrigirAsync(
+                new PedidoCorrecao(reconhecidas.Select(p => p.Texto).ToList(), idioma, [], [], reconhecidas.Select(p => p.Confianca).ToList()), ct);
+            tempoCorrecao += relogioCorrecao.Elapsed;
+            var certasDaFrase = PalavrasNormalizadas(texto);
+            int Erros(IReadOnlyList<Palavra> lista) => AlinharPalavras(certasDaFrase, lista).Count(a => a.Certa != a.Ouvida);
+            var errosSemCorrecao = Erros(reconhecidas);
+            var original = reconhecidas.ToList();
+            foreach (var c in correcoes)
+            {
+                reconhecidas[c.Indice] = reconhecidas[c.Indice] with { Texto = c.Corrigida };
+            }
+
+            var melhora = errosSemCorrecao - Erros(reconhecidas);
+            foreach (var c in correcoes)
+            {
+                // Certa = sozinha, esta troca diminui os erros da frase.
+                var soEsta = original.ToList();
+                soEsta[c.Indice] = soEsta[c.Indice] with { Texto = c.Corrigida };
+                var acertou = Erros(soEsta) < errosSemCorrecao;
+                corrigidasCertas += acertou ? 1 : 0;
+                corrigidasErradas += acertou ? 0 : 1;
+                Console.WriteLine($"     corrigida: \"{c.Ouvida}\" → \"{c.Corrigida}\"{(acertou ? "" : " (ERRADA)")}");
+            }
+
+            if (correcoes.Count > 0)
+            {
+                Console.WriteLine($"     {string.Join(' ', reconhecidas.Select(p => p.Texto))}  ({(melhora >= 0 ? "-" : "+")}{Math.Abs(melhora)} erros)");
+            }
+        }
+
         var alinhado = AlinharPalavras(PalavrasNormalizadas(texto), reconhecidas);
         frases++;
         palavras += alinhado.Count(a => a.Certa is not null);
-        Console.WriteLine($"{id}: {texto}");
-        Console.WriteLine($"     {string.Join(' ', reconhecidas.Select(p => p.Texto))}");
         foreach (var (certa, ouvida, confianca) in alinhado)
         {
             var suspeita = confianca is { } c && c < limite;
@@ -537,6 +585,13 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
         $"Confiança < {limite:F2}: {erradasSuspeitas} de {trocas + sobras} palavras erradas e {certasSuspeitas} certas " +
         $"(alarmes falsos); certa entre as 15 parecidas em {trocasNaLista} de {trocas} trocas" +
         (dicionario is null ? " (sem dicionário)" : string.Empty));
+    if (corrigir)
+    {
+        Console.WriteLine(
+            $"Correção: WER {100.0 * errosAntes / Math.Max(1, palavras):F1}% antes → {100.0 * erros / Math.Max(1, palavras):F1}% depois; " +
+            $"{corrigidasCertas} trocas certas e {corrigidasErradas} erradas; {tempoCorrecao.TotalSeconds / Math.Max(1, frases):F1} s por frase");
+    }
+
     return 0;
 }));
 

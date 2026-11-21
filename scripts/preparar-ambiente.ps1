@@ -37,6 +37,12 @@
 .PARAMETER ModeloAnalise
     Modelo do Ollama para a análise de sentido (Transcritor:Traducao:ModeloAnalise).
 
+.PARAMETER ComCorrecao
+    Também baixa o modelo da correção de palavras ouvidas errado (Transcritor:Traducao:CorrigirTranscricao; ~8 GB).
+
+.PARAMETER ModeloCorrecao
+    Modelo do Ollama para a correção da transcrição (Transcritor:Traducao:ModeloCorrecao).
+
 .PARAMETER ComDicionario
     Também baixa os dumps do Wiktionary (kaikki.org, ~600 MB, CC BY-SA) para dados/ e gera dados/dicionario.db
     (dicionário inglês ↔ português local, ~60 MB). Sem esta opção o script só informa se o dicionário existe.
@@ -58,6 +64,8 @@ param(
     [string] $ModeloPalavras = 'gemma3:4b',
     [switch] $ComAnaliseDeSentido,
     [string] $ModeloAnalise = 'gemma3:12b',
+    [switch] $ComCorrecao,
+    [string] $ModeloCorrecao = 'gemma3:12b',
     [switch] $ComDicionario,
     [string] $SpeachesUrl = 'http://localhost:8000',
     [string] $OllamaUrl = 'http://localhost:11434',
@@ -231,6 +239,7 @@ if ($ollamaNoAr) {
     $instalados = (Obter-Json "$OllamaUrl/api/tags").models.name
     $modelosOllama = @($ModeloFrases, $ModeloFrasesTempoReal, $ModeloPalavras)
     if ($ComAnaliseDeSentido) { $modelosOllama += $ModeloAnalise }
+    if ($ComCorrecao) { $modelosOllama += $ModeloCorrecao }
     foreach ($modelo in $modelosOllama | Select-Object -Unique) {
         $nome = if ($modelo.Contains(':')) { $modelo } else { "${modelo}:latest" }
         if ($instalados -contains $nome) { Escrever-Ok "Ollama: $modelo" }
@@ -258,6 +267,10 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
         if ($ComAnaliseDeSentido) {
             $env:TRANSCRITOR_Transcritor__Traducao__AnalisarSentido = 'true'
             $env:TRANSCRITOR_Transcritor__Traducao__ModeloAnalise = $ModeloAnalise
+        }
+        if ($ComCorrecao) {
+            $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'true'
+            $env:TRANSCRITOR_Transcritor__Traducao__ModeloCorrecao = $ModeloCorrecao
         }
         & dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'transcritor servicos apontou problemas (acima).' }

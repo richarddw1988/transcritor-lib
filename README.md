@@ -54,7 +54,7 @@ dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt
 |---|---|---|---|
 | Speaches | 8000 | Transcrição de arquivo com tempo por palavra | `Systran/faster-whisper-large-v3` |
 | WhisperLiveKit | 8001 | Transcrição em tempo real (WebSocket) | `large-v3-turbo` |
-| Ollama | 11434 | Tradução e análise | `translategemma:12b` (arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra), `gemma3:12b` (análise, opcional) |
+| Ollama | 11434 | Tradução, análise e correção | `translategemma:12b` (arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra), `gemma3:12b` (análise e correção da transcrição, opcionais) |
 
 Por que esses modelos, o que mais foi testado e quanto cada um custa: [docs/modelos.md](docs/modelos.md).
 

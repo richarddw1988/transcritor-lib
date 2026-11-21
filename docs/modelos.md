@@ -14,6 +14,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
+| Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | ~2,5 s por frase com palavra de confiança < 0,95; ainda troca palavras certas (ver abaixo) |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -82,6 +83,8 @@ palavra por palavra — a análise é pelo contexto:
 | `gemma3:4b` | frases | mistura as frases vizinhas na resposta e inventa frase | não usado para frases | [etapa-2.md](etapa-2.md) |
 | `gemma3:4b` | palavra solta | certo com a tradução da frase como pista ("banco" → bench/bank); erra expressões idiomáticas ("call" → "ligar") | **em uso** | [etapa-2.md](etapa-2.md) |
 | `gemma3:4b` | análise de sentido | 6,4 s/frase, mas tipos sem sentido e 7/66 traduções de bloco erradas | não usado | [etapa-4.md](etapa-4.md) |
+| `gemma3:4b` | correção da transcrição | mesmo WER que o 12b na fala do usuário (8,0% → 7,1%), mas repetiu palavra ("quite quite") | não usado | abaixo |
+| `gemma3:12b` | correção da transcrição | ver [Correção de palavras ouvidas errado](#correção-de-palavras-ouvidas-errado-experimental) | **em uso (opcional, experimental)** | abaixo |
 | `gemma3:12b` | análise de sentido | 72/72 blocos e traduções certos no teste; expressões com nota | **em uso (opcional)** | [etapa-4.md](etapa-4.md) |
 
 ## Glossário do usuário (tradução fixa de termos)
@@ -179,6 +182,31 @@ medidas com `transcritor avaliar-fala` em 2026-11-21:
   em 1–6%; deu WER 17,5%, com 15 faltas no começo das frases. Por isso a captura agora conta o tempo a partir do aviso
   "Gravando: pode falar" e o script mostra o pico.
 - Amostra pequena (uma pessoa, 20 frases, um microfone); serve para orientar, não para comparar modelos.
+
+### Correção de palavras ouvidas errado (experimental)
+
+`ICorretorTranscricao` (opção `CorrigirTranscricao`, desligada): o modelo recebe a frase, as vizinhas e as palavras de
+som parecido do dicionário, e devolve a frase corrigida; a lib só aceita a troca de uma palavra por outra de som
+parecido. Medido em 2026-11-21 com o `gemma3:12b` na fala do usuário (20 frases, `avaliar-fala --corrigir`) e no
+audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dano):
+
+| Versão | Fala do usuário (WER 8,0% sem correção) | Audiolivro | Tempo |
+|---|---|---|---|
+| Modelo reescreve livre, sem trava (teste à parte) | 8,0% (acertos e erros se anulam); o `gemma3:4b` piorou para 9,9% com trocas absurdas ("knight" → "cat", "mau humor" → "bom humor") | não medido | ~4 s/frase |
+| Trava de pronúncia + palavra de 4+ letras + 6 parecidas por palavra | 7,1% (4 certas, 0 erradas) | não medido | 3,4 s/frase |
+| Idem, 10 parecidas | 6,6% (5 certas, 0 erradas) | 27 trocas, quase todas erradas ("know" → "knew", "terrible" → "horrible", "right" → "fight") | 3,6 s/frase |
+| Idem + modelo explica antes ("analise") | 10,8% (11 certas, 8 erradas) | não medido | 5,5 s/frase |
+| **Atual**: + só palavra com confiança < 0,95, sem flexão ("take" → "taken"), sem apóstrofo novo | 7,5% (3 certas, 2 erradas) | 19 trocas em 2.348 palavras, quase todas erradas ("well" → "wall", "blunt" → "plant", "stale" → "still"); 57 de 179 frases foram ao modelo | 2,6 s/frase duvidosa; audiolivro 69 s |
+
+- **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. Na fala do usuário
+  o ganho é pequeno (0,5 a 1,4 ponto de WER) e, no audiolivro, o dano (~0,8 ponto) é maior. Por isso fica desligada.
+- O limite de confiança corta 2/3 das frases (mais rápido), mas também corta acertos com confiança alta
+  ("conserto" → "concerto" veio com 0,99) e, ao mandar parecidas só das palavras duvidosas, parece empurrar o modelo
+  a trocá-las.
+- Homófonos com sentido claro na frase ("sela do cavalo", "bare paws") quase nunca foram corrigidos, mesmo com a certa
+  na lista de parecidas.
+- Ideias não medidas: segunda chamada que compara a frase original e a corrigida e só aceita se o modelo preferir a
+  corrigida; reouvir o trecho com a palavra candidata (`hotwords`/`prompt` do Whisper); modelo maior.
 
 ## Requisitos de hardware e software (testado)
 

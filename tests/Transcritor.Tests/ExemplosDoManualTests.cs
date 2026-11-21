@@ -33,6 +33,7 @@ public class ExemplosDoManualTests
         Assert.NotNull(sp.GetRequiredService<ITradutor>());
         Assert.NotNull(sp.GetRequiredService<ITranscritorTempoReal>());
         Assert.NotNull(sp.GetRequiredService<IAnalisadorSentido>());
+        Assert.NotNull(sp.GetRequiredService<ICorretorTranscricao>());
         Assert.NotNull(sp.GetRequiredService<IFabricaFonteAudio>());
     }
 
@@ -92,5 +93,20 @@ public class ExemplosDoManualTests
         ResumoImportacao resumo = await ImportadorWiktionary.ImportarAsync(
             @"dados\kaikki-en.jsonl.gz", @"dados\kaikki-pt.jsonl.gz", @"dados\dicionario.db", cancellationToken: ct);
         Console.WriteLine(resumo.TamanhoBytes);
+    }
+
+    // Seção 5.5.
+    internal static async Task Correcao(IServiceProvider sp, CancellationToken ct)
+    {
+        var corretor = sp.GetRequiredService<ICorretorTranscricao>();
+        IReadOnlyList<Correcao> trocas = await corretor.CorrigirAsync(
+            new PedidoCorrecao("The night rode through the forest.".Split(' '), "en", Anteriores: [], Seguintes: []), ct);
+        foreach (var t in trocas)
+        {
+            Console.WriteLine($"{t.Indice}: {t.Ouvida} → {t.Corrigida}");
+        }
+
+        var palavra = new Palavra("knight", 0.3, 0.6, Confianca: 0.51, Ouvida: "night");
+        Console.WriteLine(palavra.Ouvida);
     }
 }
