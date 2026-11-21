@@ -35,9 +35,26 @@ palavras ("Atirei o pau no gato" → "tirei o pau no gato"). [C] = confirmado po
 As amostras limpas não separam os dois modelos (a diferença no inglês são ~4 palavras em ~180). O problema real
 foi áudio difícil (várias vozes, risada, canto), que só um áudio gravado no próprio ambiente mede.
 
+### Áudio real gravado no microfone (60 s: contagem, trava-língua, cantiga, conversa)
+
+Referência: o modo arquivo (`large-v3`, idioma pt) até 47 s — depois disso ele alucinou "peraí" 21 vezes em
+silêncio/ruído. WER sobre 51 palavras, ignorando "1, 2, 3" × "um, dois, três".
+
+| Modelo / idioma | WER | Atraso mediano | Observação |
+|---|---|---|---|
+| medium, `pt` | 21,6% | 3,1 s | "A dona Chica admirou-se… tacou o pau no gato" |
+| medium, auto | 23,5% | 3,2 s | |
+| large-v3-turbo, `pt` | 25,5% | 3,3 s | acertou "o berro"; inventou "Tchau" no começo (silêncio) |
+| large-v3-turbo, auto | 29,4% | 3,6 s | inventou "Hello" no começo; "abre os skills" → "Árvores de esquilhos" |
+
+Diferença pequena (2–4 palavras em 51) e uma só gravação: não dá veredito firme. O que ficou claro é que forçar
+`pt` ajudou os dois modelos, e que a cantiga ("Atirei o pau no gato") é difícil para todos.
+
 ## Decisão
 
-- Tempo real: `large-v3-turbo` (mesmo atraso, cabe na VRAM junto com Speaches e Ollama, família large-v3).
+- Tempo real: `large-v3-turbo`, mantido por escolha do dono do projeto mesmo com o medium um pouco melhor na
+  gravação acima (diferença pequena; família large-v3, a melhor em português nos benchmarks). Para voltar:
+  `--model medium` no `docker-compose.yml` e `docker compose up -d whisperlivekit`.
 - Usar `--idioma pt` quando a fala for em português e `--contexto` com nomes esperados.
 - Próximo passo para decidir com dados: gravar 1–5 min de áudio real
   (`transcritor captura --segundos 60 --wav teste.wav`), transcrever à mão e medir `medium`, `large-v3-turbo`
