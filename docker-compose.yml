@@ -6,6 +6,8 @@
 #
 # Requisitos: Docker Desktop com WSL2 + suporte a GPU NVIDIA.
 # Primeira subida:  docker compose up -d --build
+# Modelo de transcrição (uma vez):
+#   curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3
 # Modelos de tradução (uma vez):
 #   docker exec ollama ollama pull translategemma:4b   (frases)
 #   docker exec ollama ollama pull gemma3:4b           (palavra no contexto)
@@ -20,8 +22,9 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      # Baixa o modelo na subida; o Speaches não baixa sozinho na 1ª requisição.
-      PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'
+      # O modelo NÃO é baixado sozinho, e esta imagem estável (v0.8) não tem PRELOAD_MODELS
+      # (só existe nas 0.9 RC). Baixe uma vez, depois de subir:
+      #   curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3
       # Descarrega da VRAM após 5 min sem uso (libera GPU para os outros serviços).
       STT_MODEL_TTL: "300"
       LOG_LEVEL: info

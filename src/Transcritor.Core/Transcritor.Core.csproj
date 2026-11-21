@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Contratos e modelos da Transcritor lib. Sem dependências externas.</Description>
+  </PropertyGroup>
+</Project>

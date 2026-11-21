@@ -42,7 +42,7 @@ Máquina detectada: RTX 3060 12 GB · Windows 11 Pro · .NET SDK 10.0.400 · Doc
 4. **Tempo real não tem tempo por palavra.** Só início/fim por linha, como texto `"H:MM:SS"` (sem fração de segundo). Os eventos terão tempo por trecho, não por palavra.
 5. **Detecção automática de idioma no tempo real "puxa para o inglês"** (aviso do próprio README). Sugiro permitir forçar o idioma no `Iniciar` (opcional; `auto` como padrão).
 6. **Conflito de portas**: Speaches e WhisperLiveKit usam 8000. No compose: Speaches 8000, WLK 8001, Ollama 11434.
-7. **Speaches não baixa o modelo sozinho** na primeira requisição (a doc se contradiz, mas o fluxo documentado exige `POST /v1/models/{id}`). Resolvido com `PRELOAD_MODELS`; a lib vai dar erro claro se o modelo não estiver instalado.
+7. **Speaches não baixa o modelo sozinho** na primeira requisição (a doc se contradiz, mas o fluxo documentado exige `POST /v1/models/{id}`). Na Etapa 1 descobri que `PRELOAD_MODELS` só existe nas versões 0.9 RC; a imagem estável (`latest-*`, v0.8) ignora a variável. Por isso o modelo é baixado uma vez com `curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3`, e a lib dá erro claro com esse comando se o modelo faltar.
 8. **VAD sempre ligado no Speaches**: trechos sem fala somem — bom para nós, mas os tempos continuam absolutos (verificar na Fase 0).
 9. **VRAM (12 GB)**: os três ao mesmo tempo cabem só com modelos médios. Estimativa: Speaches large-v3 ~3,5 GB + WLK medium ~2,5 GB + Ollama 4B ~4 GB ≈ 10 GB. Um modelo de tradução de 12B (~8 GB) só cabe com o tempo real desligado (os TTLs descarregam sozinhos).
 
