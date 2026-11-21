@@ -8,6 +8,7 @@ public enum EtapaProcessamento
     ConvertendoAudio,
     Transcrevendo,
     MontandoFrases,
+    Traduzindo,
     GravandoResultado,
     Concluido,
 }

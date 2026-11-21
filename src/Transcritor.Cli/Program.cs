@@ -5,7 +5,9 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Transcritor.Arquivo;
+using Transcritor.Core;
 using Transcritor.Core.Contratos;
+using Transcritor.Traducao;
 using Transcritor.Core.Erros;
 using Transcritor.Core.Modelos;
 
@@ -17,14 +19,20 @@ var argCaminho = new Argument<FileInfo>("caminho") { Description = "Áudio ou v�
 var optModelo = new Option<string?>("--modelo") { Description = "Modelo do Speaches (padrão: appsettings.json)." };
 var optIdioma = new Option<string?>("--idioma") { Description = "Força o idioma falado: pt ou en (padrão: detecção automática)." };
 var optJson = new Option<FileInfo?>("--json") { Description = "Também grava o JSON neste caminho." };
-
-var cmdArquivo = new Command("arquivo", "Transcreve um arquivo e grava o JSON com frases e palavras.")
+var optSaida = new Option<Saida>("--saida")
 {
-    argCaminho, optModelo, optIdioma, optJson,
+    Description = "Portugues, Ingles ou Ambos. O texto fica no idioma falado; a tradução vem quando pedida.",
+    DefaultValueFactory = _ => Saida.Ambos,
+};
+
+var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um arquivo e grava o JSON com frases e palavras.")
+{
+    argCaminho, optSaida, optModelo, optIdioma, optJson,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
     var caminho = resultado.GetValue(argCaminho)!;
+    var saida = resultado.GetValue(optSaida);
     var modelo = resultado.GetValue(optModelo);
     var idioma = resultado.GetValue(optIdioma);
     var json = resultado.GetValue(optJson);
@@ -40,7 +48,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
         var transcritor = sp.GetRequiredService<ITranscritorArquivo>();
         var relogio = Stopwatch.StartNew();
         var progresso = new ProgressoConsole();
-        var r = await transcritor.ProcessarAsync(caminho.FullName, progresso, ct);
+        var r = await transcritor.ProcessarAsync(caminho.FullName, saida, progresso, ct);
         relogio.Stop();
 
         if (json is not null)
@@ -61,6 +69,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
         foreach (var f in r.Frases.Take(5))
         {
             Console.WriteLine($"  [{f.Inicio,8:F2} → {f.Fim,8:F2}] {f.Texto}");
+            if (f.Traducao is not null) Console.WriteLine($"  {"",21} {f.Traducao}");
         }
 
         if (r.Frases.Count > 5) Console.WriteLine($"  ... mais {r.Frases.Count - 5} frases");
@@ -68,8 +77,66 @@ cmdArquivo.SetAction(async (resultado, ct) =>
     });
 });
 
+// ---- traduzir --------------------------------------------------------------
+var argTexto = new Argument<string>("texto") { Description = "Frase a traduzir." };
+var optDe = new Option<string>("--de") { Description = "Idioma de origem: pt ou en.", Required = true };
+var optPara = new Option<string>("--para") { Description = "Idioma de destino: pt ou en.", Required = true };
+var optAntes = new Option<string[]>("--antes") { Description = "Frase anterior (contexto). Pode repetir.", AllowMultipleArgumentsPerToken = false };
+var optDepois = new Option<string[]>("--depois") { Description = "Frase seguinte (contexto). Pode repetir." };
+
+var cmdTraduzir = new Command("traduzir", "Traduz uma frase pelo sentido, com frases vizinhas opcionais como contexto.")
+{
+    argTexto, optDe, optPara, optAntes, optDepois,
+};
+cmdTraduzir.SetAction(async (resultado, ct) =>
+{
+    using var sp = CriarServicos(null);
+    return await Executar(async () =>
+    {
+        var pedido = new PedidoTraducaoFrase(
+            resultado.GetValue(argTexto)!,
+            resultado.GetValue(optDe)!,
+            resultado.GetValue(optPara)!,
+            resultado.GetValue(optAntes) ?? [],
+            resultado.GetValue(optDepois) ?? []);
+        var relogio = Stopwatch.StartNew();
+        var traducao = await sp.GetRequiredService<ITradutor>().TraduzirFraseAsync(pedido, ct);
+        Console.WriteLine(traducao);
+        Console.Error.WriteLine($"({relogio.Elapsed.TotalSeconds:F1} s)");
+        return 0;
+    });
+});
+
+// ---- palavra ---------------------------------------------------------------
+var argPalavra = new Argument<string>("palavra") { Description = "Palavra a traduzir." };
+var optFrase = new Option<string>("--frase") { Description = "Frase de onde a palavra veio.", Required = true };
+var optTraducaoFrase = new Option<string?>("--traducao-frase") { Description = "Tradução da frase, se já existir (ex.: do JSON)." };
+
+var cmdPalavra = new Command("palavra", "Traduz uma palavra como ela é usada na frase (com cache).")
+{
+    argPalavra, optFrase, optDe, optPara, optTraducaoFrase,
+};
+cmdPalavra.SetAction(async (resultado, ct) =>
+{
+    using var sp = CriarServicos(null);
+    return await Executar(async () =>
+    {
+        var pedido = new PedidoTraducaoPalavra(
+            resultado.GetValue(argPalavra)!,
+            resultado.GetValue(optFrase)!,
+            resultado.GetValue(optDe)!,
+            resultado.GetValue(optPara)!,
+            resultado.GetValue(optTraducaoFrase));
+        var relogio = Stopwatch.StartNew();
+        var traducao = await sp.GetRequiredService<ITradutor>().TraduzirPalavraAsync(pedido, ct);
+        Console.WriteLine(traducao);
+        Console.Error.WriteLine($"({relogio.Elapsed.TotalSeconds:F1} s)");
+        return 0;
+    });
+});
+
 // ---- servicos --------------------------------------------------------------
-var cmdServicos = new Command("servicos", "Verifica se ffmpeg e Speaches estão disponíveis.");
+var cmdServicos = new Command("servicos", "Verifica se ffmpeg, Speaches e Ollama (com os modelos) estão disponíveis.");
 cmdServicos.SetAction(async (_, ct) =>
 {
     using var sp = CriarServicos(null);
@@ -91,7 +158,7 @@ cmdServicos.SetAction(async (_, ct) =>
     return falhas == 0 ? 0 : 1;
 });
 
-var raiz = new RootCommand("Cli de teste da Transcritor lib.") { cmdArquivo, cmdServicos };
+var raiz = new RootCommand("Cli de teste da Transcritor lib.") { cmdArquivo, cmdTraduzir, cmdPalavra, cmdServicos };
 return await raiz.Parse(args).InvokeAsync();
 
 // ---- apoio -----------------------------------------------------------------
@@ -105,7 +172,9 @@ static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar)
 
     var services = new ServiceCollection();
     services.AddTranscritorArquivo();
+    services.AddTranscritorTraducao();
     services.Configure<OpcoesArquivo>(config.GetSection("Transcritor:Arquivo"));
+    services.Configure<OpcoesTraducao>(config.GetSection("Transcritor:Traducao"));
     if (ajustar is not null)
     {
         services.PostConfigure(ajustar);

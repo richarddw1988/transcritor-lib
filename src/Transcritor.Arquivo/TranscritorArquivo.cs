@@ -9,19 +9,22 @@ using Transcritor.Core.Modelos;
 namespace Transcritor.Arquivo;
 
 /// <summary>
-/// Hash → cache → ffprobe → ffmpeg (WAV 16 kHz mono) → motor de transcrição → frases → cache e JSON.
-/// Com cache válido, nenhum serviço externo é chamado.
+/// Hash → cache → ffprobe → ffmpeg (WAV 16 kHz mono) → motor de transcrição → frases → tradução → cache e JSON.
+/// A transcrição e cada tradução têm cache próprio: repetir o mesmo pedido não chama nenhum serviço,
+/// e trocar só a <see cref="Saida"/> reaproveita a transcrição.
 /// </summary>
 public sealed class TranscritorArquivo(
     IConversorMidia conversor,
     IMotorTranscricao motor,
     ICacheResultado cache,
-    IOptions<OpcoesArquivo> opcoes) : ITranscritorArquivo
+    IOptions<OpcoesArquivo> opcoes,
+    ITradutor? tradutor = null) : ITranscritorArquivo
 {
     private readonly OpcoesArquivo _opcoes = opcoes.Value;
 
     public async Task<ResultadoTranscricao> ProcessarAsync(
         string caminhoArquivo,
+        Saida saida,
         IProgress<ProgressoProcessamento>? progresso = null,
         CancellationToken cancellationToken = default)
     {
@@ -40,14 +43,53 @@ public sealed class TranscritorArquivo(
 
         var chave = ChaveCache(hash);
         progresso?.Report(new(EtapaProcessamento.LendoCache));
-        var emCache = await cache.LerAsync(chave, cancellationToken).ConfigureAwait(false);
-        if (emCache is not null)
+        var transcricao = await cache.LerAsync(chave, cancellationToken).ConfigureAwait(false);
+        var tudoDoCache = transcricao is not null;
+        if (transcricao is null)
         {
-            await GravarAoLadoAsync(caminho, emCache, cancellationToken).ConfigureAwait(false);
-            progresso?.Report(new(EtapaProcessamento.Concluido, 100, DoCache: true));
-            return emCache;
+            transcricao = await TranscreverAsync(caminho, hash, progresso, cancellationToken).ConfigureAwait(false);
+            await cache.GravarAsync(chave, transcricao, cancellationToken).ConfigureAwait(false);
         }
 
+        var resultado = transcricao;
+        var destino = RegraSaida.IdiomaDaTraducao(saida, transcricao.Arquivo.Idioma);
+        if (destino is not null)
+        {
+            var tradutorUsado = tradutor ?? throw new InvalidOperationException(
+                $"Saida.{saida} pede tradução para '{destino}', mas nenhum ITradutor foi registrado. Chame services.AddTranscritorTraducao().");
+
+            var chaveTraducao = $"{chave}.trad-{destino}.{tradutorUsado.Identificador}".Replace('/', '_');
+            var traduzido = await cache.LerAsync(chaveTraducao, cancellationToken).ConfigureAwait(false);
+            if (traduzido is null)
+            {
+                tudoDoCache = false;
+                traduzido = await TraduzirAsync(tradutorUsado, transcricao, destino, progresso, cancellationToken).ConfigureAwait(false);
+                await cache.GravarAsync(chaveTraducao, traduzido, cancellationToken).ConfigureAwait(false);
+            }
+
+            resultado = traduzido;
+        }
+
+        progresso?.Report(new(EtapaProcessamento.GravandoResultado));
+        if (_opcoes.GravarJsonAoLado)
+        {
+            await JsonTranscricao.GravarAsync(resultado, OpcoesArquivo.CaminhoJsonAoLado(caminho), cancellationToken).ConfigureAwait(false);
+        }
+
+        progresso?.Report(new(EtapaProcessamento.Concluido, 100, DoCache: tudoDoCache));
+        return resultado;
+    }
+
+    /// <summary>Hash do arquivo + motor/modelo + idioma forçado: trocar o modelo não reaproveita resultado de outro.</summary>
+    internal string ChaveCache(string hash)
+    {
+        var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? "auto" : Idiomas.Normalizar(_opcoes.Idioma);
+        return $"{hash}.{motor.Identificador}.{idioma}".Replace('/', '_');
+    }
+
+    private async Task<ResultadoTranscricao> TranscreverAsync(
+        string caminho, string hash, IProgress<ProgressoProcessamento>? progresso, CancellationToken cancellationToken)
+    {
         progresso?.Report(new(EtapaProcessamento.LendoMidia));
         var info = await conversor.ObterInfoAsync(caminho, cancellationToken).ConfigureAwait(false);
         if (info.FaixasAudio == 0)
@@ -74,14 +116,7 @@ public sealed class TranscritorArquivo(
             progresso?.Report(new(EtapaProcessamento.MontandoFrases));
             var frases = MontadorFrases.Montar(bruta);
             var duracao = Math.Round(info.Duracao > 0 ? info.Duracao : bruta.Duracao, 3);
-            var resultado = new ResultadoTranscricao(new InfoArquivo(hash, duracao, Idiomas.Normalizar(bruta.Idioma)), frases);
-
-            progresso?.Report(new(EtapaProcessamento.GravandoResultado));
-            await cache.GravarAsync(chave, resultado, cancellationToken).ConfigureAwait(false);
-            await GravarAoLadoAsync(caminho, resultado, cancellationToken).ConfigureAwait(false);
-
-            progresso?.Report(new(EtapaProcessamento.Concluido, 100));
-            return resultado;
+            return new ResultadoTranscricao(new InfoArquivo(hash, duracao, Idiomas.Normalizar(bruta.Idioma)), frases);
         }
         finally
         {
@@ -92,21 +127,37 @@ public sealed class TranscritorArquivo(
         }
     }
 
-    /// <summary>Hash do arquivo + motor/modelo + idioma forçado: trocar o modelo não reaproveita resultado de outro.</summary>
-    internal string ChaveCache(string hash)
+    private static async Task<ResultadoTranscricao> TraduzirAsync(
+        ITradutor tradutor,
+        ResultadoTranscricao transcricao,
+        string destino,
+        IProgress<ProgressoProcessamento>? progresso,
+        CancellationToken cancellationToken)
     {
-        var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? "auto" : Idiomas.Normalizar(_opcoes.Idioma);
-        return $"{hash}.{motor.Identificador}.{idioma}".Replace('/', '_');
-    }
+        progresso?.Report(new(EtapaProcessamento.Traduzindo, 0));
+        var textos = transcricao.Frases.Select(f => f.Texto).ToList();
+        var traducoes = await tradutor.TraduzirFrasesAsync(
+            textos,
+            transcricao.Arquivo.Idioma,
+            destino,
+            new ProgressoRepassado(p => progresso?.Report(new(EtapaProcessamento.Traduzindo, p))),
+            cancellationToken).ConfigureAwait(false);
 
-    private async Task GravarAoLadoAsync(string caminho, ResultadoTranscricao resultado, CancellationToken cancellationToken)
-    {
-        if (_opcoes.GravarJsonAoLado)
+        if (traducoes.Count != textos.Count)
         {
-            await JsonTranscricao.GravarAsync(resultado, OpcoesArquivo.CaminhoJsonAoLado(caminho), cancellationToken).ConfigureAwait(false);
+            throw new TranscritorException($"O tradutor devolveu {traducoes.Count} traduções para {textos.Count} frases.");
         }
+
+        var frases = transcricao.Frases.Select((f, i) => f with { Traducao = traducoes[i] }).ToList();
+        return transcricao with { Frases = frases };
     }
 
     private static double? Percentual(double segundos, double duracao) =>
         duracao > 0 ? Math.Clamp(segundos * 100 / duracao, 0, 100) : null;
+
+    /// <summary>Repassa na mesma thread (sem SynchronizationContext, ao contrário de Progress&lt;T&gt;).</summary>
+    private sealed class ProgressoRepassado(Action<double> acao) : IProgress<double>
+    {
+        public void Report(double value) => acao(value);
+    }
 }

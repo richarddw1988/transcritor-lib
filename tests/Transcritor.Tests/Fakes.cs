@@ -74,6 +74,30 @@ internal sealed class FakeMotor(TranscricaoBruta resposta, string identificador 
     }
 }
 
+/// <summary>Tradução falsa: "[origem>destino] texto".</summary>
+internal sealed class FakeTradutor(string identificador = "fake-tradutor") : ITradutor
+{
+    public int ChamadasLote { get; private set; }
+    public (string Origem, string Destino)? UltimosIdiomas { get; private set; }
+
+    public string Identificador => identificador;
+
+    public Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken) =>
+        Task.FromResult($"[{pedido.Origem}>{pedido.Destino}] {pedido.Texto}");
+
+    public Task<IReadOnlyList<string>> TraduzirFrasesAsync(
+        IReadOnlyList<string> frases, string origem, string destino, IProgress<double>? progresso, CancellationToken cancellationToken)
+    {
+        ChamadasLote++;
+        UltimosIdiomas = (origem, destino);
+        progresso?.Report(100);
+        return Task.FromResult<IReadOnlyList<string>>(frases.Select(f => $"[{origem}>{destino}] {f}").ToList());
+    }
+
+    public Task<string> TraduzirPalavraAsync(PedidoTraducaoPalavra pedido, CancellationToken cancellationToken) =>
+        Task.FromResult($"[{pedido.Origem}>{pedido.Destino}] {pedido.Palavra}");
+}
+
 internal sealed class ProgressoSincrono : IProgress<ProgressoProcessamento>
 {
     public List<ProgressoProcessamento> Recebidos { get; } = [];

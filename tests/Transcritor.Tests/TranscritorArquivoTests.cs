@@ -21,7 +21,7 @@ public sealed class TranscritorArquivoTests : IDisposable
     public void Dispose() => _pasta.Dispose();
 
     private (TranscritorArquivo Transcritor, FakeConversor Conversor, FakeMotor Motor) Criar(
-        InfoMidia? info = null, Action<OpcoesArquivo>? ajustar = null, FakeMotor? motor = null)
+        InfoMidia? info = null, Action<OpcoesArquivo>? ajustar = null, FakeMotor? motor = null, FakeTradutor? tradutor = null)
     {
         var opcoes = Opcoes.Arquivo(o =>
         {
@@ -30,7 +30,82 @@ public sealed class TranscritorArquivoTests : IDisposable
         });
         var conversor = new FakeConversor(info ?? new InfoMidia(1834.2, "mp4", 1));
         motor ??= new FakeMotor(Bruta);
-        return (new TranscritorArquivo(conversor, motor, new CacheEmDisco(opcoes), opcoes), conversor, motor);
+        return (new TranscritorArquivo(conversor, motor, new CacheEmDisco(opcoes), opcoes, tradutor), conversor, motor);
+    }
+
+    [Fact]
+    public async Task Ambos_preenche_traducao_e_mantem_texto_no_idioma_falado()
+    {
+        var tradutor = new FakeTradutor();
+        var (transcritor, _, _) = Criar(tradutor: tradutor);
+        var progresso = new ProgressoSincrono();
+
+        var r = await transcritor.ProcessarAsync(_pasta.Arquivo("aula.mp4", "x"), Saida.Ambos, progresso);
+
+        var frase = Assert.Single(r.Frases);
+        Assert.Equal("The mind behind Linux", frase.Texto);
+        Assert.Equal("[en>pt] The mind behind Linux", frase.Traducao);
+        Assert.Equal(("en", "pt"), tradutor.UltimosIdiomas);
+        Assert.Contains(progresso.Recebidos, p => p.Etapa == EtapaProcessamento.Traduzindo && p.Percentual == 100);
+    }
+
+    [Fact]
+    public async Task Saida_no_idioma_falado_nao_traduz()
+    {
+        var tradutor = new FakeTradutor();
+        var (transcritor, _, _) = Criar(tradutor: tradutor);
+
+        var r = await transcritor.ProcessarAsync(_pasta.Arquivo("aula.mp4", "x"), Saida.Ingles);
+
+        Assert.Null(r.Frases[0].Traducao);
+        Assert.Equal(0, tradutor.ChamadasLote);
+    }
+
+    [Fact]
+    public async Task Repetir_Ambos_usa_cache_da_transcricao_e_da_traducao()
+    {
+        var midia = _pasta.Arquivo("aula.mp4", "x");
+        var primeiro = new FakeTradutor();
+        await Criar(tradutor: primeiro).Transcritor.ProcessarAsync(midia, Saida.Ambos);
+
+        var tradutor = new FakeTradutor();
+        var (transcritor, conversor, motor) = Criar(tradutor: tradutor);
+        var progresso = new ProgressoSincrono();
+        var r = await transcritor.ProcessarAsync(midia, Saida.Ambos, progresso);
+
+        Assert.Equal(1, primeiro.ChamadasLote);
+        Assert.Equal(0, tradutor.ChamadasLote);
+        Assert.Equal(0, motor.Chamadas);
+        Assert.Equal(0, conversor.ChamadasConversao);
+        Assert.True(progresso.Recebidos[^1].DoCache);
+        Assert.NotNull(r.Frases[0].Traducao);
+    }
+
+    [Fact]
+    public async Task Trocar_a_saida_reaproveita_a_transcricao()
+    {
+        var midia = _pasta.Arquivo("aula.mp4", "x");
+        await Criar().Transcritor.ProcessarAsync(midia, Saida.Ingles);
+
+        var tradutor = new FakeTradutor();
+        var (transcritor, _, motor) = Criar(tradutor: tradutor);
+        var progresso = new ProgressoSincrono();
+        var r = await transcritor.ProcessarAsync(midia, Saida.Portugues, progresso);
+
+        Assert.Equal(0, motor.Chamadas);
+        Assert.Equal(1, tradutor.ChamadasLote);
+        Assert.False(progresso.Recebidos[^1].DoCache);
+        Assert.Equal("[en>pt] The mind behind Linux", r.Frases[0].Traducao);
+    }
+
+    [Fact]
+    public async Task Pedir_traducao_sem_tradutor_registrado_explica_o_que_falta()
+    {
+        var (transcritor, _, _) = Criar();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => transcritor.ProcessarAsync(_pasta.Arquivo("aula.mp4", "x"), Saida.Portugues));
+        Assert.Contains("AddTranscritorTraducao", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -39,7 +114,7 @@ public sealed class TranscritorArquivoTests : IDisposable
         var (transcritor, _, motor) = Criar();
         var midia = _pasta.Arquivo("aula.mp4", "conteudo");
 
-        var r = await transcritor.ProcessarAsync(midia);
+        var r = await transcritor.ProcessarAsync(midia, Saida.Ingles);
 
         Assert.Equal(64, r.Arquivo.Hash.Length);
         Assert.Equal(1834.2, r.Arquivo.Duracao);
@@ -63,11 +138,11 @@ public sealed class TranscritorArquivoTests : IDisposable
     {
         var (transcritor, conversor, motor) = Criar();
         var midia = _pasta.Arquivo("aula.mp4", "conteudo");
-        await transcritor.ProcessarAsync(midia);
+        await transcritor.ProcessarAsync(midia, Saida.Ingles);
 
         var progresso = new ProgressoSincrono();
         var (outro, conversor2, motor2) = Criar();
-        var r = await outro.ProcessarAsync(midia, progresso);
+        var r = await outro.ProcessarAsync(midia, Saida.Ingles, progresso);
 
         Assert.Equal(1, motor.Chamadas);
         Assert.Equal(0, motor2.Chamadas);
@@ -81,10 +156,10 @@ public sealed class TranscritorArquivoTests : IDisposable
     public async Task Outro_modelo_nao_reaproveita_cache()
     {
         var midia = _pasta.Arquivo("aula.mp4", "conteudo");
-        await Criar().Transcritor.ProcessarAsync(midia);
+        await Criar().Transcritor.ProcessarAsync(midia, Saida.Ingles);
 
         var (transcritor, _, motor) = Criar(motor: new FakeMotor(Bruta, "fake:outro"));
-        await transcritor.ProcessarAsync(midia);
+        await transcritor.ProcessarAsync(midia, Saida.Ingles);
 
         Assert.Equal(1, motor.Chamadas);
     }
@@ -93,8 +168,8 @@ public sealed class TranscritorArquivoTests : IDisposable
     public async Task Arquivo_diferente_tem_hash_diferente()
     {
         var (transcritor, _, motor) = Criar();
-        var a = await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "um"));
-        var b = await transcritor.ProcessarAsync(_pasta.Arquivo("b.mp3", "dois"));
+        var a = await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "um"), Saida.Ingles);
+        var b = await transcritor.ProcessarAsync(_pasta.Arquivo("b.mp3", "dois"), Saida.Ingles);
 
         Assert.NotEqual(a.Arquivo.Hash, b.Arquivo.Hash);
         Assert.Equal(2, motor.Chamadas);
@@ -104,7 +179,7 @@ public sealed class TranscritorArquivoTests : IDisposable
     public async Task Repassa_idioma_forcado_ao_motor()
     {
         var (transcritor, _, motor) = Criar(ajustar: o => o.Idioma = "pt");
-        await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"));
+        await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles);
 
         Assert.Equal("pt", motor.UltimoIdioma);
     }
@@ -115,7 +190,7 @@ public sealed class TranscritorArquivoTests : IDisposable
         var (transcritor, conversor, _) = Criar(info: new InfoMidia(10, "mp3", 1));
         var progresso = new ProgressoSincrono();
 
-        await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), progresso);
+        await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles, progresso);
 
         var etapas = progresso.Recebidos.Select(p => p.Etapa).Distinct().ToList();
         Assert.Equal(
@@ -135,7 +210,7 @@ public sealed class TranscritorArquivoTests : IDisposable
     {
         var (transcritor, _, motor) = Criar(info: new InfoMidia(10, "mp4", 0));
 
-        await Assert.ThrowsAsync<TranscritorException>(() => transcritor.ProcessarAsync(_pasta.Arquivo("v.mp4", "x")));
+        await Assert.ThrowsAsync<TranscritorException>(() => transcritor.ProcessarAsync(_pasta.Arquivo("v.mp4", "x"), Saida.Ingles));
         Assert.Equal(0, motor.Chamadas);
     }
 
@@ -143,7 +218,7 @@ public sealed class TranscritorArquivoTests : IDisposable
     public async Task Arquivo_inexistente_gera_FileNotFound()
     {
         var (transcritor, _, _) = Criar();
-        await Assert.ThrowsAsync<FileNotFoundException>(() => transcritor.ProcessarAsync(Path.Combine(_pasta.Caminho, "nada.mp4")));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => transcritor.ProcessarAsync(Path.Combine(_pasta.Caminho, "nada.mp4"), Saida.Ingles));
     }
 
     [Fact]
@@ -154,7 +229,7 @@ public sealed class TranscritorArquivoTests : IDisposable
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), null, cts.Token));
+            () => transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles, null, cts.Token));
         Assert.Equal(0, motor.Chamadas);
     }
 }

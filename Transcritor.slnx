@@ -3,6 +3,7 @@
     <Project Path="src/Transcritor.Arquivo/Transcritor.Arquivo.csproj" />
     <Project Path="src/Transcritor.Cli/Transcritor.Cli.csproj" />
     <Project Path="src/Transcritor.Core/Transcritor.Core.csproj" />
+    <Project Path="src/Transcritor.Traducao/Transcritor.Traducao.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Transcritor.Tests/Transcritor.Tests.csproj" />
