@@ -12,12 +12,13 @@ namespace Transcritor.Traducao.Correcoes;
 /// Correção de palavras ouvidas errado com um modelo de instrução do Ollama, travada pela pronúncia: o modelo
 /// devolve a frase corrigida e só valem as trocas de uma palavra por outra que soa parecido (chave de pronúncia
 /// igual ou a uma letra). Assim o modelo não reescreve a frase nem troca o sentido ("mau humor" → "bom humor").
+/// Cada troca que passa ainda vai a uma segunda chamada que compara a frase ouvida com a trocada.
 /// </summary>
 internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraducao> opcoes, Dicionario.FonteDicionario fonte)
     : ICorretorTranscricao, IServicoVerificavel
 {
     /// <summary>Mudar o prompt ou a trava exige subir a versão (entra na chave do cache).</summary>
-    public const int Versao = 2;
+    public const int Versao = 3;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -27,6 +28,10 @@ internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraduc
 
     private static readonly JsonElement Esquema = JsonDocument.Parse("""
         {"type":"object","properties":{"corrigida":{"type":"string"}},"required":["corrigida"]}
+        """).RootElement.Clone();
+
+    private static readonly JsonElement EsquemaVerificacao = JsonDocument.Parse("""
+        {"type":"object","properties":{"escolha":{"type":"integer","enum":[1,2]}},"required":["escolha"]}
         """).RootElement.Clone();
 
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
@@ -66,9 +71,63 @@ internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraduc
             return [];
         }
 
-        return string.IsNullOrWhiteSpace(corrigida)
-            ? []
-            : Trocas(pedido.Palavras, corrigida, pedido.Idioma, i => podeTrocar[i], fonte.Dicionario);
+        if (string.IsNullOrWhiteSpace(corrigida))
+        {
+            return [];
+        }
+
+        // Uma troca por vez, sobre a frase com as já aceitas: em "quiet quiet" só uma das duas pode virar "quite".
+        var aceitas = new List<Correcao>();
+        var atual = pedido.Palavras.ToArray();
+        foreach (var troca in Trocas(pedido.Palavras, corrigida, pedido.Idioma, i => podeTrocar[i], fonte.Dicionario))
+        {
+            if (await ConfirmarAsync(pedido, atual, troca, cancellationToken).ConfigureAwait(false))
+            {
+                aceitas.Add(troca);
+                atual[troca.Indice] = troca.Corrigida;
+            }
+        }
+
+        return aceitas;
+    }
+
+    /// <summary>
+    /// Segunda opinião sobre uma troca: mostra a frase atual (1) e com só esta palavra trocada (2) e pergunta
+    /// qual a pessoa disse. A atual é o padrão; a troca só vale se a atual não fizer sentido e a trocada fizer.
+    /// </summary>
+    private async Task<bool> ConfirmarAsync(PedidoCorrecao pedido, string[] atual, Correcao troca, CancellationToken cancellationToken)
+    {
+        var trocada = atual.ToArray();
+        trocada[troca.Indice] = troca.Corrigida;
+        var sistema =
+            "A speech recognizer wrote option 1. Option 2 is the same sentence with one word replaced by a similar-sounding word. " +
+            "Decide which one the speaker actually said, using the neighbouring sentences as context. Option 1 is the default: " +
+            "rare, old-fashioned, poetic or unusual words are usually right. Answer 2 ONLY if option 1 clearly does not make sense " +
+            "there and option 2 clearly does. Reply only with JSON: {\"escolha\": 1} or {\"escolha\": 2}.";
+        var usuario = JsonSerializer.Serialize(
+            new
+            {
+                antes = pedido.Anteriores,
+                opcao1 = string.Join(' ', atual),
+                opcao2 = string.Join(' ', trocada),
+                palavra = $"{troca.Ouvida} -> {troca.Corrigida}",
+                depois = pedido.Seguintes,
+            },
+            Json);
+        var resposta = await ollama.ConversarAsync(
+            _opcoes.ModeloCorrecao,
+            [new MensagemChat("system", sistema), new MensagemChat("user", usuario)],
+            EsquemaVerificacao,
+            maxTokens: 16,
+            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return JsonSerializer.Deserialize<RespostaVerificacao>(resposta, Json)?.Escolha == 2;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Palavra de 4+ letras com confiança abaixo do limite (ou sem confiança informada).</summary>
@@ -273,4 +332,6 @@ internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraduc
     }
 
     private sealed record RespostaCorrecao(string? Corrigida);
+
+    private sealed record RespostaVerificacao(int? Escolha);
 }

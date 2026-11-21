@@ -108,18 +108,27 @@ public class CorretorOllamaTests
     private static HttpResponseMessage Resposta(string conteudo) =>
         FakeHttpHandler.Json(JsonSerializer.Serialize(new { message = new { role = "assistant", content = conteudo }, done = true }));
 
+    /// <summary>Responde a correção com <paramref name="corrigida"/> e a verificação com <paramref name="escolha"/>.</summary>
+    private static FakeHttpHandler Modelo(string corrigida, int escolha) => new((_, corpo) =>
+        Resposta(corpo.Contains("escolha", StringComparison.Ordinal) ? $"{{\"escolha\": {escolha}}}" : $"{{\"corrigida\": \"{corrigida}\"}}"));
+
     private static readonly PedidoCorrecao Pedido = new(
         "The night rode through the forest.".Split(' '), "en", ["Once upon a time."], ["He was brave."]);
 
     [Fact]
     public async Task Envia_frase_e_contexto_com_esquema_e_devolve_as_trocas_travadas()
     {
-        var handler = new FakeHttpHandler((_, _) => Resposta("{\"corrigida\": \"The knight rode through the woods.\"}"));
+        var handler = Modelo("The knight rode through the woods.", escolha: 2);
 
         var trocas = await Criar(handler).CorrigirAsync(Pedido, CancellationToken.None);
 
-        // "forest." → "woods." não soa parecido: fica de fora.
+        // "forest." → "woods." não soa parecido: fica de fora; "night" → "knight" vai à verificação e passa.
         Assert.Equal(new Correcao(1, "night", "knight"), Assert.Single(trocas));
+        Assert.Equal(2, handler.Recebidas.Count);
+        using var verificacao = JsonDocument.Parse(handler.Recebidas[1].Corpo);
+        var pergunta = verificacao.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        Assert.Contains("\"opcao1\":\"The night rode through the forest.\"", pergunta, StringComparison.Ordinal);
+        Assert.Contains("\"opcao2\":\"The knight rode through the forest.\"", pergunta, StringComparison.Ordinal);
         using var doc = JsonDocument.Parse(handler.Recebidas[0].Corpo);
         Assert.Equal("gemma3:12b", doc.RootElement.GetProperty("model").GetString());
         Assert.True(doc.RootElement.TryGetProperty("format", out _));
@@ -128,6 +137,29 @@ public class CorretorOllamaTests
         Assert.Contains("Once upon a time.", usuario, StringComparison.Ordinal);
         Assert.Contains("He was brave.", usuario, StringComparison.Ordinal);
         Assert.Contains("English", doc.RootElement.GetProperty("messages")[0].GetProperty("content").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Troca_que_a_verificacao_recusa_fica_de_fora()
+    {
+        var handler = Modelo("The knight rode through the forest.", escolha: 1);
+
+        Assert.Empty(await Criar(handler).CorrigirAsync(Pedido, CancellationToken.None));
+        Assert.Equal(2, handler.Recebidas.Count);
+    }
+
+    [Fact]
+    public async Task Verifica_uma_troca_por_vez_sobre_a_frase_com_as_ja_aceitas()
+    {
+        var handler = Modelo("It was quite quite in the library.", escolha: 2);
+        var pedido = new PedidoCorrecao("It was quiet quiet in the library.".Split(' '), "en", [], []);
+
+        await Criar(handler).CorrigirAsync(pedido, CancellationToken.None);
+
+        Assert.Equal(3, handler.Recebidas.Count);
+        var segunda = JsonDocument.Parse(handler.Recebidas[2].Corpo).RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        Assert.Contains("\"opcao1\":\"It was quite quiet in the library.\"", segunda, StringComparison.Ordinal);
+        Assert.Contains("\"opcao2\":\"It was quite quite in the library.\"", segunda, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -143,7 +175,7 @@ public class CorretorOllamaTests
     [Fact]
     public async Task Palavra_confiante_nao_e_trocada_mesmo_que_o_modelo_troque()
     {
-        var handler = new FakeHttpHandler((_, _) => Resposta("{\"corrigida\": \"The knight rode through the forest.\"}"));
+        var handler = Modelo("The knight rode through the forest.", escolha: 2);
         var pedido = new PedidoCorrecao("The night rode through the forest.".Split(' '), "en", [], [], [0.99, 0.99, 0.99, 0.99, 0.99, 0.6]);
 
         // "forest." (0,6) leva a frase ao modelo, mas "night" (0,99) não pode ser trocada.

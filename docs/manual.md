@@ -133,7 +133,7 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   (`docker stop whisperlivekit`).
 - `--corrigir` corrige palavras ouvidas errado antes de traduzir (`CorrigirTranscricao`, seção 6). **Experimental:** no
   teste, ajudou pouco na fala ao microfone e trocou palavras certas no audiolivro (ver `docs/modelos.md`). Só frases com
-  alguma palavra de confiança abaixo de 0,95 vão ao modelo (~2,5 s cada); a palavra trocada guarda a original em
+  alguma palavra de confiança abaixo de 0,95 vão ao modelo (~3,5 s cada); a palavra trocada guarda a original em
   `ouvida` no JSON.
 
 Tempo de referência (RTX 3060): 6 min de áudio em inglês → ~8 min com a tradução 12b (7 min só da tradução);
@@ -383,6 +383,8 @@ foreach (var t in trocas)
   `LimiteConfiancaCorrecao` (passe `Confiancas` no pedido), por outra de 4+ letras que soa parecido (chave de
   pronúncia igual ou a uma letra) e não é flexão dela ("take" → "taken"). Palavras acrescentadas, removidas ou de som
   diferente são ignoradas: a correção não reescreve a frase nem corrige gramática.
+- Cada troca que passa vai a uma 2ª chamada, que compara a frase com e sem a troca e só a aceita se a frase sem ela não
+  fizer sentido.
 - Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
 - `CorrigirAsync` funciona mesmo com `CorrigirTranscricao = false`; `Ativo` só diz se o arquivo deve usar.

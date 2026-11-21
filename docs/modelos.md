@@ -14,7 +14,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
-| Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | ~2,5 s por frase com palavra de confiança < 0,95; ainda troca palavras certas (ver abaixo) |
+| Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | ~3,5 s por frase com palavra de confiança < 0,95; na fala do usuário WER 8,0% → 7,1%; no audiolivro ainda troca ~4 palavras certas (ver abaixo) |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -196,17 +196,19 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 | Trava de pronúncia + palavra de 4+ letras + 6 parecidas por palavra | 7,1% (4 certas, 0 erradas) | não medido | 3,4 s/frase |
 | Idem, 10 parecidas | 6,6% (5 certas, 0 erradas) | 27 trocas, quase todas erradas ("know" → "knew", "terrible" → "horrible", "right" → "fight") | 3,6 s/frase |
 | Idem + modelo explica antes ("analise") | 10,8% (11 certas, 8 erradas) | não medido | 5,5 s/frase |
-| **Atual**: + só palavra com confiança < 0,95, sem flexão ("take" → "taken"), sem apóstrofo novo | 7,5% (3 certas, 2 erradas) | 19 trocas em 2.348 palavras, quase todas erradas ("well" → "wall", "blunt" → "plant", "stale" → "still"); 57 de 179 frases foram ao modelo | 2,6 s/frase duvidosa; audiolivro 69 s |
+| + só palavra com confiança < 0,95, sem flexão ("take" → "taken"), sem apóstrofo novo | 7,5% (3 certas, 2 erradas) | 19 trocas em 2.348 palavras, quase todas erradas ("well" → "wall", "blunt" → "plant", "stale" → "still"); 57 de 179 frases foram ao modelo | 2,6 s/frase duvidosa; audiolivro 69 s |
+| **Atual**: + 2ª chamada que compara a frase com e sem a troca (uma troca por vez, a original é o padrão) | **7,1% (2 certas, 0 erradas)** | **5 trocas**: "marvellous" → "marvelous" (só grafia), "sandpit" → "sandbox", "tummy" → "dummy", "stale" → "still", "Three" → "There" (no "Chapter Three") | 3,4 s/frase duvidosa; audiolivro 86 s |
 
-- **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. Na fala do usuário
-  o ganho é pequeno (0,5 a 1,4 ponto de WER) e, no audiolivro, o dano (~0,8 ponto) é maior. Por isso fica desligada.
+- **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
+  cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
+  mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.
+- A 2ª chamada também recusou "aunt's" → "aunts", que estava certa: o modelo prefere manter a frase ouvida.
 - O limite de confiança corta 2/3 das frases (mais rápido), mas também corta acertos com confiança alta
   ("conserto" → "concerto" veio com 0,99) e, ao mandar parecidas só das palavras duvidosas, parece empurrar o modelo
   a trocá-las.
 - Homófonos com sentido claro na frase ("sela do cavalo", "bare paws") quase nunca foram corrigidos, mesmo com a certa
   na lista de parecidas.
-- Ideias não medidas: segunda chamada que compara a frase original e a corrigida e só aceita se o modelo preferir a
-  corrigida; reouvir o trecho com a palavra candidata (`hotwords`/`prompt` do Whisper); modelo maior.
+- Ideias não medidas: reouvir o trecho com a palavra candidata (o Speaches aceita `hotwords` e `prompt`); modelo maior.
 
 ## Requisitos de hardware e software (testado)
 

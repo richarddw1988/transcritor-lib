@@ -32,7 +32,7 @@ var optSentido = new Option<bool>("--sentido") { Description = "Também gera blo
 
 var optCorrigirArquivo = new Option<bool>("--corrigir")
 {
-    Description = "Experimental: corrige palavras ouvidas errado antes de traduzir (troca por outra de som parecido; ~2,5 s por frase duvidosa).",
+    Description = "Experimental: corrige palavras ouvidas errado antes de traduzir (troca por outra de som parecido; ~3,5 s por frase duvidosa).",
 };
 
 var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um arquivo e grava o JSON com frases e palavras.")
