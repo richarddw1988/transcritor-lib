@@ -109,6 +109,10 @@ foreach ($ferramenta in 'ffmpeg', 'ffprobe') {
 if (Testar-Comando 'nvidia-smi') {
     $gpu = (& nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | Select-Object -First 1)
     Escrever-Ok "GPU: $gpu"
+    # A imagem do WhisperLiveKit usa CUDA 12.9, que pede driver 576 ou mais novo no Windows.
+    $driver = (& nvidia-smi --query-gpu=driver_version --format=csv,noheader | Select-Object -First 1).Trim()
+    if ([int]($driver.Split('.')[0]) -ge 576) { Escrever-Ok "Driver NVIDIA $driver" }
+    else { Escrever-Aviso "Driver NVIDIA ${driver}: a imagem do WhisperLiveKit (CUDA 12.9) pede 576 ou mais novo. Atualize pelo NVIDIA App ou nvidia.com." }
 } else {
     Escrever-Aviso 'nvidia-smi não encontrado: sem GPU NVIDIA os modelos rodam muito mais devagar (e o compose pede GPU).'
 }
@@ -188,6 +192,18 @@ $ollamaNoAr = Aguardar-Servico 'Ollama' "$OllamaUrl/api/version" $espera
 if (-not $SemTempoReal) {
     # Na 1ª subida o WhisperLiveKit baixa o modelo (~1,5 GB) e aquece antes de responder.
     $null = Aguardar-Servico 'WhisperLiveKit' "$WhisperLiveKitUrl/health" ($(if ($SoConferir) { 0 } else { 15 }))
+}
+
+# A GPU precisa aparecer dentro dos contêineres; sem isso os modelos rodariam em CPU (ou nem subiriam).
+foreach ($servico in $servicos) {
+    # Captura tudo antes de olhar o código de saída (cortar o pipeline no meio dá código de erro falso).
+    $nomeGpu = $null
+    try { $nomeGpu = @(& docker exec $servico nvidia-smi --query-gpu=name --format=csv,noheader 2>$null) } catch { $nomeGpu = $null }
+    if ($LASTEXITCODE -eq 0 -and $nomeGpu -and $nomeGpu[0]) { Escrever-Ok "GPU visível no contêiner $servico ($($nomeGpu[0]))" }
+    else {
+        Escrever-Falha ("O contêiner $servico não enxerga a GPU. Confira: driver NVIDIA atualizado, Docker Desktop com backend WSL2 " +
+            "e 'docker run --rm --gpus all ubuntu nvidia-smi' funcionando.")
+    }
 }
 
 # ---------------------------------------------------------------------------
