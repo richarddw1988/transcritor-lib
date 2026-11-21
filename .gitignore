@@ -17,3 +17,6 @@ prompt_project.txt
 
 # Bases de dicionário baixadas (grandes; não vão para o Git)
 /dados/
+
+# Índice local do CodeGraph (só nesta máquina)
+/.codegraph/
