@@ -74,7 +74,7 @@ dotnet run --project src/Transcritor.Cli -- palavra banco --frase "O banco foi p
 dotnet run --project src/Transcritor.Cli -- captura --fonte Microfone --segundos 5
 dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt
 dotnet run --project src/Transcritor.Cli -- sistema --saida Ambos
-dotnet run --project src/Transcritor.Cli -- simular C:ideosula.mp4 --saida Ambos
+dotnet run --project src/Transcritor.Cli -- simular C:\videos\aula.mp4 --saida Ambos
 ```
 
 Tempo real: medidas e limites em [docs/etapa-3.md](docs/etapa-3.md).
