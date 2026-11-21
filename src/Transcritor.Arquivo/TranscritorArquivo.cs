@@ -100,7 +100,55 @@ public sealed class TranscritorArquivo(
     internal string ChaveCache(string hash)
     {
         var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? "auto" : Idiomas.Normalizar(_opcoes.Idioma);
-        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}".Replace('/', '_');
+        var reparo = _opcoes.RepararTrechosSuspeitos ? $".r{ReparadorTrechos.Versao}" : string.Empty;
+        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}".Replace('/', '_');
+    }
+
+    /// <summary>
+    /// Transcreve de novo, isolado, cada trecho em que o motor devolveu palavras sem som alinhado (alucinação),
+    /// e troca o trecho se o resultado novo for melhor. Usa o idioma detectado na transcrição inteira.
+    /// </summary>
+    private async Task<TranscricaoBruta> RepararAsync(
+        string wav, TranscricaoBruta bruta, string pastaTemporaria, CancellationToken cancellationToken)
+    {
+        var janelas = ReparadorTrechos.Detectar(bruta.Palavras, bruta.Duracao);
+        if (janelas.Count == 0)
+        {
+            return bruta;
+        }
+
+        var recorte = Path.Combine(pastaTemporaria, $"{Guid.NewGuid():N}.trecho.wav");
+        try
+        {
+            foreach (var janela in janelas.Take(_opcoes.MaximoTrechosReparados))
+            {
+                try
+                {
+                    await RecorteWav.RecortarAsync(wav, recorte, janela.Inicio, janela.Fim, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException)
+                {
+                    return bruta;
+                }
+
+                var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? bruta.Idioma : _opcoes.Idioma;
+                var contexto = ReparadorTrechos.ContextoAntes(bruta.Palavras, janela);
+                var nova = await motor.TranscreverAsync(recorte, idioma, contexto, cancellationToken).ConfigureAwait(false);
+                if (ReparadorTrechos.Melhorou(bruta, janela, nova))
+                {
+                    bruta = ReparadorTrechos.Substituir(bruta, janela, nova);
+                }
+            }
+
+            return bruta;
+        }
+        finally
+        {
+            if (File.Exists(recorte))
+            {
+                File.Delete(recorte);
+            }
+        }
     }
 
     private async Task<ResultadoTranscricao> TranscreverAsync(
@@ -128,6 +176,10 @@ public sealed class TranscritorArquivo(
 
             progresso?.Report(new(EtapaProcessamento.Transcrevendo));
             var bruta = await motor.TranscreverAsync(wav, _opcoes.Idioma, cancellationToken).ConfigureAwait(false);
+            if (_opcoes.RepararTrechosSuspeitos)
+            {
+                bruta = await RepararAsync(wav, bruta, pastaTemporaria, cancellationToken).ConfigureAwait(false);
+            }
 
             progresso?.Report(new(EtapaProcessamento.MontandoFrases));
             var frases = MontadorFrases.Montar(bruta);

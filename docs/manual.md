@@ -278,6 +278,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `PastaCache` | `%LOCALAPPDATA%\Transcritor\cache` | Cache dos resultados |
 | `GravarJsonAoLado` | `true` | Grava `<arquivo>.transcricao.json` ao lado da mídia |
 | `TimeoutTranscricao` | `01:00:00` | Tempo máximo de uma transcrição |
+| `RepararTrechosSuspeitos` | `true` | Transcreve de novo, isolado, cada trecho em que o Whisper se perdeu na transcrição longa — 3+ palavras com duração zero (alucinação/repetição) ou 15 s+ sem nenhuma pontuação — e troca se o resultado for melhor |
+| `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
 
 **`Transcritor:Traducao`**
 
@@ -309,7 +311,8 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 ## 7. Cache
 
 - Resultados de arquivo: um JSON por chave em `%LOCALAPPDATA%\Transcritor\cache`. A chave junta o hash do arquivo, o
-  modelo e as versões da montagem, da tradução e da análise; trocar modelo ou prompt gera resultado novo.
+  modelo e as versões da montagem, do reparo de trechos, da tradução e da análise; trocar modelo ou prompt gera
+  resultado novo.
 - Palavras: `palavras.json` na mesma pasta.
 - Para limpar: apague a pasta (os serviços refazem tudo na próxima vez).
 
@@ -330,6 +333,7 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 | Build do WhisperLiveKit falha ou disco cheio | Disco do Docker sem espaço (a imagem tem 22 GB) | Mova o disco do Docker (Settings › Resources › Advanced) |
 | Script diz que o contêiner não enxerga a GPU | Driver antigo ou Docker sem backend WSL2 | Atualize o driver (576+); `docker run --rm --gpus all ubuntu nvidia-smi` deve funcionar |
 | Porta 8000, 8001 ou 11434 já em uso | Outro programa (ex.: um Ollama instalado no Windows) | Feche o outro programa ou mude a porta no `docker-compose.yml` e no `appsettings.json` |
+| Frase repetida várias vezes no JSON, com início = fim | Alucinação do Whisper na transcrição longa | Já tratado com `RepararTrechosSuspeitos=true` (padrão); se sobrar, apague o cache do arquivo e rode de novo |
 | Tempo real começa em inglês na fala em português | Detecção automática puxa para o inglês | `--idioma pt` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |

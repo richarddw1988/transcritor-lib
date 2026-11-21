@@ -35,7 +35,7 @@ internal sealed class FakeExecutorProcesso(Func<string, IReadOnlyList<string>, A
     }
 }
 
-internal sealed class FakeConversor(InfoMidia info) : IConversorMidia
+internal sealed class FakeConversor(InfoMidia info, byte[]? conteudoWav = null) : IConversorMidia
 {
     public int ChamadasInfo { get; private set; }
     public int ChamadasConversao { get; private set; }
@@ -51,7 +51,7 @@ internal sealed class FakeConversor(InfoMidia info) : IConversorMidia
     {
         ChamadasConversao++;
         UltimoWav = caminhoWav;
-        await File.WriteAllBytesAsync(caminhoWav, [1, 2, 3], cancellationToken);
+        await File.WriteAllBytesAsync(caminhoWav, conteudoWav ?? [1, 2, 3], cancellationToken);
         aoAvancar?.Invoke(info.Duracao / 2);
         aoAvancar?.Invoke(info.Duracao);
     }
@@ -71,6 +71,29 @@ internal sealed class FakeMotor(TranscricaoBruta resposta, string identificador 
         UltimoIdioma = idioma;
         WavExistiaNaChamada = File.Exists(caminhoWav);
         return Task.FromResult(resposta);
+    }
+}
+
+/// <summary>Motor que devolve uma resposta por chamada, em ordem, e guarda o tamanho de cada WAV recebido.</summary>
+internal sealed class FakeMotorSequencia(params TranscricaoBruta[] respostas) : IMotorTranscricao
+{
+    public List<long> TamanhosWav { get; } = [];
+
+    public List<string?> Idiomas { get; } = [];
+
+    public List<string?> Contextos { get; } = [];
+
+    public string Identificador => "fake:sequencia";
+
+    public Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, CancellationToken cancellationToken) =>
+        TranscreverAsync(caminhoWav, idioma, null, cancellationToken);
+
+    public Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, string? contexto, CancellationToken cancellationToken)
+    {
+        Contextos.Add(contexto);
+        TamanhosWav.Add(new FileInfo(caminhoWav).Length);
+        Idiomas.Add(idioma);
+        return Task.FromResult(respostas[Math.Min(TamanhosWav.Count - 1, respostas.Length - 1)]);
     }
 }
 

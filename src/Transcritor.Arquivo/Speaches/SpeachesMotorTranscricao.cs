@@ -27,7 +27,10 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
 
     private Uri Base => http.BaseAddress ?? _opcoes.SpeachesUrl;
 
-    public async Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, CancellationToken cancellationToken)
+    public Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, CancellationToken cancellationToken) =>
+        TranscreverAsync(caminhoWav, idioma, null, cancellationToken);
+
+    public async Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, string? contexto, CancellationToken cancellationToken)
     {
         await using var arquivo = File.OpenRead(caminhoWav);
         using var conteudoArquivo = new StreamContent(arquivo);
@@ -45,6 +48,11 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
         if (!string.IsNullOrWhiteSpace(idioma))
         {
             formulario.Add(new StringContent(Idiomas.Normalizar(idioma)), "language");
+        }
+
+        if (!string.IsNullOrWhiteSpace(contexto))
+        {
+            formulario.Add(new StringContent(contexto.Trim()), "prompt");
         }
 
         using var resposta = await EnviarAsync(

@@ -64,6 +64,19 @@ public sealed class SpeachesMotorTranscricaoTests : IDisposable
         await Criar(handler).TranscreverAsync(_pasta.Arquivo("a.wav", "RIFF"), null, CancellationToken.None);
 
         Assert.DoesNotContain("name=language", handler.Recebidas[0].Corpo, StringComparison.Ordinal);
+        Assert.DoesNotContain("name=prompt", handler.Recebidas[0].Corpo, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Contexto_vai_como_prompt()
+    {
+        var handler = new FakeHttpHandler((_, _) => FakeHttpHandler.Json(RespostaVerbose));
+
+        await Criar(handler).TranscreverAsync(
+            _pasta.Arquivo("a.wav", "RIFF"), "en", " He waved his stick madly in the air. ", CancellationToken.None);
+
+        Assert.Contains("name=prompt", handler.Recebidas[0].Corpo, StringComparison.Ordinal);
+        Assert.Contains("He waved his stick madly in the air.", handler.Recebidas[0].Corpo, StringComparison.Ordinal);
     }
 
     [Fact]

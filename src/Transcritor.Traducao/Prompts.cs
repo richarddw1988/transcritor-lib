@@ -13,7 +13,7 @@ namespace Transcritor.Traducao;
 /// </summary>
 internal static partial class Prompts
 {
-    public const int Versao = 2;
+    public const int Versao = 3;
 
     private static readonly JsonSerializerOptions JsonUsuario = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -76,14 +76,25 @@ internal static partial class Prompts
             return null;
         }
 
+        // Modelo que "enfeita" a frase curta com frases a mais ("Hurry!" → "Apresse-se! Rápido! Corra!").
+        if (ContarFinaisDeFrase(recorte) > ContarFinaisDeFrase(original) + 1)
+        {
+            return null;
+        }
+
         return recorte;
     }
+
+    private static int ContarFinaisDeFrase(string texto) => RegexFimDeFrase().Count(texto);
 
     /// <summary>Teto de tokens gerados: evita que um modelo em repetição prenda a chamada até o timeout.</summary>
     public static int MaxTokens(string textoEnviado) => 64 + (textoEnviado.Length * 2);
 
     [GeneratedRegex(@"<t>(.*?)</t>", RegexOptions.Singleline)]
     private static partial Regex RegexAlvo();
+
+    [GeneratedRegex(@"[.!?…]+(?=\s|$)")]
+    private static partial Regex RegexFimDeFrase();
 
     // ---- Modelos de instrução (gemma3, qwen, llama...) --------------------
 
@@ -145,6 +156,15 @@ internal static partial class Prompts
             {
                 t = t[1..^1].Trim();
             }
+        }
+
+        // Frases a mais inventadas pelo modelo ("Hurry!" → "Apresse-se! Rápido! Corra!"): fica com as primeiras.
+        var finaisOriginal = ContarFinaisDeFrase(o);
+        var finais = RegexFimDeFrase().Matches(t);
+        if (finais.Count > finaisOriginal + 1)
+        {
+            var ultimo = finais[Math.Max(1, finaisOriginal) - 1];
+            t = t[..(ultimo.Index + ultimo.Length)];
         }
 
         return t;

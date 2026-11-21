@@ -25,6 +25,15 @@ public sealed class OpcoesArquivo
     /// <summary>Também grava "&lt;arquivo&gt;.transcricao.json" ao lado da mídia.</summary>
     public bool GravarJsonAoLado { get; set; } = true;
 
+    /// <summary>
+    /// Transcreve de novo, isolado, cada trecho em que o Whisper devolveu palavras sem som alinhado (duração zero),
+    /// sinal de alucinação ou repetição na transcrição longa.
+    /// </summary>
+    public bool RepararTrechosSuspeitos { get; set; } = true;
+
+    /// <summary>Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches).</summary>
+    public int MaximoTrechosReparados { get; set; } = 30;
+
     /// <summary>Tempo máximo de uma chamada de transcrição.</summary>
     public TimeSpan TimeoutTranscricao { get; set; } = TimeSpan.FromHours(1);
 

@@ -110,6 +110,44 @@ public sealed class TradutorOllamaTests : IDisposable
     }
 
     [Fact]
+    public async Task TranslateGemma_que_inventa_frases_a_mais_refaz_sem_contexto()
+    {
+        // Visto no audiolivro: "Hurry!" virou "Apresse-se! Rápido! Corra! Não perca tempo!".
+        var respostas = new Queue<string>(["<t>Apresse-se! Rápido! Corra! Não perca tempo!</t>", "Depressa!"]);
+        var (tradutor, http) = Criar((_, _) => RespostaChat(respostas.Dequeue()));
+
+        var traducao = await tradutor.TraduzirFraseAsync(
+            new PedidoTraducaoFrase("Hurry!", "en", "pt", ["Don't wait.", "Now's the time."], []), CancellationToken.None);
+
+        Assert.Equal("Depressa!", traducao);
+        Assert.Equal(2, http.Recebidas.Count);
+    }
+
+    [Fact]
+    public async Task Frases_a_mais_tambem_sem_contexto_ficam_so_as_primeiras()
+    {
+        var respostas = new Queue<string>(["<t>Apresse-se! Rápido! Corra!</t>", "Apresse-se! Rápido! Corra! Não perca tempo!"]);
+        var (tradutor, _) = Criar((_, _) => RespostaChat(respostas.Dequeue()));
+
+        var traducao = await tradutor.TraduzirFraseAsync(
+            new PedidoTraducaoFrase("Hurry!", "en", "pt", ["Don't wait."], []), CancellationToken.None);
+
+        Assert.Equal("Apresse-se!", traducao);
+    }
+
+    [Theory]
+    [InlineData("Off you go. Hurry up.", "Pode ir. Rápido. Vai! Corre! Já!", "Pode ir. Rápido.")]
+    [InlineData("Hurry!", "Depressa! Vai!", "Depressa! Vai!")]
+    public void Limpar_corta_frases_inventadas_alem_de_uma_a_mais(string original, string traducao, string esperado) =>
+        Assert.Equal(esperado, Prompts.Limpar(traducao, original));
+
+    [Theory]
+    [InlineData("Mrs. Smith went home.", "<t>A Sra. Smith foi para casa.</t>")]
+    [InlineData("Off you go. Hurry up.", "<t>Pode ir. Rápido. Vai!</t>")]
+    public void Recorte_aceita_ate_uma_frase_a_mais_que_o_original(string original, string resposta) =>
+        Assert.NotNull(Prompts.RecortarAlvo(resposta, original));
+
+    [Fact]
     public async Task Modelo_de_instrucao_usa_json_schema_e_le_campo_traducao()
     {
         var (tradutor, http) = Criar((_, _) => RespostaChat("""{"traducao": "\"Vamos encerrar por hoje.\""}"""), o => o.ModeloFrasesTempoReal = "gemma3:4b");
