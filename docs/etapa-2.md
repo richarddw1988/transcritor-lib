@@ -52,3 +52,8 @@ O `%USERPROFILE%\.wslconfig` atual limita a VM do WSL2 a 4 GB sem swap. Com Spea
 Ollama carregados, o Ollama registra "disabling mmap … due to host memory pressure" e chamadas que trocam
 de modelo travam por minutos (a lib devolve `ServicoIndisponivelException` por tempo esgotado).
 Chamadas com o modelo já carregado levam ~0,5–3 s.
+
+Resolvido em 2026-11-20 subindo o `.wslconfig` para `memory=12GB` e `swap=4GB` (cópia do anterior em
+`.wslconfig.bak-2026-11-20`). Depois disso os dois modelos ficam juntos na GPU e alternar entre eles leva
+~3 s. A primeira chamada após reiniciar a VM é lenta porque cada modelo é lido do disco: ~60–90 s para o
+primeiro arquivo (Speaches large-v3 + translategemma) e ~25 s para o gemma3.
