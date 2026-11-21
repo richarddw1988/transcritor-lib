@@ -38,6 +38,30 @@ como `prompt` (sem ele o recorte sai sem pontuação), e só troca se ficar melh
 
 A transcrição longa não é igual a cada execução (mesmo com `temperature=0`); o reparo deixa o resultado estável.
 
+### Confiança por palavra (campo `confianca` do JSON)
+
+O Speaches devolve, para cada palavra, a probabilidade que o Whisper deu a ela; a lib guarda em `Palavra.Confianca`.
+Medido em 2026-11-21 no audiolivro de 17 min (inglês, narração limpa, 2.348 palavras), sem gabarito ouvido
+palavra por palavra — a análise é pelo contexto:
+
+| Confiança | Palavras |
+|---|---|
+| < 0,1 | 9 (0,4%) |
+| < 0,3 | 14 (0,6%) |
+| < 0,5 | 29 (1,2%) |
+| < 0,9 | 102 (4,3%) |
+
+- **Começo de frase engana:** 16 das 181 primeiras palavras de frase ficaram abaixo de 0,5 (contra 13 de 2.167 no meio
+  da frase), e quase todas estão certas ("A", "The", "Eat", "Come"). Um detector precisa ignorar ou tratar à parte a
+  1ª palavra.
+- **Nomes e palavras raras não disparam:** "Spiker", "Sponge", "beauteous", "overboiled", "mildewed" ficaram acima de 0,85.
+- **Erro com confiança alta:** "Two horrible **arts** of yours" (provavelmente "aunts") veio com 0,972. Confiança sozinha
+  não pega troca por palavra que existe e soa parecido; para isso é preciso conferir o sentido (LLM com candidatos de
+  som parecido) ou ouvir de novo o trecho.
+- Conclusão: confiança baixa no meio da frase é um gatilho barato e com poucos casos (~13 palavras em 17 min abaixo de
+  0,5), mas a precisão como detector de erro **não foi medida** — falta um conjunto com erros conhecidos, de preferência
+  da fala do próprio usuário no microfone, onde o Whisper erra mais que nesta narração.
+
 ## Modelos testados e por que foram ou não escolhidos
 
 ### Transcrição

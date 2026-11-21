@@ -134,6 +134,23 @@ public sealed class TranscritorArquivoTests : IDisposable
     }
 
     [Fact]
+    public void Json_grava_confianca_quando_existe_e_le_json_antigo_sem_ela()
+    {
+        var frase = new Frase(0, 1, "Hi there", null, [new Palavra("Hi", 0, 0.4, 0.123), new Palavra("there", 0.4, 1)]);
+        var r = new ResultadoTranscricao(new InfoArquivo("h", 1, "en"), [frase]);
+
+        var json = JsonTranscricao.Serializar(r);
+
+        Assert.Contains("\"confianca\": 0.123", json, StringComparison.Ordinal);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "confianca"));
+        var lido = JsonTranscricao.Desserializar(json).Frases[0].Palavras;
+        Assert.Equal([0.123, null], lido.Select(p => p.Confianca));
+
+        var antigo = """{"arquivo":{"hash":"h","duracao":1,"idioma":"en"},"frases":[{"inicio":0,"fim":1,"texto":"Hi","palavras":[{"texto":"Hi","inicio":0,"fim":1}]}]}""";
+        Assert.Null(JsonTranscricao.Desserializar(antigo).Frases[0].Palavras[0].Confianca);
+    }
+
+    [Fact]
     public async Task Segunda_vez_usa_cache_e_nao_chama_servicos()
     {
         var (transcritor, conversor, motor) = Criar();

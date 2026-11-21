@@ -17,7 +17,7 @@ namespace Transcritor.Arquivo;
 internal static class MontadorFrases
 {
     /// <summary>Muda quando a regra de montagem muda; entra na chave do cache.</summary>
-    public const int Versao = 2;
+    public const int Versao = 3;
 
     public static readonly TimeSpan PausaQueFechaFrase = TimeSpan.FromSeconds(1.5);
     public static readonly TimeSpan DuracaoMaxima = TimeSpan.FromSeconds(30);
@@ -153,7 +153,7 @@ internal static class MontadorFrases
         Arredondar(palavras[^1].Fim),
         string.Join(' ', palavras.Select(p => p.Texto)),
         null,
-        palavras.Select(p => new Palavra(p.Texto, Arredondar(p.Inicio), Arredondar(p.Fim))).ToList());
+        palavras.Select(p => p with { Inicio = Arredondar(p.Inicio), Fim = Arredondar(p.Fim) }).ToList());
 
     private static List<Frase> FrasesDosSegmentos(IReadOnlyList<SegmentoBruto> segmentos) =>
         segmentos

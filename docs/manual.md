@@ -268,7 +268,7 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
     { "inicio": 7.16, "fim": 13.36,
       "texto": "You will rejoice to hear that no disaster has accompanied…",
       "traducao": "A senhora certamente ficará feliz ao saber que…",
-      "palavras": [ { "texto": "You", "inicio": 7.16, "fim": 7.64 } ],
+      "palavras": [ { "texto": "You", "inicio": 7.16, "fim": 7.64, "confianca": 0.998 } ],
       "sentido": "O autor quer tranquilizar a destinatária…",
       "blocos": [ { "palavraInicial": 19, "palavraFinal": 22, "texto": "with such evil forebodings.",
                     "traducao": "com tamanhas premonições negativas", "tipo": "colocacao",
@@ -278,6 +278,8 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 ```
 - Frase = sentença completa (não corta em "Mrs." nem no meio da sentença); `traducao` só quando a saída pede.
 - `sentido` e `blocos` só com `AnalisarSentido = true`; `palavraInicial/palavraFinal` são índices em `palavras`.
+- `confianca` (0 a 1) é a probabilidade que o Whisper deu à palavra; baixa indica provável erro de reconhecimento.
+  Não aparece quando o motor não informa, nem em JSON gravado antes deste campo existir (`Palavra.Confianca` nulo).
 - Formato detalhado: [etapa-2.md](etapa-2.md) (regra da saída) e [etapa-4.md](etapa-4.md) (blocos).
 
 ### 5.2 Tradução

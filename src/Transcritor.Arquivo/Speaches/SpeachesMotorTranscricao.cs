@@ -87,7 +87,7 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
             .Select(s => new SegmentoBruto(s.Start, s.End, s.Text ?? string.Empty))
             .ToList();
         var palavras = (corpo.Words ?? [])
-            .Select(w => new Palavra(w.Word ?? string.Empty, w.Start, w.End))
+            .Select(w => new Palavra(w.Word ?? string.Empty, w.Start, w.End, w.Probability is { } p ? Math.Round(p, 3) : null))
             .ToList();
 
         var idioma = string.IsNullOrWhiteSpace(corpo.Language) ? "und" : Idiomas.Normalizar(corpo.Language);
@@ -155,7 +155,8 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
     internal sealed record PalavraVerbose(
         [property: JsonPropertyName("word")] string? Word,
         [property: JsonPropertyName("start")] double Start,
-        [property: JsonPropertyName("end")] double End);
+        [property: JsonPropertyName("end")] double End,
+        [property: JsonPropertyName("probability")] double? Probability = null);
 
     internal sealed record ListaModelos([property: JsonPropertyName("data")] IReadOnlyList<ModeloListado>? Data);
 

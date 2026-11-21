@@ -11,7 +11,7 @@ public sealed class SpeachesMotorTranscricaoTests : IDisposable
           "task": "transcribe", "language": "en", "duration": 4.2, "text": "The mind behind Linux",
           "segments": [ { "id": 0, "seek": 0, "start": 0.0, "end": 2.0, "text": " The mind behind Linux",
                           "tokens": [1], "temperature": 0.0, "avg_logprob": -0.1, "compression_ratio": 1.0, "no_speech_prob": 0.01 } ],
-          "words": [ { "word": " The", "start": 0.0, "end": 0.2 }, { "word": " mind", "start": 0.2, "end": 0.6 } ]
+          "words": [ { "word": " The", "start": 0.0, "end": 0.2, "probability": 0.99951171875 }, { "word": " mind", "start": 0.2, "end": 0.6 } ]
         }
         """;
 
@@ -55,6 +55,8 @@ public sealed class SpeachesMotorTranscricaoTests : IDisposable
         Assert.Single(bruta.Segmentos);
         Assert.Equal(2, bruta.Palavras.Count);
         Assert.Equal(" mind", bruta.Palavras[1].Texto);
+        Assert.Equal(1.0, bruta.Palavras[0].Confianca); // arredondada a 3 casas
+        Assert.Null(bruta.Palavras[1].Confianca); // motor que não informa
     }
 
     [Fact]

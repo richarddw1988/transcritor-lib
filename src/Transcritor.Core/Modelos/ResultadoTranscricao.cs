@@ -26,7 +26,14 @@ public sealed record Frase(
     IReadOnlyList<Bloco>? Blocos = null);
 
 /// <summary>Palavra com tempos em segundos.</summary>
-public sealed record Palavra(string Texto, double Inicio, double Fim);
+/// <param name="Texto">Palavra como foi reconhecida (com a pontuação colada).</param>
+/// <param name="Inicio">Início, em segundos.</param>
+/// <param name="Fim">Fim, em segundos.</param>
+/// <param name="Confianca">
+/// Probabilidade de 0 a 1 que o reconhecedor deu à palavra (baixa = provável erro de reconhecimento); nula quando o
+/// motor não informa (tempo real) ou em JSON gravado antes deste campo existir.
+/// </param>
+public sealed record Palavra(string Texto, double Inicio, double Fim, double? Confianca = null);
 
 public enum TipoBloco
 {
