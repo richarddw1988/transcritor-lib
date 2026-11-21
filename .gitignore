@@ -6,3 +6,11 @@ TestResults/
 .cache-transcritor/
 *.pdf
 prompt_project.txt
+
+# Mídias de teste e resultados gerados pela lib
+*.transcricao.json
+*.transcricao.json.tmp
+/*.mp3
+/*.mp4
+/*.wav
+/*.mkv

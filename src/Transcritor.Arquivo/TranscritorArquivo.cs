@@ -84,7 +84,7 @@ public sealed class TranscritorArquivo(
     internal string ChaveCache(string hash)
     {
         var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? "auto" : Idiomas.Normalizar(_opcoes.Idioma);
-        return $"{hash}.{motor.Identificador}.{idioma}".Replace('/', '_');
+        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}".Replace('/', '_');
     }
 
     private async Task<ResultadoTranscricao> TranscreverAsync(
