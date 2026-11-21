@@ -9,6 +9,7 @@
       3. Espera cada serviço responder.
       4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama.
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
+      Opcional (-ComDicionario): baixa o Wiktionary (kaikki.org, ~600 MB) e gera o dicionário local em dados/.
 
     Primeira vez: baixa ~48 GB (imagens + modelos) e leva de 20 a 60 minutos, conforme a internet.
 
@@ -36,6 +37,10 @@
 .PARAMETER ModeloAnalise
     Modelo do Ollama para a análise de sentido (Transcritor:Traducao:ModeloAnalise).
 
+.PARAMETER ComDicionario
+    Também baixa os dumps do Wiktionary (kaikki.org, ~600 MB, CC BY-SA) para dados/ e gera dados/dicionario.db
+    (dicionário inglês ↔ português local, ~60 MB). Sem esta opção o script só informa se o dicionário existe.
+
 .EXAMPLE
     .\scripts\preparar-ambiente.ps1
 .EXAMPLE
@@ -53,6 +58,7 @@ param(
     [string] $ModeloPalavras = 'gemma3:4b',
     [switch] $ComAnaliseDeSentido,
     [string] $ModeloAnalise = 'gemma3:12b',
+    [switch] $ComDicionario,
     [string] $SpeachesUrl = 'http://localhost:8000',
     [string] $OllamaUrl = 'http://localhost:11434',
     [string] $WhisperLiveKitUrl = 'http://localhost:8001'
@@ -255,6 +261,35 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
         }
         & dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'transcritor servicos apontou problemas (acima).' }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Dicionário local (opcional): não é pré-requisito; só é baixado com -ComDicionario.
+Escrever-Etapa '6. Dicionário inglês-português (opcional)'
+$pastaDados = Join-Path $raiz 'dados'
+$banco = Join-Path $pastaDados 'dicionario.db'
+if (Test-Path $banco) { Escrever-Ok "Dicionário: $banco ($([math]::Round((Get-Item $banco).Length / 1MB)) MB)" }
+elseif (-not $ComDicionario) { Write-Host '  Não gerado (opcional). Para gerar: .\scripts\preparar-ambiente.ps1 -ComDicionario' }
+elseif ($SoConferir) { Escrever-Falha "Dicionário não encontrado em $banco" }
+else {
+    New-Item -ItemType Directory -Force $pastaDados | Out-Null
+    $dumps = @(
+        @{ Nome = 'kaikki-en.jsonl.gz'; Url = 'https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz' },
+        @{ Nome = 'kaikki-pt.jsonl.gz'; Url = 'https://kaikki.org/dictionary/Portuguese/kaikki.org-dictionary-Portuguese.jsonl.gz' }
+    )
+    foreach ($d in $dumps) {
+        $destino = Join-Path $pastaDados $d.Nome
+        if (Test-Path $destino) { Escrever-Ok "Já baixado: $($d.Nome)"; continue }
+        Write-Host "  Baixando $($d.Url)..."
+        & curl.exe -sSfL -o "$destino.tmp" $d.Url
+        if ($LASTEXITCODE -eq 0) { Move-Item -Force "$destino.tmp" $destino; Escrever-Ok "Baixado: $($d.Nome)" }
+        else { Escrever-Falha "Não consegui baixar $($d.Url)" }
+    }
+    if ((Test-Path (Join-Path $pastaDados 'kaikki-en.jsonl.gz')) -and (Test-Path (Join-Path $pastaDados 'kaikki-pt.jsonl.gz'))) {
+        & dotnet run --project "$raiz\src\Transcritor.Cli" -- dicionario importar
+        if ($LASTEXITCODE -eq 0) { Escrever-Ok "Dicionário gerado: $banco" }
+        else { Escrever-Falha 'transcritor dicionario importar falhou (acima).' }
     }
 }
 

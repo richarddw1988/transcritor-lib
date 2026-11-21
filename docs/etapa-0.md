@@ -112,6 +112,6 @@ Decisões embutidas:
 - **Tradução no tempo real: Ollama** (não o NLLB do WhisperLiveKit). A imagem do WLK sobe sem o extra `translation`.
 - **Dois modelos de tradução, cada um configurável:**
   - `translategemma:4b` → frases (arquivo e tempo real).
-  - `gemma3:4b` → palavra solta no contexto da frase (clique no player).
+  - `gemma3:4b` → palavra solta no contexto da frase (o app que usa a lib pede o sentido de uma palavra).
   O Ollama descarrega o que ficar ocioso (`OLLAMA_KEEP_ALIVE=10m`).
 - **Ressalva a medir na Fase 0:** o `translategemma` tem prompt fixo e não recebe as frases vizinhas como instrução. Vou passar as vizinhas no próprio texto (antes/depois da frase-alvo, com marcadores) e extrair só a frase-alvo. Se ele traduzir a mais ou de menos, troco o modelo de frase para `gemma3:4b`, que segue instruções e responde em JSON Schema. A troca é só de configuração.

@@ -14,7 +14,7 @@ public sealed record PedidoTraducaoFrase(
     IReadOnlyList<string> Seguintes);
 
 /// <summary>Palavra solta, traduzida como ela é usada na frase.</summary>
-/// <param name="Palavra">Palavra clicada.</param>
+/// <param name="Palavra">Palavra a traduzir (quem escolhe é o app que usa a lib).</param>
 /// <param name="Frase">Frase de onde a palavra veio (contexto obrigatório).</param>
 /// <param name="Origem">Idioma da frase.</param>
 /// <param name="Destino">Idioma da tradução.</param>

@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Transcritor.Traducao\Transcritor.Traducao.csproj" />
     <ProjectReference Include="..\Transcritor.TempoReal\Transcritor.TempoReal.csproj" />
     <ProjectReference Include="..\Transcritor.Captura\Transcritor.Captura.csproj" />
+    <ProjectReference Include="..\Transcritor.Dicionario\Transcritor.Dicionario.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />

@@ -4,6 +4,7 @@ using Transcritor.Captura;
 using Transcritor.Core;
 using Transcritor.Core.Contratos;
 using Transcritor.Core.Modelos;
+using Transcritor.Dicionario;
 using Transcritor.TempoReal;
 using Transcritor.Traducao;
 
@@ -74,5 +75,20 @@ public class ExemplosDoManualTests
         {
             Console.WriteLine(e.Texto);
         }
+    }
+
+    // Seção 5.4.
+    internal static async Task Dicionario(CancellationToken ct)
+    {
+        using var dicionario = DicionarioSqlite.Abrir(@"dados\dicionario.db");
+        IReadOnlyList<Verbete> sentidos = dicionario.Procurar("gave", origem: "en", destino: "pt");
+        foreach (var v in sentidos)
+        {
+            Console.WriteLine($"{v.Termo} ({v.Classe}): {v.Traducao} [{v.Sentido}] {v.Lema} {v.Tipo}");
+        }
+
+        ResumoImportacao resumo = await ImportadorWiktionary.ImportarAsync(
+            @"dados\kaikki-en.jsonl.gz", @"dados\kaikki-pt.jsonl.gz", @"dados\dicionario.db", cancellationToken: ct);
+        Console.WriteLine(resumo.TamanhoBytes);
     }
 }

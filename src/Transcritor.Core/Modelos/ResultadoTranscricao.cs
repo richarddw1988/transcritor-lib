@@ -51,7 +51,7 @@ public enum TipoBloco
 /// <param name="PalavraFinal">Índice da última palavra do bloco (inclusive).</param>
 /// <param name="Texto">As palavras do bloco, no idioma falado.</param>
 /// <param name="Traducao">
-/// Como o bloco foi traduzido. Quando é um trecho literal de <see cref="Frase.Traducao"/>, o player pode destacá-lo na tradução.
+/// Como o bloco foi traduzido. Quando é um trecho literal de <see cref="Frase.Traducao"/>, o app que consome o resultado pode destacá-lo na tradução.
 /// </param>
 /// <param name="Tipo">Tipo do bloco.</param>
 /// <param name="Nota">Explicação curta quando o sentido literal engana; nula se não há o que explicar.</param>

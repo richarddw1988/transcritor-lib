@@ -1,7 +1,7 @@
 # Etapa 4 — unidades de sentido e "o que quis dizer"
 
-Objetivo: no player, clicar numa palavra e ver não só a palavra traduzida, mas a expressão de que ela faz
-parte e o que a pessoa quis dizer com a frase.
+Objetivo: gerar os dados para que o app que usa a lib (ex.: um player, em outro projeto) mostre não só a palavra
+traduzida, mas a expressão de que ela faz parte e o que a pessoa quis dizer com a frase. A lib não tem interface.
 
 ## O que vai no JSON (opcional, com `AnalisarSentido = true` ou `transcritor arquivo --sentido`)
 
@@ -21,9 +21,9 @@ parte e o que a pessoa quis dizer com a frase.
 }
 ```
 
-- `palavraInicial`/`palavraFinal` são índices em `palavras` (inclusive): o player sabe a que bloco cada palavra
+- `palavraInicial`/`palavraFinal` são índices em `palavras` (inclusive): o app sabe a que bloco cada palavra
   pertence e, pelo tempo das palavras, quando o bloco é falado.
-- `traducao` do bloco é copiada da tradução da frase; quando aparece literalmente nela, o player destaca o
+- `traducao` do bloco é copiada da tradução da frase; quando aparece literalmente nela, o app pode destacar o
   trecho correspondente na legenda traduzida.
 - `tipo`: `literal`, `expressao`, `phrasal`, `colocacao`, `nome`. `nota` só aparece quando o literal engana.
 - Sem a análise, `sentido` e `blocos` não aparecem no JSON.

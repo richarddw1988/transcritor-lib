@@ -6,7 +6,13 @@ Os modelos de IA rodam em contêineres Docker (Speaches, WhisperLiveKit, Ollama)
 - **Arquivo**: transcreve áudio ou vídeo e gera um JSON com frases e palavras (início e fim de cada uma), tradução
   português ↔ inglês pelo sentido e, opcionalmente, as expressões e "o que a pessoa quis dizer".
 - **Microfone e som do sistema em tempo real**: eventos `Provisorio` e `Confirmado`, com tradução.
+- **Dicionário inglês ↔ português local** (opcional): sentidos reais de palavras e expressões, gerado do Wiktionary
+  em SQLite (~60 MB, consulta em menos de 1 ms).
 - Saída em português, inglês ou os dois.
+
+**Escopo:** a lib faz só o trabalho pesado (transcrever, traduzir, analisar e gerar os dados). Ela não tem
+interface: player, legenda na tela e clique na palavra para traduzir ficam em outro projeto, que usa a lib
+ou lê o JSON gerado.
 
 ## Documentação
 

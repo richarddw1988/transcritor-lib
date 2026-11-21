@@ -25,11 +25,15 @@ Sumário:
 | Microfone em tempo real | Eventos `Provisorio` (texto que ainda muda) e `Confirmado` (texto final), com tradução | WhisperLiveKit + Ollama |
 | Som do sistema em tempo real | O mesmo, com o que está tocando no computador | WhisperLiveKit + Ollama |
 | Tradução | Português ↔ inglês pelo sentido: frase com as vizinhas como contexto; palavra solta com a frase | Ollama |
+| Dicionário local (opcional) | Sentidos reais de uma palavra ou expressão, inglês ↔ português, com a forma base das flexões ("gave" → "give") | SQLite gerado do Wiktionary |
 
 Nos três modos você escolhe a saída: `Portugues`, `Ingles` ou `Ambos`. O texto sai sempre no idioma falado; a
 tradução vem quando a saída pede o outro idioma.
 
 Tudo roda local, de graça, na sua GPU. Os modelos ficam em contêineres Docker; a lib só faz as chamadas.
+
+A lib não tem interface com o usuário. Ela entrega dados (JSON, eventos e objetos .NET); exibir legenda, tocar
+o vídeo ou traduzir a palavra que a pessoa escolheu na tela é papel do app que usa a lib (outro projeto).
 
 ## 2. Instalar os pré-requisitos
 
@@ -94,6 +98,7 @@ Opções do script:
 | `-SemTempoReal` | Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB); arquivo e tradução continuam |
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
+| `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~30 s). Ver 4.6 |
 
 4. Rode os testes (não precisam dos serviços):
    ```powershell
@@ -175,6 +180,35 @@ dotnet run --project src/Transcritor.Cli -- simular C:\videos\aula.mp4 --saida A
 Toca o arquivo para o WhisperLiveKit no ritmo real (`--velocidade 2` = dobro). Serve para comparar configurações no
 mesmo áudio.
 
+### 4.6 Dicionário inglês ↔ português (opcional)
+Dicionário local gerado do Wiktionary (extração do kaikki.org, licença CC BY-SA 4.0 / GFDL). Não usa GPU nem
+serviços. A pasta `dados/` não vai para o Git.
+
+1. Baixe os dois dumps (~600 MB) e gere o SQLite — ou rode `.\scripts\preparar-ambiente.ps1 -ComDicionario`, que faz isso:
+   ```powershell
+   New-Item -ItemType Directory -Force dados
+   ```
+   ```powershell
+   curl.exe -L -o dados\kaikki-en.jsonl.gz https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz
+   ```
+   ```powershell
+   curl.exe -L -o dados\kaikki-pt.jsonl.gz https://kaikki.org/dictionary/Portuguese/kaikki.org-dictionary-Portuguese.jsonl.gz
+   ```
+   ```powershell
+   dotnet run --project src/Transcritor.Cli -- dicionario importar
+   ```
+   `--ingles`, `--portugues` e `--banco` trocam os caminhos (padrões: `dados\kaikki-en.jsonl.gz`,
+   `dados\kaikki-pt.jsonl.gz` e `dados\dicionario.db`).
+2. Consulte:
+   ```powershell
+   dotnet run --project src/Transcritor.Cli -- dicionario procurar gave --de en --para pt
+   ```
+   Mostra cada sentido com a classe e o sentido em inglês, por exemplo `give (de give) · verbo: dar [transfer the
+   possession of something to someone else]`. Aceita expressões (`"give up"`, `"call it a day"`). Maiúsculas e
+   pontuação em volta são ignoradas. No inglês, sem verbete para o possessivo, procura sem o `'s` ("nation's").
+
+O que tem e quanto custa: [modelos.md](modelos.md#dicionário-local-wiktionary).
+
 ## 5. Usar a lib no seu projeto
 
 Ainda não há pacote NuGet: referencie os projetos.
@@ -185,6 +219,8 @@ Ainda não há pacote NuGet: referencie os projetos.
      <ProjectReference Include="..\transcritor-lib\src\Transcritor.Arquivo\Transcritor.Arquivo.csproj" />
      <ProjectReference Include="..\transcritor-lib\src\Transcritor.Traducao\Transcritor.Traducao.csproj" />
      <ProjectReference Include="..\transcritor-lib\src\Transcritor.TempoReal\Transcritor.TempoReal.csproj" />
+     <!-- Opcional: dicionário inglês ↔ português local (seção 5.4): -->
+     <ProjectReference Include="..\transcritor-lib\src\Transcritor.Dicionario\Transcritor.Dicionario.csproj" />
      <!-- Só no Windows (microfone/som do sistema); seu projeto precisa de net10.0-windows: -->
      <ProjectReference Include="..\transcritor-lib\src\Transcritor.Captura\Transcritor.Captura.csproj" />
    </ItemGroup>
@@ -254,7 +290,21 @@ await foreach (var e in tempoReal.IniciarAsync(Fonte.Microfone, Saida.Ambos, ses
   para testes há `FonteAudioWav`.
 - Limites: tempo por trecho (não por palavra), tradução só com as frases anteriores como contexto. Ver [etapa-3.md](etapa-3.md).
 
-### 5.4 Erros
+### 5.4 Dicionário
+Não usa DI nem serviços: abra o arquivo gerado na seção 4.6. É só leitura e pode ser usado por várias threads.
+```csharp
+using var dicionario = DicionarioSqlite.Abrir(@"dados\dicionario.db");
+IReadOnlyList<Verbete> sentidos = dicionario.Procurar("gave", origem: "en", destino: "pt");
+foreach (var v in sentidos)
+    Console.WriteLine($"{v.Termo} ({v.Classe}): {v.Traducao} [{v.Sentido}]"); // give (verbo): dar [transfer the possession…]
+```
+- `Lema` vem preenchido quando o termo era uma flexão ("gave" → "give", "desisti" → "desistir").
+- `Tipo`: `Traducao` (tradução direta, com o `Sentido` a que se refere) ou `Definicao` (palavra em português
+  explicada em inglês, ex.: "pêssego" → "peach (fruit)"). As traduções vêm antes das definições.
+- Arquivo ausente ou de outra versão: `FileNotFoundException`, com o comando para gerar.
+- Para gerar pelo código: `ImportadorWiktionary.ImportarAsync(jsonlIngles, jsonlPortugues, caminhoBanco)`.
+
+### 5.5 Erros
 Todos herdam de `TranscritorException`:
 
 | Exceção | Quando | O que fazer |

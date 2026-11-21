@@ -14,3 +14,6 @@ prompt_project.txt
 /*.mp4
 /*.wav
 /*.mkv
+
+# Bases de dicionário baixadas (grandes; não vão para o Git)
+/dados/

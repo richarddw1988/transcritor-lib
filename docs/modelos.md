@@ -60,6 +60,23 @@ A transcrição longa não é igual a cada execução (mesmo com `temperature=0`
 | `gemma3:4b` | análise de sentido | 6,4 s/frase, mas tipos sem sentido e 7/66 traduções de bloco erradas | não usado | [etapa-4.md](etapa-4.md) |
 | `gemma3:12b` | análise de sentido | 72/72 blocos e traduções certos no teste; expressões com nota | **em uso (opcional)** | [etapa-4.md](etapa-4.md) |
 
+## Dicionário local (Wiktionary)
+
+Não é modelo de IA: é um SQLite gerado do Wiktionary em inglês (extração wiktextract do kaikki.org, CC BY-SA 4.0 /
+GFDL), para dar à tradução os sentidos reais de cada palavra. Opcional; como gerar e usar: [manual.md](manual.md#46-dicionário-inglês--português-opcional).
+
+| Item | Medido em 2026-11-21 (dumps de 2026-10-30) |
+|---|---|
+| Download | `kaikki.org-dictionary-English.jsonl.gz` 534 MB (1.499.161 verbetes) + `kaikki.org-dictionary-Portuguese.jsonl.gz` 60 MB (447.028 verbetes) |
+| Importação | 27 s; gera `dados/dicionario.db` com 60 MB |
+| Conteúdo | 204.093 traduções (en → pt e as mesmas invertidas, pt → en, cada uma com o sentido em inglês), 106.867 definições curtas de palavras em português, 403.880 flexões ligadas à forma base |
+| Consulta | todas as 2.348 palavras do audiolivro de 17 min: média 0,32 ms, mediana 0,26 ms, p99 1,07 ms (banco aberto); a 1ª consulta, abrindo o arquivo, ~3 ms |
+| Cobertura | 97% das palavras do audiolivro com verbete (medido antes do ajuste do possessivo `'s`). Sem verbete: nomes próprios, contrações (`wasn't`, `you'd`) e palavras raras (`wistfully`, `beauteous`) |
+
+- Com esses tempos, índice por embeddings (busca semântica) não é necessário para procurar palavra ou expressão.
+- Ainda **não medido**: se dar os verbetes ao modelo de tradução de palavra melhora a escolha do sentido. O
+  dicionário ainda não está ligado à tradução.
+
 ## Requisitos de hardware e software (testado)
 
 | Item | Testado com | Mínimo recomendado |

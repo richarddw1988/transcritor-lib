@@ -12,6 +12,7 @@ using Transcritor.TempoReal;
 using Transcritor.Traducao;
 using Transcritor.Core.Erros;
 using Transcritor.Core.Modelos;
+using Transcritor.Dicionario;
 
 Console.OutputEncoding = Encoding.UTF8;
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -291,9 +292,72 @@ cmdCaptura.SetAction(async (resultado, ct) => await Executar(async () =>
     return 0;
 }));
 
+// ---- dicionario ------------------------------------------------------------
+var optBanco = new Option<FileInfo>("--banco")
+{
+    Description = "SQLite do dicionário.",
+    DefaultValueFactory = _ => new FileInfo(Path.Combine("dados", "dicionario.db")),
+};
+var optIngles = new Option<FileInfo>("--ingles")
+{
+    Description = "Dump do Wiktionary com os verbetes em inglês (kaikki.org, .jsonl ou .jsonl.gz).",
+    DefaultValueFactory = _ => new FileInfo(Path.Combine("dados", "kaikki-en.jsonl.gz")),
+};
+var optPortugues = new Option<FileInfo>("--portugues")
+{
+    Description = "Dump do Wiktionary com os verbetes em português (kaikki.org, .jsonl ou .jsonl.gz).",
+    DefaultValueFactory = _ => new FileInfo(Path.Combine("dados", "kaikki-pt.jsonl.gz")),
+};
+var cmdImportar = new Command("importar", "Gera o SQLite do dicionário inglês ↔ português a partir dos dumps do Wiktionary.")
+{
+    optIngles, optPortugues, optBanco,
+};
+cmdImportar.SetAction(async (resultado, ct) => await Executar(async () =>
+{
+    var progresso = new Progress<string>(m => Console.WriteLine($"  {m}"));
+    var resumo = await ImportadorWiktionary.ImportarAsync(
+        resultado.GetValue(optIngles)!.FullName,
+        resultado.GetValue(optPortugues)!.FullName,
+        resultado.GetValue(optBanco)!.FullName,
+        progresso,
+        ct);
+    Console.WriteLine(
+        $"Pronto em {resumo.Duracao.TotalSeconds:F0} s: {resumo.Traducoes:N0} traduções, {resumo.Definicoes:N0} definições, " +
+        $"{resumo.Formas:N0} flexões; {resumo.TamanhoBytes / 1024d / 1024d:F0} MB em {resultado.GetValue(optBanco)!.FullName}");
+    return 0;
+}));
+
+var argTermo = new Argument<string>("termo") { Description = "Palavra ou expressão (ex.: gave, \"give up\", desisti)." };
+var cmdProcurar = new Command("procurar", "Mostra os sentidos de um termo no dicionário local.")
+{
+    argTermo, optDe, optPara, optBanco,
+};
+cmdProcurar.SetAction(async (resultado, ct) => await Executar(() =>
+{
+    using var dicionario = DicionarioSqlite.Abrir(resultado.GetValue(optBanco)!.FullName);
+    var relogio = Stopwatch.StartNew();
+    var verbetes = dicionario.Procurar(resultado.GetValue(argTermo)!, resultado.GetValue(optDe)!, resultado.GetValue(optPara)!);
+    var tempo = relogio.Elapsed;
+    foreach (var v in verbetes)
+    {
+        var lema = v.Lema is null ? string.Empty : $" (de {v.Lema})";
+        var sentido = v.Sentido is null ? string.Empty : $"  [{v.Sentido}]";
+        var tipo = v.Tipo == TipoVerbete.Definicao ? " (definição)" : string.Empty;
+        Console.WriteLine($"{v.Termo}{lema} · {v.Classe}: {v.Traducao}{tipo}{sentido}");
+    }
+
+    Console.Error.WriteLine($"({verbetes.Count} verbetes, {tempo.TotalMilliseconds:F1} ms)");
+    return Task.FromResult(verbetes.Count > 0 ? 0 : 3);
+}));
+
+var cmdDicionario = new Command("dicionario", "Dicionário inglês ↔ português local (Wiktionary em SQLite).")
+{
+    cmdImportar, cmdProcurar,
+};
+
 var raiz = new RootCommand("Cli de teste da Transcritor lib.")
 {
-    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos,
+    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdDicionario,
 };
 return await raiz.Parse(args).InvokeAsync();
 

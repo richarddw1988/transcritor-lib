@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Dicionário inglês ↔ português local (SQLite gerado do Wiktionary), para dar à tradução os sentidos reais de cada palavra.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Transcritor.Core\Transcritor.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Transcritor.Tests" />
+  </ItemGroup>
+</Project>

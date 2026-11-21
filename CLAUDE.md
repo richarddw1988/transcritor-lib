@@ -3,6 +3,10 @@
 ## Idioma
 Fale com o usuário em português do Brasil. Código, nomes e documentação também em português.
 
+## Escopo
+A lib faz só o trabalho pesado (transcrição, tradução, análise, dados). Interface — player, legenda na tela,
+clique na palavra — é outro projeto que consome a lib; não ponha nada de UI aqui.
+
 ## Documentação sempre atualizada (obrigatório)
 Toda mudança que afete o que está abaixo atualiza os documentos **no mesmo commit**:
 

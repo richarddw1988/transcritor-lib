@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\Transcritor.Traducao\Transcritor.Traducao.csproj" />
     <ProjectReference Include="..\..\src\Transcritor.TempoReal\Transcritor.TempoReal.csproj" />
     <ProjectReference Include="..\..\src\Transcritor.Captura\Transcritor.Captura.csproj" />
+    <ProjectReference Include="..\..\src\Transcritor.Dicionario\Transcritor.Dicionario.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
