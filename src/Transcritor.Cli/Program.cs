@@ -434,11 +434,166 @@ var cmdDicionario = new Command("dicionario", "Dicionário inglês ↔ portuguê
     cmdImportar, cmdProcurar, cmdParecidas,
 };
 
+// ---- avaliar-fala ----------------------------------------------------------
+var optFrasesFala = new Option<FileInfo>("--frases")
+{
+    Description = "JSON com as frases gravadas (id, idioma, texto).",
+    DefaultValueFactory = _ => new FileInfo(Path.Combine("docs", "avaliacao", "frases-para-gravar.json")),
+};
+var optPastaFala = new Option<DirectoryInfo>("--pasta")
+{
+    Description = "Pasta com os WAV (<id>.wav), gravados com scripts/gravar-frases.ps1.",
+    DefaultValueFactory = _ => new DirectoryInfo(Path.Combine("dados", "gravacoes")),
+};
+var optLimite = new Option<double>("--limite-confianca")
+{
+    Description = "Palavra com confiança abaixo disto conta como suspeita.",
+    DefaultValueFactory = _ => 0.5,
+};
+var cmdAvaliarFala = new Command("avaliar-fala", "Transcreve as gravações, compara com o texto certo e mede erros, confiança e palavras parecidas.")
+{
+    optFrasesFala, optPastaFala, optLimite, optBanco,
+};
+cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
+{
+    using var doc = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(resultado.GetValue(optFrasesFala)!.FullName, ct));
+    var pasta = resultado.GetValue(optPastaFala)!;
+    var limite = resultado.GetValue(optLimite);
+    var banco = resultado.GetValue(optBanco)!;
+    using var dicionario = banco.Exists ? DicionarioSqlite.Abrir(banco.FullName) : null;
+    int palavras = 0, trocas = 0, faltas = 0, sobras = 0, erradasSuspeitas = 0, certasSuspeitas = 0, trocasNaLista = 0, frases = 0;
+    foreach (var item in doc.RootElement.EnumerateArray())
+    {
+        var id = item.GetProperty("id").GetString()!;
+        var idioma = item.GetProperty("idioma").GetString()!;
+        var texto = item.GetProperty("texto").GetString()!;
+        var wav = Path.Combine(pasta.FullName, id + ".wav");
+        if (!File.Exists(wav))
+        {
+            continue;
+        }
+
+        using var sp = CriarServicos(o =>
+        {
+            o.Idioma = idioma;
+            o.GravarJsonAoLado = false;
+        });
+        var r = await sp.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(
+            wav, idioma == Idiomas.Ingles ? Saida.Ingles : Saida.Portugues, null, ct);
+        var reconhecidas = r.Frases.SelectMany(f => f.Palavras).ToList();
+        var alinhado = AlinharPalavras(PalavrasNormalizadas(texto), reconhecidas);
+        frases++;
+        palavras += alinhado.Count(a => a.Certa is not null);
+        Console.WriteLine($"{id}: {texto}");
+        Console.WriteLine($"     {string.Join(' ', reconhecidas.Select(p => p.Texto))}");
+        foreach (var (certa, ouvida, confianca) in alinhado)
+        {
+            var suspeita = confianca is { } c && c < limite;
+            if (certa == ouvida)
+            {
+                certasSuspeitas += suspeita ? 1 : 0;
+                continue;
+            }
+
+            erradasSuspeitas += ouvida is not null && suspeita ? 1 : 0;
+            var marca = suspeita ? "suspeita" : "confiante";
+            if (certa is not null && ouvida is not null)
+            {
+                trocas++;
+                var posicao = dicionario?.ProcurarParecidas(ouvida, idioma, 15).Select(p => p.Termo).ToList().IndexOf(certa) ?? -2;
+                trocasNaLista += posicao >= 0 ? 1 : 0;
+                var lista = posicao switch { -2 => "", -1 => "; certa fora das 15 parecidas", _ => $"; certa é a {posicao + 1}ª parecida" };
+                Console.WriteLine($"     troca: \"{certa}\" → \"{ouvida}\" (confiança {confianca:F2}, {marca}{lista})");
+            }
+            else if (certa is not null)
+            {
+                faltas++;
+                Console.WriteLine($"     faltou: \"{certa}\"");
+            }
+            else
+            {
+                sobras++;
+                Console.WriteLine($"     sobrou: \"{ouvida}\" (confiança {confianca:F2}, {marca})");
+            }
+        }
+    }
+
+    if (frases == 0)
+    {
+        Console.Error.WriteLine($"Nenhuma gravação em {pasta.FullName}. Grave com: .\\scripts\\gravar-frases.ps1");
+        return 3;
+    }
+
+    var erros = trocas + faltas + sobras;
+    Console.WriteLine();
+    Console.WriteLine($"{frases} frases, {palavras} palavras: WER {100.0 * erros / Math.Max(1, palavras):F1}% ({trocas} trocas, {faltas} faltas, {sobras} sobras)");
+    Console.WriteLine(
+        $"Confiança < {limite:F2}: {erradasSuspeitas} de {trocas + sobras} palavras erradas e {certasSuspeitas} certas " +
+        $"(alarmes falsos); certa entre as 15 parecidas em {trocasNaLista} de {trocas} trocas" +
+        (dicionario is null ? " (sem dicionário)" : string.Empty));
+    return 0;
+}));
+
 var raiz = new RootCommand("Cli de teste da Transcritor lib.")
 {
-    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdDicionario, cmdAvaliarPalavras,
+    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdDicionario, cmdAvaliarPalavras, cmdAvaliarFala,
 };
 return await raiz.Parse(args).InvokeAsync();
+
+/// <summary>Minúsculas, sem pontuação em volta; hífen separa ("steel-rimmed" = "steel" "rimmed").</summary>
+static List<string> PalavrasNormalizadas(string texto) =>
+    texto.ToLowerInvariant().Replace('’', '\'')
+        .Split([' ', '-', '—', '\t', '\n'], StringSplitOptions.RemoveEmptyEntries)
+        .Select(p => p.Trim('.', ',', '!', '?', ';', ':', '"', '“', '”', '(', ')', '…', '\''))
+        .Where(p => p.Length > 0)
+        .ToList();
+
+/// <summary>
+/// Alinha o texto certo com as palavras reconhecidas (distância de edição por palavra) e devolve cada par:
+/// (certa, ouvida, confiança da ouvida). Falta: ouvida nula; sobra: certa nula.
+/// </summary>
+static List<(string? Certa, string? Ouvida, double? Confianca)> AlinharPalavras(List<string> certas, IReadOnlyList<Palavra> reconhecidas)
+{
+    var ouvidas = reconhecidas
+        .SelectMany(p => PalavrasNormalizadas(p.Texto).Select(t => (Texto: t, p.Confianca)))
+        .ToList();
+    var custo = new int[certas.Count + 1, ouvidas.Count + 1];
+    for (var i = 0; i <= certas.Count; i++) custo[i, 0] = i;
+    for (var j = 0; j <= ouvidas.Count; j++) custo[0, j] = j;
+    for (var i = 1; i <= certas.Count; i++)
+    {
+        for (var j = 1; j <= ouvidas.Count; j++)
+        {
+            var troca = custo[i - 1, j - 1] + (certas[i - 1] == ouvidas[j - 1].Texto ? 0 : 1);
+            custo[i, j] = Math.Min(troca, Math.Min(custo[i - 1, j] + 1, custo[i, j - 1] + 1));
+        }
+    }
+
+    var pares = new List<(string?, string?, double?)>();
+    int a = certas.Count, b = ouvidas.Count;
+    while (a > 0 || b > 0)
+    {
+        if (a > 0 && b > 0 && custo[a, b] == custo[a - 1, b - 1] + (certas[a - 1] == ouvidas[b - 1].Texto ? 0 : 1))
+        {
+            pares.Add((certas[a - 1], ouvidas[b - 1].Texto, ouvidas[b - 1].Confianca));
+            a--;
+            b--;
+        }
+        else if (a > 0 && custo[a, b] == custo[a - 1, b] + 1)
+        {
+            pares.Add((certas[a - 1], null, null));
+            a--;
+        }
+        else
+        {
+            pares.Add((null, ouvidas[b - 1].Texto, ouvidas[b - 1].Confianca));
+            b--;
+        }
+    }
+
+    pares.Reverse();
+    return pares;
+}
 
 static byte[] CabecalhoWav(int bytesDados)
 {

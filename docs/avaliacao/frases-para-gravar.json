@@ -1,0 +1,22 @@
+[
+  { "id": "en01", "idioma": "en", "texto": "My aunts live near the beach, but they never swim in the sea." },
+  { "id": "en02", "idioma": "en", "texto": "I can't figure out whether the weather will be nice tomorrow." },
+  { "id": "en03", "idioma": "en", "texto": "She bought a sheet of paper and a cheap pen at the shop." },
+  { "id": "en04", "idioma": "en", "texto": "The knight rode through the forest at night." },
+  { "id": "en05", "idioma": "en", "texto": "We were sipping lemonade while the children played in the garden." },
+  { "id": "en06", "idioma": "en", "texto": "Please accept my apologies, everyone was invited except me." },
+  { "id": "en07", "idioma": "en", "texto": "It was quite quiet in the library this afternoon." },
+  { "id": "en08", "idioma": "en", "texto": "He gave up smoking because he was running out of money." },
+  { "id": "en09", "idioma": "en", "texto": "The giant peach rolled down the hill and crushed the old car." },
+  { "id": "en10", "idioma": "en", "texto": "I usually walk to work, but yesterday I took the bus." },
+  { "id": "en11", "idioma": "en", "texto": "Their house is bigger than ours, but there is no garden." },
+  { "id": "en12", "idioma": "en", "texto": "The bear ate the berries and walked away with bare paws." },
+  { "id": "pt01", "idioma": "pt", "texto": "Choveu tanto ontem que a rua ficou alagada." },
+  { "id": "pt02", "idioma": "pt", "texto": "O conserto do carro ficou mais caro do que o concerto de música." },
+  { "id": "pt03", "idioma": "pt", "texto": "Abri uma exceção e deixei a sessão terminar mais tarde." },
+  { "id": "pt04", "idioma": "pt", "texto": "Comprei pêssegos e mangas na feira de domingo." },
+  { "id": "pt05", "idioma": "pt", "texto": "Ele não é mau, só estava de mau humor hoje." },
+  { "id": "pt06", "idioma": "pt", "texto": "Desisti de correr a maratona porque machuquei o joelho." },
+  { "id": "pt07", "idioma": "pt", "texto": "A cela da prisão era pequena e a sela do cavalo estava rasgada." },
+  { "id": "pt08", "idioma": "pt", "texto": "Que horas são agora? Preciso pegar o ônibus antes do almoço." }
+]

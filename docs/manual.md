@@ -235,6 +235,23 @@ Traduz cada caso do arquivo (palavra, frase, tradução da frase, idiomas e resp
 acertos e tempo. `--sem-dicionario` desliga o dicionário; `--sem-traducao-frase` não passa a tradução da frase.
 Uma resposta conta como certa se contém uma das `aceitas`.
 
+### 4.8 Medir o reconhecimento da sua fala
+1. Grave as frases de `docs/avaliacao/frases-para-gravar.json` pelo microfone (mostra cada frase, Enter grava; salva
+   em `dados/gravacoes/<id>.wav`, fora do Git; frases já gravadas são puladas, `-Regravar` refaz):
+   ```powershell
+   .\scripts\gravar-frases.ps1
+   ```
+2. Meça:
+   ```powershell
+   dotnet run --project src/Transcritor.Cli -- avaliar-fala
+   ```
+   Transcreve cada gravação no idioma da frase, alinha com o texto certo e mostra cada troca, falta e sobra de
+   palavra, com a confiança da palavra ouvida e em que posição a palavra certa aparece entre as 15 parecidas do
+   dicionário (`dicionario parecidas`). No fim: WER (taxa de erro por palavra), quantas palavras erradas ficaram abaixo
+   de `--limite-confianca` (padrão 0,5) e quantas certas também ficaram (alarmes falsos). `--frases`, `--pasta` e
+   `--banco` trocam os caminhos.
+   - O Whisper escreve números como dígitos ("sete" → "7"), o que conta como troca: evite números nas frases.
+
 ## 5. Usar a lib no seu projeto
 
 Ainda não há pacote NuGet: referencie os projetos.
