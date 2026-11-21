@@ -42,6 +42,13 @@ public sealed class OpcoesTraducao
     /// <summary>Tempo máximo de uma chamada (inclui carregar o modelo na 1ª vez).</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// SQLite do dicionário inglês ↔ português (gerado por <c>transcritor dicionario importar</c>). Quando existe, a
+    /// tradução de palavra recebe os sentidos do dicionário como opções numeradas e o modelo escolhe uma.
+    /// Nulo ou arquivo ausente = tradução de palavra só com o modelo.
+    /// </summary>
+    public string? CaminhoDicionario { get; set; }
+
     /// <summary>Arquivo do cache de palavras.</summary>
     public string CaminhoCachePalavras { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Transcritor", "cache", "palavras.json");

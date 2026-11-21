@@ -164,6 +164,7 @@ public static class ImportadorWiktionary
 
             // A maioria das linhas não tem nada útil; evita o custo de interpretar o JSON delas.
             if (!linha.Contains("\"Portuguese\"", StringComparison.Ordinal)
+                && !linha.Contains("\"code\": \"pt\"", StringComparison.Ordinal)
                 && !linha.Contains("\"form_of\"", StringComparison.Ordinal)
                 && !linha.Contains("\"lang_code\": \"pt\"", StringComparison.Ordinal))
             {

@@ -292,6 +292,62 @@ cmdCaptura.SetAction(async (resultado, ct) => await Executar(async () =>
     return 0;
 }));
 
+// ---- avaliar-palavras ------------------------------------------------------
+var argCasos = new Argument<FileInfo>("casos") { Description = "JSON com os casos (ex.: docs/avaliacao/palavras-ambiguas.json)." };
+var optSemDicionario = new Option<bool>("--sem-dicionario") { Description = "Traduz só com o modelo, sem as opções do dicionário." };
+var optSemTraducaoFrase = new Option<bool>("--sem-traducao-frase") { Description = "Não passa a tradução da frase (a lib traduz a frase antes)." };
+var cmdAvaliarPalavras = new Command("avaliar-palavras", "Mede acerto e tempo da tradução de palavra num conjunto de casos (sem cache).")
+{
+    argCasos, optSemDicionario, optSemTraducaoFrase,
+};
+cmdAvaliarPalavras.SetAction(async (resultado, ct) =>
+{
+    var cacheTemporario = Path.Combine(Path.GetTempPath(), $"transcritor-avaliacao-{Guid.NewGuid():N}.json");
+    var semDicionario = resultado.GetValue(optSemDicionario);
+    using var sp = CriarServicos(null, o =>
+    {
+        o.CaminhoCachePalavras = cacheTemporario;
+        if (semDicionario)
+        {
+            o.CaminhoDicionario = null;
+        }
+    });
+    return await Executar(async () =>
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(resultado.GetValue(argCasos)!.FullName, ct));
+        var tradutor = sp.GetRequiredService<ITradutor>();
+        var semTraducaoFrase = resultado.GetValue(optSemTraducaoFrase);
+        var acertos = 0;
+        var total = 0;
+        var tempos = new List<double>();
+        foreach (var caso in doc.RootElement.EnumerateArray())
+        {
+            var pedido = new PedidoTraducaoPalavra(
+                caso.GetProperty("palavra").GetString()!,
+                caso.GetProperty("frase").GetString()!,
+                caso.GetProperty("de").GetString()!,
+                caso.GetProperty("para").GetString()!,
+                semTraducaoFrase ? null : caso.GetProperty("traducao").GetString());
+            var aceitas = caso.GetProperty("aceitas").EnumerateArray().Select(a => a.GetString()!.ToLowerInvariant()).ToList();
+            var relogio = Stopwatch.StartNew();
+            var traducao = await tradutor.TraduzirPalavraAsync(pedido, ct);
+            tempos.Add(relogio.Elapsed.TotalSeconds);
+            var certo = aceitas.Any(a => traducao.ToLowerInvariant().Contains(a, StringComparison.Ordinal));
+            acertos += certo ? 1 : 0;
+            total++;
+            Console.WriteLine($"{(certo ? "[ OK ]" : "[ERRO]")} {pedido.Palavra,-10} {traducao,-28} ({relogio.Elapsed.TotalSeconds:F1} s)  {pedido.Frase}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"Acertos: {acertos}/{total} ({100.0 * acertos / Math.Max(1, total):F0}%); tempo médio {tempos.DefaultIfEmpty().Average():F2} s " +
+            $"(1º caso {tempos.FirstOrDefault():F1} s, inclui carregar o modelo); dicionário: {(semDicionario ? "não" : "sim")}; " +
+            $"tradução da frase: {(semTraducaoFrase ? "não" : "sim")}");
+        File.Delete(cacheTemporario);
+        return 0;
+    });
+});
+
 // ---- dicionario ------------------------------------------------------------
 var optBanco = new Option<FileInfo>("--banco")
 {
@@ -357,7 +413,7 @@ var cmdDicionario = new Command("dicionario", "Dicionário inglês ↔ portuguê
 
 var raiz = new RootCommand("Cli de teste da Transcritor lib.")
 {
-    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdDicionario,
+    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdDicionario, cmdAvaliarPalavras,
 };
 return await raiz.Parse(args).InvokeAsync();
 

@@ -74,8 +74,30 @@ GFDL), para dar à tradução os sentidos reais de cada palavra. Opcional; como 
 | Cobertura | 97% das palavras do audiolivro com verbete (medido antes do ajuste do possessivo `'s`). Sem verbete: nomes próprios, contrações (`wasn't`, `you'd`) e palavras raras (`wistfully`, `beauteous`) |
 
 - Com esses tempos, índice por embeddings (busca semântica) não é necessário para procurar palavra ou expressão.
-- Ainda **não medido**: se dar os verbetes ao modelo de tradução de palavra melhora a escolha do sentido. O
-  dicionário ainda não está ligado à tradução.
+
+### Dicionário na tradução de palavra (etapa A)
+
+O modelo de palavra (`gemma3:4b`) recebe os sentidos do dicionário como opções numeradas (formato de escolha
+múltipla) e responde `{"opcao": n, "traducao": "..."}`. As opções vêm da maior expressão da frase que contém a
+palavra e da palavra sozinha, e as que aparecem na tradução da frase ficam marcadas. O texto do modelo é descartado,
+voltando à tradução da opção, quando copia a frase original ou fica longo demais.
+
+Medido em 2026-11-21 com `transcritor avaliar-palavras docs/avaliacao/palavras-ambiguas.json` (32 palavras
+ambíguas, 22 en → pt e 10 pt → en), RTX 3060:
+
+| Situação | Sem dicionário | Com dicionário (regra final) | Tempo médio por palavra |
+|---|---|---|---|
+| Tradução da frase fornecida (ex.: do JSON, feita pelo 12b) | 30/32 (94%) — erra "gave up" e "running out" | **31/32 (97%)** — só usa o dicionário em expressões | 0,35 s → 0,36 s |
+| Sem a tradução da frase (a lib traduz a frase com o 4b) | 26/32 (81%) — "pêra" para *peach*, "pena" para *feather*… | **29/32 (91%)** | 0,54 s → 0,73 s |
+
+- Com a tradução da frase fornecida e **todas** as opções, o acerto caiu para 28/32 (88%): o modelo trocava o sentido
+  que a tradução já indicava ("desist" em vez de "gave up"). Daí a regra: com tradução fornecida, só expressões.
+- Erros que sobram com o dicionário: "honesto" para *fair* (injusto), "ride" para "pegar" (ônibus), "desist" /
+  "relinquish" para "desisti".
+- Duas respostas certas que o gabarito não previa foram acrescentadas antes da medição final, valendo para todas as
+  colunas: "perceber" (*figure out*) e "too bad" ("que pena").
+- Conjunto pequeno e as regras foram ajustadas nele: os números indicam a direção, não a precisão. Ampliar o
+  conjunto antes de outras mudanças.
 
 ## Requisitos de hardware e software (testado)
 

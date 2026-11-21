@@ -209,6 +209,21 @@ serviços. A pasta `dados/` não vai para o Git.
 
 O que tem e quanto custa: [modelos.md](modelos.md#dicionário-local-wiktionary).
 
+Com o dicionário gerado, a tradução de palavra (comando `palavra` e `TraduzirPalavraAsync`) passa a usá-lo, pela
+opção `CaminhoDicionario` (seção 6), que no Cli já aponta para `dados/dicionario.db`:
+- sem a tradução da frase (`--traducao-frase`), o modelo recebe os sentidos da palavra e das expressões que a contêm
+  como opções numeradas, marcando os que aparecem na tradução que a lib fez da frase, e escolhe um;
+- com a tradução da frase, só quando a palavra faz parte de uma expressão do dicionário ("gave" em "gave up",
+  "running" em "running out of"); nos outros casos a tradução da frase já é a melhor pista.
+
+### 4.7 Medir a tradução de palavra
+```powershell
+dotnet run --project src/Transcritor.Cli -- avaliar-palavras docs/avaliacao/palavras-ambiguas.json
+```
+Traduz cada caso do arquivo (palavra, frase, tradução da frase, idiomas e respostas aceitas), sem cache, e mostra
+acertos e tempo. `--sem-dicionario` desliga o dicionário; `--sem-traducao-frase` não passa a tradução da frase.
+Uma resposta conta como certa se contém uma das `aceitas`.
+
 ## 5. Usar a lib no seu projeto
 
 Ainda não há pacote NuGet: referencie os projetos.
@@ -339,6 +354,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloFrases` | `translategemma:12b` | Frases do arquivo |
 | `ModeloFrasesTempoReal` | `translategemma:4b` | Frases no tempo real e comando `traduzir` (vazio = `ModeloFrases`) |
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
+| `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta recebe os sentidos do dicionário como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |
 | `ModeloAnalise` | `gemma3:12b` | Modelo da análise |
 | `FrasesAntes` / `FrasesDepois` | `2` / `2` | Janela de contexto da tradução do arquivo |

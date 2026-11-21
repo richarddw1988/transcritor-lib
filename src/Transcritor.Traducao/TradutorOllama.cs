@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Transcritor.Core;
 using Transcritor.Core.Contratos;
 using Transcritor.Traducao.Cache;
+using Transcritor.Traducao.Dicionario;
 using Transcritor.Traducao.Ollama;
 
 namespace Transcritor.Traducao;
@@ -12,9 +13,11 @@ namespace Transcritor.Traducao;
 /// Tradução pt ↔ en pelo sentido, via Ollama.
 /// Frases de arquivo (<see cref="TraduzirFrasesAsync"/>): modelo <see cref="OpcoesTraducao.ModeloFrases"/>, com as vizinhas como contexto.
 /// Frase avulsa (<see cref="TraduzirFraseAsync"/>, usada no tempo real): <see cref="OpcoesTraducao.ModeloFrasesTempoReal"/>, mais rápido.
-/// Palavras: modelo <see cref="OpcoesTraducao.ModeloPalavras"/> com a frase e a tradução dela, com cache.
+/// Palavras: modelo <see cref="OpcoesTraducao.ModeloPalavras"/> com a frase e a tradução dela, com cache; com o dicionário
+/// configurado, o modelo escolhe entre os sentidos do dicionário (<see cref="CandidatosDicionario"/>).
 /// </summary>
-internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cachePalavras, IOptions<OpcoesTraducao> opcoes)
+internal sealed class TradutorOllama(
+    ClienteOllama ollama, ICachePalavras cachePalavras, IOptions<OpcoesTraducao> opcoes, FonteDicionario? fonteDicionario = null)
     : ITradutor, IServicoVerificavel
 {
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
@@ -99,7 +102,8 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
             return pedido.Palavra;
         }
 
-        var chave = ChavePalavra(pedido);
+        var dicionario = fonteDicionario?.Dicionario;
+        var chave = ChavePalavra(pedido, dicionario is not null);
         var emCache = await cachePalavras.LerAsync(chave, cancellationToken).ConfigureAwait(false);
         if (emCache is not null)
         {
@@ -111,21 +115,90 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
             ? await TraduzirFraseAsync(new PedidoTraducaoFrase(pedido.Frase, pedido.Origem, pedido.Destino, [], []), cancellationToken).ConfigureAwait(false)
             : pedido.TraducaoDaFrase;
 
-        var json = await ollama.ConversarAsync(
-            _opcoes.ModeloPalavras, Prompts.Palavra(pedido, traducaoDaFrase), Prompts.EsquemaTraducao, maxTokens: 64, cancellationToken).ConfigureAwait(false);
-        var traducao = Prompts.Limpar(Prompts.LerJsonTraducao(json), pedido.Palavra);
+        // Medido (docs/modelos.md): com a tradução da frase vinda de quem chama (ex.: o JSON, feito pelo modelo maior),
+        // as opções da palavra sozinha mais atrapalham que ajudam; só as de expressão ("gave up", "run out of") ajudam.
+        // Com a tradução feita aqui, mais fraca, todas as opções ajudam.
+        var opcoes = dicionario is null
+            ? []
+            : CandidatosDicionario.Buscar(
+                dicionario, pedido.Palavra, pedido.Frase, pedido.Origem, pedido.Destino, traducaoDaFrase,
+                soExpressao: !string.IsNullOrWhiteSpace(pedido.TraducaoDaFrase));
+        var traducao = opcoes.Count == 0
+            ? await TraduzirPalavraSoComModeloAsync(pedido, traducaoDaFrase, cancellationToken).ConfigureAwait(false)
+            : await EscolherOpcaoAsync(pedido, traducaoDaFrase, opcoes, cancellationToken).ConfigureAwait(false);
 
         await cachePalavras.GravarAsync(chave, traducao, cancellationToken).ConfigureAwait(false);
         return traducao;
     }
 
+    private async Task<string> TraduzirPalavraSoComModeloAsync(
+        PedidoTraducaoPalavra pedido, string traducaoDaFrase, CancellationToken cancellationToken)
+    {
+        var json = await ollama.ConversarAsync(
+            _opcoes.ModeloPalavras, Prompts.Palavra(pedido, traducaoDaFrase), Prompts.EsquemaTraducao, maxTokens: 64, cancellationToken).ConfigureAwait(false);
+        return Prompts.Limpar(Prompts.LerJsonTraducao(json), pedido.Palavra);
+    }
+
+    /// <summary>
+    /// O modelo escolhe um sentido do dicionário pelo número e adapta a tradução à frase ("desistir" → "desistiu").
+    /// O texto adaptado só vale se parecer tradução: não pode ser cópia de um pedaço da frase original ("desisti",
+    /// "Que pena que") nem muito mais longo que a opção (a frase inteira); senão fica a tradução da opção escolhida.
+    /// Sem opção válida (0 ou fora da lista), o texto vale como tradução livre, com as mesmas regras; se não servir,
+    /// traduz só com o modelo.
+    /// </summary>
+    private async Task<string> EscolherOpcaoAsync(
+        PedidoTraducaoPalavra pedido, string traducaoDaFrase, IReadOnlyList<Candidato> opcoes, CancellationToken cancellationToken)
+    {
+        var json = await ollama.ConversarAsync(
+            _opcoes.ModeloPalavras, Prompts.PalavraComOpcoes(pedido, traducaoDaFrase, opcoes), Prompts.EsquemaOpcao, maxTokens: 96,
+            cancellationToken).ConfigureAwait(false);
+        var (opcao, texto) = Prompts.LerJsonOpcao(json);
+        var traducao = Prompts.Limpar(texto, pedido.Palavra);
+        var escolhida = opcao is { } n && n >= 1 && n <= opcoes.Count ? opcoes[n - 1].Traducao : null;
+        if (Aproveitavel(traducao, pedido.Frase, escolhida))
+        {
+            return traducao;
+        }
+
+        return escolhida ?? await TraduzirPalavraSoComModeloAsync(pedido, traducaoDaFrase, cancellationToken).ConfigureAwait(false);
+    }
+
+    private const int PalavrasAMaisToleradas = 3;
+
+    /// <summary>Texto do modelo que parece tradução da palavra (não é cópia da frase original nem uma frase inteira).</summary>
+    internal static bool Aproveitavel(string traducao, string fraseOriginal, string? escolhida)
+    {
+        var t = NormalizarTexto(traducao);
+        if (t.Length == 0)
+        {
+            return false;
+        }
+
+        var tamanhoMaximo = (escolhida is null ? 1 : NormalizarTexto(escolhida).Split(' ').Length) + PalavrasAMaisToleradas;
+        if (t.Split(' ').Length > tamanhoMaximo)
+        {
+            return false;
+        }
+
+        // Nomes e palavras iguais nos dois idiomas ("táxi", "James") aparecem na frase e também na opção: valem.
+        var copia = $" {NormalizarTexto(fraseOriginal)} ".Contains($" {t} ", StringComparison.Ordinal);
+        return !copia || (escolhida is not null && NormalizarTexto(escolhida) == t);
+    }
+
+    private static string NormalizarTexto(string texto)
+    {
+        var limpo = new string(texto.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray());
+        return string.Join(' ', limpo.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
     public Task VerificarAsync(CancellationToken cancellationToken) =>
         ollama.VerificarAsync([_opcoes.ModeloFrases, ModeloTempoReal, _opcoes.ModeloPalavras], cancellationToken);
 
-    private string ChavePalavra(PedidoTraducaoPalavra pedido)
+    private string ChavePalavra(PedidoTraducaoPalavra pedido, bool comDicionario)
     {
         var bruto = string.Join('\u001f',
             _opcoes.ModeloPalavras,
+            comDicionario ? $"dic{VersaoDicionario}" : "sem-dic",
             ModeloTempoReal,
             Prompts.Versao.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Idiomas.Normalizar(pedido.Origem),
@@ -135,6 +208,9 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
             pedido.TraducaoDaFrase?.Trim() ?? string.Empty);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(bruto)));
     }
+
+    /// <summary>Muda a escolha de opções do dicionário; entra na chave do cache de palavras.</summary>
+    private const int VersaoDicionario = 3;
 
     private static bool MesmoIdioma(string a, string b) => Idiomas.Normalizar(a) == Idiomas.Normalizar(b);
 }

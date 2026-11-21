@@ -10,5 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Transcritor.Tests" />
+    <InternalsVisibleTo Include="Transcritor.Traducao" />
   </ItemGroup>
 </Project>

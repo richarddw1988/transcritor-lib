@@ -103,6 +103,31 @@ public sealed class DicionarioSqlite : IDisposable
 
     public void Dispose() => SqliteConnection.ClearAllPools();
 
+    /// <summary>Formas base de uma flexão ("gave" → "give"); vazio se o termo não é flexão conhecida.</summary>
+    internal IReadOnlyList<string> Lemas(string termo, string idioma)
+    {
+        var chave = Chave(termo);
+        if (chave.Length == 0)
+        {
+            return [];
+        }
+
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        cmd.CommandText = "SELECT lema FROM forma WHERE idioma = $i AND chave = $c";
+        cmd.Parameters.AddWithValue("$i", Idiomas.Normalizar(idioma));
+        cmd.Parameters.AddWithValue("$c", chave);
+        var lemas = new List<string>();
+        using var leitor = cmd.ExecuteReader();
+        while (leitor.Read())
+        {
+            lemas.Add(leitor.GetString(0));
+        }
+
+        return lemas;
+    }
+
     /// <summary>Chave de busca: minúsculas, sem pontuação nem aspas em volta, apóstrofo tipográfico vira ' .</summary>
     internal static string Chave(string termo)
     {

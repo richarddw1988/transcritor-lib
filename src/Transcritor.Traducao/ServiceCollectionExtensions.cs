@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Transcritor.Core.Contratos;
 using Transcritor.Traducao.Cache;
+using Transcritor.Traducao.Dicionario;
 using Transcritor.Traducao.Ollama;
 
 namespace Transcritor.Traducao;
@@ -27,6 +28,7 @@ public static class ServiceCollectionExtensions
             http.Timeout = o.Timeout;
         });
         services.TryAddSingleton<ICachePalavras, CachePalavrasEmDisco>();
+        services.TryAddSingleton<FonteDicionario>();
         services.TryAddTransient<TradutorOllama>();
         services.TryAddTransient<ITradutor>(sp => sp.GetRequiredService<TradutorOllama>());
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<TradutorOllama>());
