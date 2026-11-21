@@ -59,8 +59,8 @@ palavra por palavra — a análise é pelo contexto:
   não pega troca por palavra que existe e soa parecido; para isso é preciso conferir o sentido (LLM com candidatos de
   som parecido) ou ouvir de novo o trecho.
 - Conclusão: confiança baixa no meio da frase é um gatilho barato e com poucos casos (~13 palavras em 17 min abaixo de
-  0,5), mas a precisão como detector de erro **não foi medida** — falta um conjunto com erros conhecidos, de preferência
-  da fala do próprio usuário no microfone, onde o Whisper erra mais que nesta narração.
+  0,5), mas pega pouco: na fala do usuário só 2 de 17 palavras erradas ficaram abaixo de 0,5 (ver
+  [Erros reais na fala do usuário](#erros-reais-na-fala-do-usuário-avaliar-fala)).
 
 ## Modelos testados e por que foram ou não escolhidos
 
@@ -154,8 +154,31 @@ escrita e pela quantidade de verbetes. Medido em 2026-11-21:
 - Fora dos 15: "arts" → "aunts" (chave a 1 letra, mas escrita a 2 e dezenas de palavras mais próximas, como "parts",
   "warts") e "pesego" → "pêssego". Só a pronúncia não decide: a escolha final precisa do contexto da frase (LLM) ou de
   ouvir o trecho de novo.
-- Os pares não são erros reais do Whisper; falta medir com gravações do usuário.
 - Sem frequência de uso real: "mais comum" é aproximado pela quantidade de verbetes.
+
+### Erros reais na fala do usuário (`avaliar-fala`)
+
+20 frases ditas pelo usuário no microfone (12 en, 8 pt, 212 palavras, `docs/avaliacao/frases-para-gravar.json`),
+cheias de palavras que se confundem pelo som; gravadas com `scripts/gravar-frases.ps1` (pico de 5% a 16%) e
+medidas com `transcritor avaliar-fala` em 2026-11-21:
+
+| Item | Valor |
+|---|---|
+| WER | 8,0% — 14 trocas, 0 faltas, 3 sobras (inglês 14 erros em 130 palavras, 10,8%; português 3 em 82, 3,7%) |
+| Confiança < 0,5 como detector | pegou 2 das 17 palavras erradas ("both", "chop"); 1 alarme falso |
+| Palavra certa entre as 15 parecidas (`ProcurarParecidas` da ouvida) | 8 das 14 trocas; 1º lugar em 4 ("aunt's" → "aunts", "crashed" → "crushed", "sela", "cela") |
+
+- **A confiança quase não ajuda aqui:** os erros vêm com 0,6 a 1,0 — "concerto" → "conserto" 0,99, "sela" → "cela"
+  1,00, "can't" → "can" 0,98, "cheap" → "sheet" 0,93. São palavras que existem e soam igual ou quase; o Whisper fica
+  seguro. Detectar exige conferir o sentido da frase inteira (LLM), não só a confiança da palavra.
+- **Homófonos são metade dos erros** (conserto/concerto, cela/sela, bare/bear, quite/quiet, crushed/crashed): a
+  certa está nas parecidas e só o contexto escolhe.
+- Fora das parecidas: "can't" → "can", "cheap" → "sheet", "bought" → "both", "he" → "they", "sessão" → "exceção",
+  "paws" → "pawns" — som parecido demais para a chave ou palavra trocada por outra frequente.
+- Primeira rodada descartada: o áudio começava já com fala (o dispositivo leva um instante para abrir) e o pico ficava
+  em 1–6%; deu WER 17,5%, com 15 faltas no começo das frases. Por isso a captura agora conta o tempo a partir do aviso
+  "Gravando: pode falar" e o script mostra o pico.
+- Amostra pequena (uma pessoa, 20 frases, um microfone); serve para orientar, não para comparar modelos.
 
 ## Requisitos de hardware e software (testado)
 
