@@ -10,7 +10,8 @@ namespace Transcritor.Traducao;
 
 /// <summary>
 /// Tradução pt ↔ en pelo sentido, via Ollama.
-/// Frases: modelo <see cref="OpcoesTraducao.ModeloFrases"/> com as vizinhas como contexto.
+/// Frases de arquivo (<see cref="TraduzirFrasesAsync"/>): modelo <see cref="OpcoesTraducao.ModeloFrases"/>, com as vizinhas como contexto.
+/// Frase avulsa (<see cref="TraduzirFraseAsync"/>, usada no tempo real): <see cref="OpcoesTraducao.ModeloFrasesTempoReal"/>, mais rápido.
 /// Palavras: modelo <see cref="OpcoesTraducao.ModeloPalavras"/> com a frase e a tradução dela, com cache.
 /// </summary>
 internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cachePalavras, IOptions<OpcoesTraducao> opcoes)
@@ -23,7 +24,14 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
     public string Identificador =>
         $"ollama:{_opcoes.ModeloFrases}:p{Prompts.Versao}:c{_opcoes.FrasesAntes}-{_opcoes.FrasesDepois}";
 
-    public async Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken)
+    public Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken) =>
+        TraduzirComModeloAsync(pedido, ModeloTempoReal, cancellationToken);
+
+    /// <summary>Modelo da frase avulsa; vazio na configuração = mesmo modelo do arquivo.</summary>
+    private string ModeloTempoReal =>
+        string.IsNullOrWhiteSpace(_opcoes.ModeloFrasesTempoReal) ? _opcoes.ModeloFrases : _opcoes.ModeloFrasesTempoReal;
+
+    private async Task<string> TraduzirComModeloAsync(PedidoTraducaoFrase pedido, string modelo, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pedido);
         if (string.IsNullOrWhiteSpace(pedido.Texto) || MesmoIdioma(pedido.Origem, pedido.Destino))
@@ -31,7 +39,6 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
             return pedido.Texto;
         }
 
-        var modelo = _opcoes.ModeloFrases;
         if (Prompts.EhTranslateGemma(modelo))
         {
             var mensagem = Prompts.TranslateGemma(pedido, comContexto: true);
@@ -77,7 +84,7 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
                 destino,
                 frases.Skip(inicio).Take(i - inicio).ToList(),
                 frases.Skip(i + 1).Take(depois).ToList());
-            traducoes[i] = await TraduzirFraseAsync(pedido, cancellationToken).ConfigureAwait(false);
+            traducoes[i] = await TraduzirComModeloAsync(pedido, _opcoes.ModeloFrases, cancellationToken).ConfigureAwait(false);
             progresso?.Report((i + 1) * 100d / frases.Count);
         }
 
@@ -113,13 +120,13 @@ internal sealed class TradutorOllama(ClienteOllama ollama, ICachePalavras cacheP
     }
 
     public Task VerificarAsync(CancellationToken cancellationToken) =>
-        ollama.VerificarAsync([_opcoes.ModeloFrases, _opcoes.ModeloPalavras], cancellationToken);
+        ollama.VerificarAsync([_opcoes.ModeloFrases, ModeloTempoReal, _opcoes.ModeloPalavras], cancellationToken);
 
     private string ChavePalavra(PedidoTraducaoPalavra pedido)
     {
         var bruto = string.Join('\u001f',
             _opcoes.ModeloPalavras,
-            _opcoes.ModeloFrases,
+            ModeloTempoReal,
             Prompts.Versao.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Idiomas.Normalizar(pedido.Origem),
             Idiomas.Normalizar(pedido.Destino),

@@ -10,7 +10,7 @@ inicial em [docs/etapa-0.md](docs/etapa-0.md).
 |---|---|
 | `Transcritor.Core` | Contratos (`ITranscritorArquivo`, `IMotorTranscricao`, ...), modelos do JSON e erros. Sem dependências. |
 | `Transcritor.Arquivo` | ffprobe/ffmpeg → WAV 16 kHz mono → Speaches → frases e palavras → JSON, com cache pelo SHA-256. |
-| `Transcritor.Traducao` | Tradução pt ↔ en pelo sentido via Ollama: frases com as vizinhas como contexto (translategemma), palavra solta com a frase (gemma3), cache de palavras. |
+| `Transcritor.Traducao` | Tradução pt ↔ en pelo sentido via Ollama: frases com as vizinhas como contexto (translategemma 12b no arquivo, 4b no tempo real), palavra solta com a frase (gemma3), cache de palavras. |
 | `Transcritor.TempoReal` | Cliente WebSocket do WhisperLiveKit: eventos `Provisorio`/`Confirmado` (`IAsyncEnumerable`), tradução dos trechos confirmados, `FonteAudioWav` para testes. |
 | `Transcritor.Captura` | Windows (WASAPI/NAudio): microfone e som do sistema em PCM 16 kHz mono. |
 | `Transcritor.Cli` | App de console para testar (`arquivo`, `traduzir`, `palavra`, `microfone`, `sistema`, `simular`, `captura`, `servicos`). |
@@ -50,10 +50,10 @@ que faltam e roda `transcritor servicos`. Pode rodar quantas vezes quiser; só f
 .\scripts\preparar-ambiente.ps1
 ```
 
-- Na 1ª vez baixa ~40 GB (imagem do WhisperLiveKit 22 GB, Speaches 8 GB, Ollama, modelos) e leva de 20 a 60 min.
+- Na 1ª vez baixa ~48 GB (imagem do WhisperLiveKit 22 GB, Speaches 8 GB, Ollama, modelos) e leva de 20 a 60 min.
 - `-ComAnaliseDeSentido` também baixa o modelo da análise de sentido (`gemma3:12b`, ~8 GB).
 - `-SoConferir` só confere, sem baixar nada; `-SemTempoReal` dispensa o WhisperLiveKit (arquivo e tradução continuam).
-- Outros modelos: `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloPalavras` (ponha os mesmos no `appsettings.json`).
+- Outros modelos: `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras` (ponha os mesmos no `appsettings.json`).
 - Se o PowerShell bloquear o script: `powershell -ExecutionPolicy Bypass -File .\scripts\preparar-ambiente.ps1`.
 - O script avisa se o disco do Docker tiver pouco espaço ou se o `.wslconfig` limitar a VM a menos de 10 GB
   (com 4 GB o Ollama trava ao trocar de modelo).
@@ -62,7 +62,7 @@ que faltam e roda `transcritor servicos`. Pode rodar quantas vezes quiser; só f
 |---|---|---|---|
 | Speaches (arquivo) | 8000 | `ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3` | `Systran/faster-whisper-large-v3` |
 | WhisperLiveKit (tempo real) | 8001 | construída localmente | `medium` (baixado na 1ª subida) |
-| Ollama (tradução) | 11434 | `ollama/ollama` | `translategemma:4b`, `gemma3:4b` |
+| Ollama (tradução) | 11434 | `ollama/ollama` | `translategemma:12b` (frases do arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra); opcional `gemma3:12b` (análise de sentido) |
 
 ## Testar
 

@@ -6,8 +6,17 @@ public sealed class OpcoesTraducao
     /// <summary>URL base do Ollama.</summary>
     public Uri OllamaUrl { get; set; } = new("http://localhost:11434");
 
-    /// <summary>Modelo para frases (arquivo e tempo real).</summary>
-    public string ModeloFrases { get; set; } = "translategemma:4b";
+    /// <summary>
+    /// Modelo para as frases de um arquivo (processado antes de assistir; qualidade vale mais que velocidade).
+    /// No audiolivro de teste o 12b corrigiu erros de gramática e sentido do 4b, a ~6,7 s por frase.
+    /// </summary>
+    public string ModeloFrases { get; set; } = "translategemma:12b";
+
+    /// <summary>
+    /// Modelo para frase avulsa: tempo real, comando traduzir e a frase de apoio da palavra (~1–2 s por frase).
+    /// Vazio = usa <see cref="ModeloFrases"/>.
+    /// </summary>
+    public string ModeloFrasesTempoReal { get; set; } = "translategemma:4b";
 
     /// <summary>Modelo para palavra solta no contexto da frase.</summary>
     public string ModeloPalavras { get; set; } = "gemma3:4b";

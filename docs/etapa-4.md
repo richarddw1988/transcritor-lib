@@ -53,6 +53,13 @@ parte e o que a pessoa quis dizer com a frase.
 Padrão: `gemma3:12b` (`ModeloAnalise`). Custa ~13 s por frase (um áudio de 6 min ≈ 14 min de análise, uma vez
 só, com cache) e ocupa ~8 GB de VRAM: rode com o WhisperLiveKit parado (`docker stop whisperlivekit`).
 
+## Resultado no audiolivro inteiro (64 frases, 6 min de áudio)
+
+Tradução com `translategemma:12b` + análise com `gemma3:12b` (prompt v2): 971 s no total, uma vez só (depois vem do
+cache). 339 blocos, 53 expressões/phrasal/colocações/nomes, 99% das palavras cobertas (1232/1247), 338/339
+traduções de bloco achadas literalmente na tradução da frase. O prompt v2 reduziu as notas inúteis, mas 4 de 101
+ainda diziam "não há armadilha"; essas são descartadas no código (`AlinhadorBlocos.NotaUtil`).
+
 ## Limites
 
 - O sentido às vezes especula além do texto ("nunca mais se encontrarão" para "Or never.").

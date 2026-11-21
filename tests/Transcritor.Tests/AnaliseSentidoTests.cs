@@ -61,6 +61,14 @@ public class AlinhadorBlocosTests
     }
 
     [Theory]
+    [InlineData("Nome da cidade. Não há armadilha.", null)]
+    [InlineData("There is no trap here.", null)]
+    [InlineData("  ", null)]
+    [InlineData("'seat' aqui é lugar, não assento.", "'seat' aqui é lugar, não assento.")]
+    public void Descarta_nota_que_so_diz_que_nao_ha_o_que_explicar(string nota, string? esperado) =>
+        Assert.Equal(esperado, AlinhadorBlocos.NotaUtil(nota));
+
+    [Theory]
     [InlineData("colocacao", TipoBloco.Colocacao)]
     [InlineData("nome", TipoBloco.Nome)]
     [InlineData("qualquer", TipoBloco.Literal)]

@@ -112,7 +112,7 @@ public sealed class TradutorOllamaTests : IDisposable
     [Fact]
     public async Task Modelo_de_instrucao_usa_json_schema_e_le_campo_traducao()
     {
-        var (tradutor, http) = Criar((_, _) => RespostaChat("""{"traducao": "\"Vamos encerrar por hoje.\""}"""), o => o.ModeloFrases = "gemma3:4b");
+        var (tradutor, http) = Criar((_, _) => RespostaChat("""{"traducao": "\"Vamos encerrar por hoje.\""}"""), o => o.ModeloFrasesTempoReal = "gemma3:4b");
 
         var traducao = await tradutor.TraduzirFraseAsync(
             new PedidoTraducaoFrase("Let's call it a day.", "en", "pt", ["We are tired."], []), CancellationToken.None);
@@ -145,6 +145,29 @@ public sealed class TradutorOllamaTests : IDisposable
         Assert.EndsWith("\n\n\na\n<t>b</t>\nc", textos[1], StringComparison.Ordinal);
         Assert.EndsWith("\n\n\nb\n<t>c</t>", textos[2], StringComparison.Ordinal);
         Assert.Equal(100, progresso[^1]);
+        Assert.All(http.Recebidas, x => Assert.Equal("translategemma:12b", LerPedido(x.Corpo).Modelo));
+    }
+
+    [Fact]
+    public async Task Frase_avulsa_usa_o_modelo_do_tempo_real_e_arquivo_usa_o_maior()
+    {
+        var (tradutor, http) = Criar((_, _) => RespostaChat("Hello."));
+
+        await tradutor.TraduzirFraseAsync(new PedidoTraducaoFrase("Olá.", "pt", "en", [], []), CancellationToken.None);
+        await tradutor.TraduzirFrasesAsync(["Olá."], "pt", "en", null, CancellationToken.None);
+
+        Assert.Equal(["translategemma:4b", "translategemma:12b"], http.Recebidas.Select(x => LerPedido(x.Corpo).Modelo));
+        Assert.Contains("translategemma:12b", tradutor.Identificador, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Sem_modelo_de_tempo_real_usa_o_do_arquivo()
+    {
+        var (tradutor, http) = Criar((_, _) => RespostaChat("Hello."), o => o.ModeloFrasesTempoReal = "");
+
+        await tradutor.TraduzirFraseAsync(new PedidoTraducaoFrase("Olá.", "pt", "en", [], []), CancellationToken.None);
+
+        Assert.Equal("translategemma:12b", LerPedido(http.Recebidas[0].Corpo).Modelo);
     }
 
     [Fact]
@@ -226,7 +249,7 @@ public sealed class TradutorOllamaTests : IDisposable
         var (tradutor, _) = Criar((req, _) => req.RequestUri!.AbsolutePath switch
         {
             "/api/version" => FakeHttpHandler.Json("""{"version":"0.13.0"}"""),
-            "/api/tags" => FakeHttpHandler.Json("""{"models":[{"name":"translategemma:4b"}]}"""),
+            "/api/tags" => FakeHttpHandler.Json("""{"models":[{"name":"translategemma:12b"},{"name":"translategemma:4b"}]}"""),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         });
 

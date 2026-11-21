@@ -10,7 +10,7 @@
       4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama.
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
 
-    Primeira vez: baixa ~40 GB (imagens + modelos) e leva de 20 a 60 minutos, conforme a internet.
+    Primeira vez: baixa ~48 GB (imagens + modelos) e leva de 20 a 60 minutos, conforme a internet.
 
 .PARAMETER SoConferir
     Só confere pré-requisitos e serviços; não constrói, não sobe e não baixa nada.
@@ -22,7 +22,10 @@
     Modelo Whisper do Speaches (mesmo valor de Transcritor:Arquivo:ModeloTranscricao no appsettings.json).
 
 .PARAMETER ModeloFrases
-    Modelo do Ollama para frases (Transcritor:Traducao:ModeloFrases).
+    Modelo do Ollama para as frases de arquivo (Transcritor:Traducao:ModeloFrases).
+
+.PARAMETER ModeloFrasesTempoReal
+    Modelo do Ollama para frases no tempo real (Transcritor:Traducao:ModeloFrasesTempoReal).
 
 .PARAMETER ModeloPalavras
     Modelo do Ollama para palavra solta (Transcritor:Traducao:ModeloPalavras).
@@ -45,7 +48,8 @@ param(
     [switch] $SoConferir,
     [switch] $SemTempoReal,
     [string] $ModeloTranscricao = 'Systran/faster-whisper-large-v3',
-    [string] $ModeloFrases = 'translategemma:4b',
+    [string] $ModeloFrases = 'translategemma:12b',
+    [string] $ModeloFrasesTempoReal = 'translategemma:4b',
     [string] $ModeloPalavras = 'gemma3:4b',
     [switch] $ComAnaliseDeSentido,
     [string] $ModeloAnalise = 'gemma3:12b',
@@ -203,7 +207,7 @@ if ($speachesNoAr) {
 
 if ($ollamaNoAr) {
     $instalados = (Obter-Json "$OllamaUrl/api/tags").models.name
-    $modelosOllama = @($ModeloFrases, $ModeloPalavras)
+    $modelosOllama = @($ModeloFrases, $ModeloFrasesTempoReal, $ModeloPalavras)
     if ($ComAnaliseDeSentido) { $modelosOllama += $ModeloAnalise }
     foreach ($modelo in $modelosOllama | Select-Object -Unique) {
         $nome = if ($modelo.Contains(':')) { $modelo } else { "${modelo}:latest" }
@@ -227,6 +231,7 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
         Escrever-Ok 'Solução compilada'
         $env:TRANSCRITOR_Transcritor__Arquivo__ModeloTranscricao = $ModeloTranscricao
         $env:TRANSCRITOR_Transcritor__Traducao__ModeloFrases = $ModeloFrases
+        $env:TRANSCRITOR_Transcritor__Traducao__ModeloFrasesTempoReal = $ModeloFrasesTempoReal
         $env:TRANSCRITOR_Transcritor__Traducao__ModeloPalavras = $ModeloPalavras
         if ($ComAnaliseDeSentido) {
             $env:TRANSCRITOR_Transcritor__Traducao__AnalisarSentido = 'true'
@@ -241,7 +246,7 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
 Write-Host ''
 if ($problemas.Count -eq 0) {
     Write-Host 'Ambiente pronto.' -ForegroundColor Green
-    if ($ModeloTranscricao -ne 'Systran/faster-whisper-large-v3' -or $ModeloFrases -ne 'translategemma:4b' -or $ModeloPalavras -ne 'gemma3:4b') {
+    if ($ModeloTranscricao -ne 'Systran/faster-whisper-large-v3' -or $ModeloFrases -ne 'translategemma:12b' -or $ModeloFrasesTempoReal -ne 'translategemma:4b' -or $ModeloPalavras -ne 'gemma3:4b') {
         Write-Host 'Lembre de pôr os mesmos modelos em src/Transcritor.Cli/appsettings.json (ou na configuração do seu app).' -ForegroundColor Yellow
     }
     Write-Host 'Teste:  dotnet run --project src/Transcritor.Cli -- arquivo C:\caminho\video.mp4 --saida Ambos'

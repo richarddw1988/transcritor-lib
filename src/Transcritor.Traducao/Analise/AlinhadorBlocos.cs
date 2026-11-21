@@ -50,10 +50,29 @@ internal static class AlinhadorBlocos
                 string.Join(' ', palavras.Skip(inicial).Take(final - inicial + 1)),
                 bloco.Traducao.Trim(),
                 LerTipo(bloco.Tipo),
-                string.IsNullOrWhiteSpace(bloco.Nota) ? null : bloco.Nota.Trim()));
+                NotaUtil(bloco.Nota)));
         }
 
         return resultado;
+    }
+
+    /// <summary>Frases que o modelo escreve mesmo quando não há nada a explicar (o prompt pede para não escrever).</summary>
+    private static readonly string[] NotasVazias =
+    [
+        "não há armadilha", "nao ha armadilha", "nenhuma armadilha", "sem armadilha", "não há pegadinha",
+        "no trap", "there is no trap", "no pitfall",
+    ];
+
+    /// <summary>Nula quando vazia ou quando só diz que não há o que explicar.</summary>
+    internal static string? NotaUtil(string? nota)
+    {
+        if (string.IsNullOrWhiteSpace(nota))
+        {
+            return null;
+        }
+
+        var n = nota.Trim();
+        return NotasVazias.Any(v => n.Contains(v, StringComparison.OrdinalIgnoreCase)) ? null : n;
     }
 
     private static int Procurar(List<(string Token, int Palavra)> tokens, List<string> procurados, int desde)

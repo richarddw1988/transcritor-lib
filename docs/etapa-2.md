@@ -57,3 +57,17 @@ Resolvido em 2026-11-20 subindo o `.wslconfig` para `memory=12GB` e `swap=4GB` (
 `.wslconfig.bak-2026-11-20`). Depois disso os dois modelos ficam juntos na GPU e alternar entre eles leva
 ~3 s. A primeira chamada após reiniciar a VM é lenta porque cada modelo é lido do disco: ~60–90 s para o
 primeiro arquivo (Speaches large-v3 + translategemma) e ~25 s para o gemma3.
+
+## Modelo das frases: arquivo × tempo real (comparação em 2026-11-21)
+
+As 64 frases do audiolivro de teste (Frankenstein, carta 1) traduzidas com o mesmo prompt:
+
+| | translategemma:4b | translategemma:12b |
+|---|---|---|
+| Tempo por frase | ~2–3 s | 6,7 s (máx. 14,7 s) |
+| Tags `<t>` perdidas (cai na tradução sem contexto) | 0/64 | 5/64 |
+| Exemplos | "Eu tento em vão convencê-me"; "Seus neves e gelos desapareceram"; "eu mesmo me contratei … barco de baleias do Groenlândia" | "Tento, em vão, me convencer"; "A neve e o gelo foram deixados para trás"; "trabalhei como ajudante em um navio baleeiro na Groenlândia" |
+
+Decisão: `ModeloFrases` = `translategemma:12b` (arquivo, processado antes de assistir, com cache) e
+`ModeloFrasesTempoReal` = `translategemma:4b` (tempo real, comando `traduzir` e frase de apoio da palavra).
+O 12b ainda erra trechos difíceis ("the channel of their earlier bent") e às vezes troca o tratamento ("vocês").
