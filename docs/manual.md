@@ -151,7 +151,8 @@ melhor pista do sentido; sem ela a lib traduz a frase antes.
    ```powershell
    dotnet run --project src/Transcritor.Cli -- captura --fonte Microfone --segundos 5
    ```
-   Pico abaixo de ~10%: aproxime-se do microfone ou suba o volume de gravação no Windows.
+   Os segundos contam a partir do aviso "Gravando: pode falar" (o dispositivo leva um instante para abrir;
+   falar antes corta o começo). Pico abaixo de ~10%: aproxime-se do microfone ou suba o volume de gravação no Windows.
 2. Microfone:
    ```powershell
    dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt --contexto "Dona Chica, Luis Barcellos"

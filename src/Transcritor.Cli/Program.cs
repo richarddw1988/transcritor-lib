@@ -260,12 +260,18 @@ cmdCaptura.SetAction(async (resultado, ct) => await Executar(async () =>
     Console.WriteLine($"{fonteEscolhida}: {fonte.NomeDispositivo()} — gravando {segundos} s...");
 
     using var limite = CancellationTokenSource.CreateLinkedTokenSource(ct);
-    limite.CancelAfter(TimeSpan.FromSeconds(segundos));
     using var pcm = new MemoryStream();
     var segundoAtual = 0;
     var pico = 0;
     await foreach (var bloco in fonte.CapturarAsync(limite.Token))
     {
+        if (pcm.Length == 0)
+        {
+            // O dispositivo leva um tempo para abrir: o prazo só conta a partir do primeiro áudio.
+            limite.CancelAfter(TimeSpan.FromSeconds(segundos));
+            Console.WriteLine("  >>> Gravando: pode falar.");
+        }
+
         pcm.Write(bloco.Span);
         for (var i = 0; i + 1 < bloco.Length; i += 2)
         {

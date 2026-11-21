@@ -4,7 +4,7 @@
     reconhecimento da sua fala (transcritor avaliar-fala).
 
 .DESCRIPTION
-    Para cada frase: mostra o texto, espera Enter, grava alguns segundos e salva em dados/gravacoes/<id>.wav
+    Para cada frase: mostra o texto, espera Enter, avisa quando começou a gravar, grava alguns segundos e salva em dados/gravacoes/<id>.wav
     (a pasta dados/ não vai para o Git). Frases já gravadas são puladas, a não ser com -Regravar.
     Fale com naturalidade, no seu ritmo e no lugar onde vai usar a lib; erros são justamente o que queremos medir.
 
@@ -47,10 +47,18 @@ foreach ($f in $lista) {
     Write-Host ''
     Write-Host "[$n/$($lista.Count)] $($f.id) ($($f.idioma)) - $segundos s" -ForegroundColor Cyan
     Write-Host "    $($f.texto)" -ForegroundColor White
-    Read-Host '    Enter para gravar (Ctrl+C sai)' | Out-Null
-    & dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- captura --fonte Microfone --segundos $segundos --wav $wav | Out-Null
+    Read-Host '    Enter para gravar (Ctrl+C sai); espere aparecer "Gravando: pode falar"' | Out-Null
+    # Mostra só o aviso de início: falar antes dele corta a primeira palavra.
+    & dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- captura --fonte Microfone --segundos $segundos --wav $wav |
+        Where-Object { $_ -like '*>>>*' } | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
     if ($LASTEXITCODE -ne 0) { throw "A gravação de $($f.id) falhou." }
-    Write-Host "    Salvo: $wav" -ForegroundColor Green
+    # Pico do áudio: abaixo de ~10% o reconhecimento piora (aproxime-se ou suba o volume do microfone).
+    $bytes = [IO.File]::ReadAllBytes((Resolve-Path $wav))
+    $pico = 0
+    for ($i = 44; $i + 1 -lt $bytes.Length; $i += 2) { $pico = [math]::Max($pico, [math]::Abs([int][BitConverter]::ToInt16($bytes, $i))) }
+    $pct = [math]::Round(100 * $pico / 32767)
+    $cor = if ($pct -lt 10) { 'Yellow' } else { 'Green' }
+    Write-Host "    Salvo: $wav (pico $pct%$(if ($pct -lt 10) { ' - baixo: aproxime-se ou suba o volume do microfone' }))" -ForegroundColor $cor
 }
 
 Write-Host ''
