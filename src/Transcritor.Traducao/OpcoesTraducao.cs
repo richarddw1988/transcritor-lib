@@ -49,6 +49,12 @@ public sealed class OpcoesTraducao
     /// </summary>
     public string? CaminhoDicionario { get; set; }
 
+    /// <summary>
+    /// Termos com tradução fixa (nomes, títulos, termos técnicos), usados nas frases e na palavra solta.
+    /// Na configuração: <c>"Glossario": [ { "Origem": "en", "Termo": "Giant Peach", "Traducao": "Pêssego Gigante" } ]</c>.
+    /// </summary>
+    public IList<EntradaGlossario> Glossario { get; } = [];
+
     /// <summary>Arquivo do cache de palavras.</summary>
     public string CaminhoCachePalavras { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Transcritor", "cache", "palavras.json");

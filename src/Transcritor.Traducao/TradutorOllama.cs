@@ -25,7 +25,8 @@ internal sealed class TradutorOllama(
     public string NomeServico => ClienteOllama.Nome;
 
     public string Identificador =>
-        $"ollama:{_opcoes.ModeloFrases}:p{Prompts.Versao}:c{_opcoes.FrasesAntes}-{_opcoes.FrasesDepois}";
+        $"ollama:{_opcoes.ModeloFrases}:p{Prompts.Versao}:c{_opcoes.FrasesAntes}-{_opcoes.FrasesDepois}" +
+        (Glossario.Assinatura(_opcoes.Glossario) is { Length: > 0 } g ? $":g{g}" : string.Empty);
 
     public Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken) =>
         TraduzirComModeloAsync(pedido, ModeloTempoReal, cancellationToken);
@@ -42,16 +43,35 @@ internal sealed class TradutorOllama(
             return pedido.Texto;
         }
 
+        var termos = Glossario.Achar(_opcoes.Glossario, pedido.Texto, pedido.Origem);
+        var dica = Glossario.Dica(termos);
+        var traducao = await TraduzirUmaVezAsync(pedido, modelo, dica, cancellationToken).ConfigureAwait(false);
+        if (termos.Count > 0 && !Glossario.Respeitado(traducao, termos))
+        {
+            // O modelo ignorou a dica: tenta com o termo já trocado no texto, sem as vizinhas (que ainda têm o original).
+            var trocado = pedido with { Texto = Glossario.Substituir(pedido.Texto, termos), Anteriores = [], Seguintes = [] };
+            var segunda = await TraduzirUmaVezAsync(trocado, modelo, dica, cancellationToken).ConfigureAwait(false);
+            if (Glossario.Respeitado(segunda, termos))
+            {
+                traducao = segunda;
+            }
+        }
+
+        return traducao;
+    }
+
+    private async Task<string> TraduzirUmaVezAsync(PedidoTraducaoFrase pedido, string modelo, string dica, CancellationToken cancellationToken)
+    {
         if (Prompts.EhTranslateGemma(modelo))
         {
-            var mensagem = Prompts.TranslateGemma(pedido, comContexto: true);
+            var mensagem = Prompts.TranslateGemma(pedido, comContexto: true, dica);
             var resposta = await ollama.ConversarAsync(modelo, [mensagem], null, Prompts.MaxTokens(mensagem.Conteudo), cancellationToken)
                 .ConfigureAwait(false);
             var traducao = Prompts.TemContexto(pedido) ? Prompts.RecortarAlvo(resposta, pedido.Texto) : resposta;
             if (traducao is null)
             {
                 // Tags perdidas ou recorte com frases vizinhas: traduz só a frase, sem contexto.
-                var semContexto = Prompts.TranslateGemma(pedido, comContexto: false);
+                var semContexto = Prompts.TranslateGemma(pedido, comContexto: false, dica);
                 traducao = await ollama.ConversarAsync(modelo, [semContexto], null, Prompts.MaxTokens(semContexto.Conteudo), cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -59,7 +79,7 @@ internal sealed class TradutorOllama(
             return Prompts.Limpar(traducao, pedido.Texto);
         }
 
-        var mensagens = Prompts.FraseInstrucao(pedido);
+        var mensagens = Prompts.FraseInstrucao(pedido, dica);
         var json = await ollama.ConversarAsync(
             modelo, mensagens, Prompts.EsquemaTraducao, Prompts.MaxTokens(mensagens[^1].Conteudo), cancellationToken).ConfigureAwait(false);
         return Prompts.Limpar(Prompts.LerJsonTraducao(json), pedido.Texto);
@@ -100,6 +120,11 @@ internal sealed class TradutorOllama(
         if (string.IsNullOrWhiteSpace(pedido.Palavra) || MesmoIdioma(pedido.Origem, pedido.Destino))
         {
             return pedido.Palavra;
+        }
+
+        if (Glossario.TraducaoExata(_opcoes.Glossario, pedido.Palavra, pedido.Origem) is { } fixa)
+        {
+            return fixa;
         }
 
         var dicionario = fonteDicionario?.Dicionario;
@@ -199,6 +224,7 @@ internal sealed class TradutorOllama(
         var bruto = string.Join('\u001f',
             _opcoes.ModeloPalavras,
             comDicionario ? $"dic{VersaoDicionario}" : "sem-dic",
+            Glossario.Assinatura(_opcoes.Glossario),
             ModeloTempoReal,
             Prompts.Versao.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Idiomas.Normalizar(pedido.Origem),

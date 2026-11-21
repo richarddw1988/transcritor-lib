@@ -40,7 +40,10 @@ internal static partial class Prompts
     /// Sem contexto o modelo traduzia "banco" como "bank" mesmo numa praça; com as frases na mesma linha,
     /// às vezes envolvia o trecho inteiro na tag quando o alvo era a primeira frase.
     /// </summary>
-    public static MensagemChat TranslateGemma(PedidoTraducaoFrase pedido, bool comContexto)
+    /// <param name="pedido">Frase e contexto.</param>
+    /// <param name="comContexto">Manda as vizinhas, com a frase-alvo entre tags.</param>
+    /// <param name="dicaGlossario">Frase do glossário (<see cref="Glossario.Dica"/>), acrescentada às instruções; vazia sem termos.</param>
+    public static MensagemChat TranslateGemma(PedidoTraducaoFrase pedido, bool comContexto, string dicaGlossario = "")
     {
         var (origem, codigoOrigem) = Lingua(pedido.Origem);
         var (destino, codigoDestino) = Lingua(pedido.Destino);
@@ -52,7 +55,7 @@ internal static partial class Prompts
             $"You are a professional {origem} ({codigoOrigem}) to {destino} ({codigoDestino}) translator. " +
             $"Your goal is to accurately convey the meaning and nuances of the original {origem} text while adhering to " +
             $"{destino} grammar, vocabulary, and cultural sensitivities. Produce only the {destino} translation, without any " +
-            $"additional explanations or commentary. Please translate the following {origem} text into {destino}:\n\n\n{texto}");
+            $"additional explanations or commentary.{dicaGlossario} Please translate the following {origem} text into {destino}:\n\n\n{texto}");
     }
 
     public static bool TemContexto(PedidoTraducaoFrase pedido) =>
@@ -98,7 +101,7 @@ internal static partial class Prompts
 
     // ---- Modelos de instrução (gemma3, qwen, llama...) --------------------
 
-    public static IReadOnlyList<MensagemChat> FraseInstrucao(PedidoTraducaoFrase pedido)
+    public static IReadOnlyList<MensagemChat> FraseInstrucao(PedidoTraducaoFrase pedido, string dicaGlossario = "")
     {
         var (origem, _) = Lingua(pedido.Origem);
         var (destino, _) = Lingua(pedido.Destino);
@@ -106,7 +109,7 @@ internal static partial class Prompts
             $"You are a {origem}-to-{destino} subtitle translator. The user sends JSON with the field \"frase\" (ONE sentence to translate) " +
             "and the fields \"antes\" and \"depois\" (neighbouring sentences, context ONLY - never translate or repeat them). " +
             $"Translate \"frase\" by meaning, as a native {destino} speaker would say it, using the context only to resolve ambiguity. " +
-            "Do not add or remove information. Reply with JSON {\"traducao\": \"<translation of frase only>\"}.";
+            "Do not add or remove information. Reply with JSON {\"traducao\": \"<translation of frase only>\"}." + dicaGlossario;
         var usuario = JsonSerializer.Serialize(new { antes = pedido.Anteriores, frase = pedido.Texto, depois = pedido.Seguintes }, JsonUsuario);
         return [new MensagemChat("system", sistema), new MensagemChat("user", usuario)];
     }

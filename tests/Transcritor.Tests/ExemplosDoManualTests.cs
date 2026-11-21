@@ -25,6 +25,8 @@ public class ExemplosDoManualTests
         services.AddTranscritorTempoReal();
         services.AddTranscritorCaptura();
         services.AddTranscritorTraducao(o => o.OllamaUrl = new Uri("http://outra-maquina:11434"));
+        services.AddTranscritorTraducao(o =>
+            o.Glossario.Add(new EntradaGlossario { Origem = "en", Termo = "Giant Peach", Traducao = "Pêssego Gigante" }));
         using var sp = services.BuildServiceProvider();
 
         Assert.NotNull(sp.GetRequiredService<ITranscritorArquivo>());

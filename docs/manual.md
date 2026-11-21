@@ -290,6 +290,11 @@ string frase = await tradutor.TraduzirFraseAsync(
 string palavra = await tradutor.TraduzirPalavraAsync(
     new PedidoTraducaoPalavra("banco", Frase: "O banco foi pintado de azul.", Origem: "pt", Destino: "en", TraducaoDaFrase: "The bench was painted blue."), ct);
 ```
+Termos com tradução fixa (glossário, seção 6) também podem ir no código:
+```csharp
+services.AddTranscritorTraducao(o =>
+    o.Glossario.Add(new EntradaGlossario { Origem = "en", Termo = "Giant Peach", Traducao = "Pêssego Gigante" }));
+```
 
 ### 5.3 Tempo real
 ```csharp
@@ -363,6 +368,22 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `KeepAlive` | `10m` | Quanto o Ollama mantém o modelo na memória |
 | `Timeout` | `00:05:00` | Tempo máximo de uma chamada |
 | `CaminhoCachePalavras` | `%LOCALAPPDATA%\Transcritor\cache\palavras.json` | Cache de palavras |
+| `Glossario` | vazio | Termos com tradução fixa (nomes, títulos, termos técnicos), cada um com `Origem` (pt ou en), `Termo` e `Traducao`. Ver abaixo |
+
+Glossário — exemplo no `appsettings.json`:
+```json
+"Glossario": [
+  { "Origem": "en", "Termo": "Giant Peach", "Traducao": "Pêssego Gigante" },
+  { "Origem": "en", "Termo": "Aunt Sponge", "Traducao": "Tia Esponja" }
+]
+```
+- Vale nas frases (arquivo e tempo real) e na palavra solta. O termo é procurado como palavra inteira, sem diferenciar
+  maiúsculas; havendo sobreposição, o mais longo vence ("Aunt Spiker" antes de "Spiker").
+- A frase com termo vai ao modelo com a instrução de usar a tradução fixa. Se a tradução não trouxer o termo, a lib
+  traduz de novo com o termo já trocado no texto; se ainda assim não vier, fica a 1ª tradução.
+- Palavra pedida igual a um termo (ex.: `palavra "Giant Peach"`) devolve a tradução fixa sem chamar o modelo.
+- Mudar o glossário invalida o cache de tradução dos arquivos e das palavras.
+- Por variável de ambiente: `TRANSCRITOR_Transcritor__Traducao__Glossario__0__Termo=Giant Peach` (e `__Origem`, `__Traducao`).
 
 **`Transcritor:TempoReal`**
 
