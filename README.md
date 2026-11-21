@@ -51,6 +51,7 @@ que faltam e roda `transcritor servicos`. Pode rodar quantas vezes quiser; só f
 ```
 
 - Na 1ª vez baixa ~40 GB (imagem do WhisperLiveKit 22 GB, Speaches 8 GB, Ollama, modelos) e leva de 20 a 60 min.
+- `-ComAnaliseDeSentido` também baixa o modelo da análise de sentido (`gemma3:12b`, ~8 GB).
 - `-SoConferir` só confere, sem baixar nada; `-SemTempoReal` dispensa o WhisperLiveKit (arquivo e tradução continuam).
 - Outros modelos: `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloPalavras` (ponha os mesmos no `appsettings.json`).
 - Se o PowerShell bloquear o script: `powershell -ExecutionPolicy Bypass -File .\scripts\preparar-ambiente.ps1`.
@@ -69,6 +70,7 @@ que faltam e roda `transcritor servicos`. Pode rodar quantas vezes quiser; só f
 dotnet test
 dotnet run --project src/Transcritor.Cli -- servicos
 dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida Ambos
+dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida Ambos --sentido
 dotnet run --project src/Transcritor.Cli -- traduzir "O banco fecha às quatro." --de pt --para en --antes "Preciso pagar contas."
 dotnet run --project src/Transcritor.Cli -- palavra banco --frase "O banco foi pintado de azul." --de pt --para en
 dotnet run --project src/Transcritor.Cli -- captura --fonte Microfone --segundos 5
@@ -78,6 +80,7 @@ dotnet run --project src/Transcritor.Cli -- simular C:\videos\aula.mp4 --saida A
 ```
 
 Tempo real: medidas e limites em [docs/etapa-3.md](docs/etapa-3.md).
+Blocos de sentido (expressões) e "o que quis dizer" no JSON: [docs/etapa-4.md](docs/etapa-4.md).
 
 Rodar `arquivo` de novo no mesmo arquivo responde do cache, sem chamar ffmpeg nem Speaches.
 Configuração em `src/Transcritor.Cli/appsettings.json` ou variáveis `TRANSCRITOR_Transcritor__Arquivo__SpeachesUrl` etc.

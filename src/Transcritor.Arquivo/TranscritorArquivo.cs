@@ -18,7 +18,8 @@ public sealed class TranscritorArquivo(
     IMotorTranscricao motor,
     ICacheResultado cache,
     IOptions<OpcoesArquivo> opcoes,
-    ITradutor? tradutor = null) : ITranscritorArquivo
+    ITradutor? tradutor = null,
+    IAnalisadorSentido? analisador = null) : ITranscritorArquivo
 {
     private readonly OpcoesArquivo _opcoes = opcoes.Value;
 
@@ -68,6 +69,21 @@ public sealed class TranscritorArquivo(
             }
 
             resultado = traduzido;
+
+            // Análise de sentido (opcional): precisa da tradução pronta.
+            if (analisador is { Ativo: true })
+            {
+                var chaveAnalise = $"{chaveTraducao}.sent.{analisador.Identificador}".Replace('/', '_');
+                var analisado = await cache.LerAsync(chaveAnalise, cancellationToken).ConfigureAwait(false);
+                if (analisado is null)
+                {
+                    tudoDoCache = false;
+                    analisado = await AnalisarAsync(analisador, traduzido, destino, progresso, cancellationToken).ConfigureAwait(false);
+                    await cache.GravarAsync(chaveAnalise, analisado, cancellationToken).ConfigureAwait(false);
+                }
+
+                resultado = analisado;
+            }
         }
 
         progresso?.Report(new(EtapaProcessamento.GravandoResultado));
@@ -150,6 +166,40 @@ public sealed class TranscritorArquivo(
 
         var frases = transcricao.Frases.Select((f, i) => f with { Traducao = traducoes[i] }).ToList();
         return transcricao with { Frases = frases };
+    }
+
+    private static async Task<ResultadoTranscricao> AnalisarAsync(
+        IAnalisadorSentido analisador,
+        ResultadoTranscricao traduzido,
+        string destino,
+        IProgress<ProgressoProcessamento>? progresso,
+        CancellationToken cancellationToken)
+    {
+        progresso?.Report(new(EtapaProcessamento.AnalisandoSentido, 0));
+        var frases = traduzido.Frases;
+        var analisadas = new List<Frase>(frases.Count);
+        for (var i = 0; i < frases.Count; i++)
+        {
+            var f = frases[i];
+            if (string.IsNullOrWhiteSpace(f.Traducao) || f.Palavras.Count == 0)
+            {
+                analisadas.Add(f);
+                continue;
+            }
+
+            var pedido = new PedidoAnaliseFrase(
+                f.Palavras.Select(p => p.Texto).ToList(),
+                f.Traducao,
+                traduzido.Arquivo.Idioma,
+                destino,
+                frases.Skip(Math.Max(0, i - 2)).Take(Math.Min(i, 2)).Select(x => x.Texto).ToList(),
+                frases.Skip(i + 1).Take(1).Select(x => x.Texto).ToList());
+            var analise = await analisador.AnalisarAsync(pedido, cancellationToken).ConfigureAwait(false);
+            analisadas.Add(f with { Sentido = analise.Sentido, Blocos = analise.Blocos });
+            progresso?.Report(new(EtapaProcessamento.AnalisandoSentido, (i + 1) * 100d / frases.Count));
+        }
+
+        return traduzido with { Frases = analisadas };
     }
 
     private static double? Percentual(double segundos, double duracao) =>

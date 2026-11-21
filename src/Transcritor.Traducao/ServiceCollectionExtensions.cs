@@ -30,6 +30,10 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<TradutorOllama>();
         services.TryAddTransient<ITradutor>(sp => sp.GetRequiredService<TradutorOllama>());
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<TradutorOllama>());
+
+        services.TryAddTransient<Analise.AnalisadorOllama>();
+        services.TryAddTransient<IAnalisadorSentido>(sp => sp.GetRequiredService<Analise.AnalisadorOllama>());
+        services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<Analise.AnalisadorOllama>());
         return services;
     }
 }

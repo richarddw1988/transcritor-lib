@@ -27,6 +27,12 @@
 .PARAMETER ModeloPalavras
     Modelo do Ollama para palavra solta (Transcritor:Traducao:ModeloPalavras).
 
+.PARAMETER ComAnaliseDeSentido
+    Também baixa o modelo da análise de sentido (blocos e "o que quis dizer"; ~8 GB).
+
+.PARAMETER ModeloAnalise
+    Modelo do Ollama para a análise de sentido (Transcritor:Traducao:ModeloAnalise).
+
 .EXAMPLE
     .\scripts\preparar-ambiente.ps1
 .EXAMPLE
@@ -41,6 +47,8 @@ param(
     [string] $ModeloTranscricao = 'Systran/faster-whisper-large-v3',
     [string] $ModeloFrases = 'translategemma:4b',
     [string] $ModeloPalavras = 'gemma3:4b',
+    [switch] $ComAnaliseDeSentido,
+    [string] $ModeloAnalise = 'gemma3:12b',
     [string] $SpeachesUrl = 'http://localhost:8000',
     [string] $OllamaUrl = 'http://localhost:11434',
     [string] $WhisperLiveKitUrl = 'http://localhost:8001'
@@ -195,7 +203,9 @@ if ($speachesNoAr) {
 
 if ($ollamaNoAr) {
     $instalados = (Obter-Json "$OllamaUrl/api/tags").models.name
-    foreach ($modelo in @($ModeloFrases, $ModeloPalavras) | Select-Object -Unique) {
+    $modelosOllama = @($ModeloFrases, $ModeloPalavras)
+    if ($ComAnaliseDeSentido) { $modelosOllama += $ModeloAnalise }
+    foreach ($modelo in $modelosOllama | Select-Object -Unique) {
         $nome = if ($modelo.Contains(':')) { $modelo } else { "${modelo}:latest" }
         if ($instalados -contains $nome) { Escrever-Ok "Ollama: $modelo" }
         elseif ($SoConferir) { Escrever-Falha "Ollama sem o modelo $modelo" }
@@ -218,6 +228,10 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
         $env:TRANSCRITOR_Transcritor__Arquivo__ModeloTranscricao = $ModeloTranscricao
         $env:TRANSCRITOR_Transcritor__Traducao__ModeloFrases = $ModeloFrases
         $env:TRANSCRITOR_Transcritor__Traducao__ModeloPalavras = $ModeloPalavras
+        if ($ComAnaliseDeSentido) {
+            $env:TRANSCRITOR_Transcritor__Traducao__AnalisarSentido = 'true'
+            $env:TRANSCRITOR_Transcritor__Traducao__ModeloAnalise = $ModeloAnalise
+        }
         & dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'transcritor servicos apontou problemas (acima).' }
     }

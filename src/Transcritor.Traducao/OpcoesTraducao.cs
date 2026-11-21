@@ -12,6 +12,15 @@ public sealed class OpcoesTraducao
     /// <summary>Modelo para palavra solta no contexto da frase.</summary>
     public string ModeloPalavras { get; set; } = "gemma3:4b";
 
+    /// <summary>
+    /// Liga a análise de sentido no processamento de arquivos (blocos e "o que quis dizer" em cada frase).
+    /// Desligada por padrão: com o gemma3:12b custa ~13 s por frase.
+    /// </summary>
+    public bool AnalisarSentido { get; set; }
+
+    /// <summary>Modelo para unidades de sentido e "o que quis dizer" (análise do arquivo).</summary>
+    public string ModeloAnalise { get; set; } = "gemma3:12b";
+
     /// <summary>Quantas frases anteriores vão como contexto.</summary>
     public int FrasesAntes { get; set; } = 2;
 

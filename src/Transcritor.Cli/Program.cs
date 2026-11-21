@@ -27,9 +27,11 @@ var optSaida = new Option<Saida>("--saida")
     DefaultValueFactory = _ => Saida.Ambos,
 };
 
+var optSentido = new Option<bool>("--sentido") { Description = "Também gera blocos (expressões) e o que quis dizer em cada frase (lento: ~13 s/frase com gemma3:12b)." };
+
 var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um arquivo e grava o JSON com frases e palavras.")
 {
-    argCaminho, optSaida, optModelo, optIdioma, optJson,
+    argCaminho, optSaida, optModelo, optIdioma, optJson, optSentido,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
@@ -38,12 +40,18 @@ cmdArquivo.SetAction(async (resultado, ct) =>
     var modelo = resultado.GetValue(optModelo);
     var idioma = resultado.GetValue(optIdioma);
     var json = resultado.GetValue(optJson);
+    var sentido = resultado.GetValue(optSentido);
 
-    using var sp = CriarServicos(o =>
-    {
-        if (!string.IsNullOrWhiteSpace(modelo)) o.ModeloTranscricao = modelo;
-        if (!string.IsNullOrWhiteSpace(idioma)) o.Idioma = idioma;
-    });
+    using var sp = CriarServicos(
+        o =>
+        {
+            if (!string.IsNullOrWhiteSpace(modelo)) o.ModeloTranscricao = modelo;
+            if (!string.IsNullOrWhiteSpace(idioma)) o.Idioma = idioma;
+        },
+        t =>
+        {
+            if (sentido) t.AnalisarSentido = true;
+        });
 
     return await Executar(async () =>
     {
@@ -72,9 +80,26 @@ cmdArquivo.SetAction(async (resultado, ct) =>
         {
             Console.WriteLine($"  [{f.Inicio,8:F2} → {f.Fim,8:F2}] {f.Texto}");
             if (f.Traducao is not null) Console.WriteLine($"  {"",21} {f.Traducao}");
+            if (f.Sentido is not null) Console.WriteLine($"  {"",21} sentido: {f.Sentido}");
+            foreach (var b in (f.Blocos ?? []).Where(b => b.Tipo != TipoBloco.Literal || b.Nota is not null))
+            {
+                Console.WriteLine($"  {"",21} [{b.Tipo}] {b.Texto} → {b.Traducao}{(b.Nota is null ? "" : "  (" + b.Nota + ")")}");
+            }
         }
 
         if (r.Frases.Count > 5) Console.WriteLine($"  ... mais {r.Frases.Count - 5} frases");
+
+        var comBlocos = r.Frases.Where(f => f.Blocos is not null).ToList();
+        if (comBlocos.Count > 0)
+        {
+            var blocos = comBlocos.SelectMany(f => f.Blocos!).ToList();
+            var cobertas = comBlocos.Sum(f => f.Blocos!.Sum(b => b.PalavraFinal - b.PalavraInicial + 1));
+            Console.WriteLine();
+            Console.WriteLine($"Análise:  {blocos.Count} blocos ({blocos.Count(b => b.Tipo != TipoBloco.Literal)} expressões/phrasal/colocações/nomes, " +
+                $"{blocos.Count(b => b.Nota is not null)} com nota); palavras cobertas {cobertas}/{comBlocos.Sum(f => f.Palavras.Count)}; " +
+                $"tradução do bloco achada na frase {blocos.Count(b => comBlocos.Any(f => f.Blocos!.Contains(b) && f.Traducao!.Contains(b.Traducao, StringComparison.OrdinalIgnoreCase)))}/{blocos.Count}");
+        }
+
         return 0;
     });
 });
@@ -323,7 +348,7 @@ static async Task MostrarEventos(IAsyncEnumerable<EventoTempoReal> eventos)
 }
 
 // ---- apoio -----------------------------------------------------------------
-static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar)
+static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar, Action<OpcoesTraducao>? ajustarTraducao = null)
 {
     var config = new ConfigurationBuilder()
         .SetBasePath(AppContext.BaseDirectory)
@@ -342,6 +367,11 @@ static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar)
     if (ajustar is not null)
     {
         services.PostConfigure(ajustar);
+    }
+
+    if (ajustarTraducao is not null)
+    {
+        services.PostConfigure(ajustarTraducao);
     }
 
     return services.BuildServiceProvider();

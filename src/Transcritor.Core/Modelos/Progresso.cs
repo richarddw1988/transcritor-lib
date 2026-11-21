@@ -9,6 +9,7 @@ public enum EtapaProcessamento
     Transcrevendo,
     MontandoFrases,
     Traduzindo,
+    AnalisandoSentido,
     GravandoResultado,
     Concluido,
 }
