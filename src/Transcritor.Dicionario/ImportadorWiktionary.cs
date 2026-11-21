@@ -13,7 +13,8 @@ namespace Transcritor.Dicionario;
 /// <param name="Formas">Flexões ligadas à forma base ("gave" → "give").</param>
 /// <param name="TamanhoBytes">Tamanho do arquivo gerado.</param>
 /// <param name="Duracao">Tempo da importação.</param>
-public sealed record ResumoImportacao(long Traducoes, long Definicoes, long Formas, long TamanhoBytes, TimeSpan Duracao);
+/// <param name="ChavesFoneticas">Palavras com chave de pronúncia (para achar palavras de som parecido).</param>
+public sealed record ResumoImportacao(long Traducoes, long Definicoes, long Formas, long TamanhoBytes, TimeSpan Duracao, long ChavesFoneticas = 0);
 
 /// <summary>
 /// Gera o SQLite do dicionário a partir dos dumps JSONL do Wiktionary em inglês extraídos pelo wiktextract
@@ -28,7 +29,7 @@ public sealed record ResumoImportacao(long Traducoes, long Definicoes, long Form
 public static class ImportadorWiktionary
 {
     /// <summary>Formato do banco; <see cref="DicionarioSqlite.Abrir"/> recusa outro.</summary>
-    public const int VersaoFormato = 1;
+    public const int VersaoFormato = 3;
 
     private const int TamanhoMaximoDefinicao = 300;
 
@@ -84,7 +85,7 @@ public static class ImportadorWiktionary
         File.Delete(temporario);
 
         var conexaoTexto = new SqliteConnectionStringBuilder { DataSource = temporario, Pooling = false }.ToString();
-        long traducoes, definicoes, formas;
+        long traducoes, definicoes, formas, foneticas;
         await using (var conexao = new SqliteConnection(conexaoTexto))
         {
             await conexao.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -123,6 +124,9 @@ public static class ImportadorWiktionary
                 """);
             formas = Escalar(conexao, "SELECT COUNT(*) FROM forma");
 
+            progresso?.Report("calculando chaves de pronúncia");
+            foneticas = GerarFoneticas(conexao);
+
             using var info = conexao.CreateCommand();
             info.CommandText = "INSERT INTO info (chave, valor) VALUES ($c, $v)";
             var pc = info.Parameters.Add("$c", SqliteType.Text);
@@ -143,7 +147,7 @@ public static class ImportadorWiktionary
         }
 
         File.Move(temporario, destino, overwrite: true);
-        return new ResumoImportacao(traducoes, definicoes, formas, new FileInfo(destino).Length, relogio.Elapsed);
+        return new ResumoImportacao(traducoes, definicoes, formas, new FileInfo(destino).Length, relogio.Elapsed, foneticas);
     }
 
     private static async Task LerAsync(
@@ -176,6 +180,62 @@ public static class ImportadorWiktionary
         }
 
         progresso?.Report($"{nome}: {linhas:N0} verbetes lidos");
+    }
+
+    /// <summary>
+    /// Tabela fonetica: cada palavra (sem espaço) que tem verbete ou é flexão de uma que tem, com suas chaves de
+    /// pronúncia e quantos verbetes tem (aproximação de quão comum ela é, usada para ordenar as parecidas).
+    /// </summary>
+    private static long GerarFoneticas(SqliteConnection conexao)
+    {
+        Executar(conexao, """
+            CREATE TABLE fonetica (idioma TEXT NOT NULL, chave TEXT NOT NULL, termo TEXT NOT NULL, sentidos INTEGER NOT NULL,
+                PRIMARY KEY (idioma, chave, termo)) WITHOUT ROWID;
+            """);
+
+        var palavras = new List<(string Idioma, string Termo, long Sentidos)>();
+        using (var leitura = conexao.CreateCommand())
+        {
+            // Palavras com verbete e as flexões delas ("aunts" → "aunt"): o reconhecimento devolve a forma flexionada.
+            leitura.CommandText = """
+                SELECT origem, chave, COUNT(*) FROM verbete WHERE instr(chave, ' ') = 0 GROUP BY origem, chave
+                UNION ALL
+                SELECT f.idioma, f.chave, (SELECT COUNT(*) FROM verbete v WHERE v.origem = f.idioma AND v.chave = f.lema)
+                FROM forma f WHERE instr(f.chave, ' ') = 0
+                """;
+            using var leitor = leitura.ExecuteReader();
+            while (leitor.Read())
+            {
+                palavras.Add((leitor.GetString(0), leitor.GetString(1), leitor.GetInt64(2)));
+            }
+        }
+
+        long linhas = 0;
+        using var transacao = conexao.BeginTransaction();
+        using var cmd = conexao.CreateCommand();
+        cmd.Transaction = transacao;
+        cmd.CommandText = "INSERT OR IGNORE INTO fonetica (idioma, chave, termo, sentidos) VALUES ($i, $c, $t, $s)";
+        var pi = cmd.Parameters.Add("$i", SqliteType.Text);
+        var pc = cmd.Parameters.Add("$c", SqliteType.Text);
+        var pt = cmd.Parameters.Add("$t", SqliteType.Text);
+        var ps = cmd.Parameters.Add("$s", SqliteType.Integer);
+        foreach (var (idioma, termo, sentidos) in palavras)
+        {
+            var chaves = ChaveFonetica.Calcular(termo, idioma);
+            foreach (var chave in chaves)
+            {
+                pi.Value = idioma;
+                pc.Value = chave;
+                pt.Value = termo;
+                ps.Value = sentidos;
+                cmd.ExecuteNonQuery();
+            }
+
+            linhas += chaves.Count > 0 ? 1 : 0;
+        }
+
+        transacao.Commit();
+        return linhas;
     }
 
     private static void Executar(SqliteConnection conexao, string sql)

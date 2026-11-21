@@ -379,7 +379,8 @@ cmdImportar.SetAction(async (resultado, ct) => await Executar(async () =>
         ct);
     Console.WriteLine(
         $"Pronto em {resumo.Duracao.TotalSeconds:F0} s: {resumo.Traducoes:N0} traduções, {resumo.Definicoes:N0} definições, " +
-        $"{resumo.Formas:N0} flexões; {resumo.TamanhoBytes / 1024d / 1024d:F0} MB em {resultado.GetValue(optBanco)!.FullName}");
+        $"{resumo.Formas:N0} flexões, {resumo.ChavesFoneticas:N0} palavras com chave de pronúncia; " +
+        $"{resumo.TamanhoBytes / 1024d / 1024d:F0} MB em {resultado.GetValue(optBanco)!.FullName}");
     return 0;
 }));
 
@@ -406,9 +407,31 @@ cmdProcurar.SetAction(async (resultado, ct) => await Executar(() =>
     return Task.FromResult(verbetes.Count > 0 ? 0 : 3);
 }));
 
+var argParecida = new Argument<string>("palavra") { Description = "Palavra como foi reconhecida (ex.: arts)." };
+var optIdiomaDic = new Option<string>("--idioma") { Description = "Idioma da palavra: pt ou en.", Required = true };
+var optMaximo = new Option<int>("--maximo") { Description = "Quantas palavras mostrar.", DefaultValueFactory = _ => 10 };
+var cmdParecidas = new Command("parecidas", "Palavras do dicionário que soam parecido (para corrigir erro de reconhecimento de fala).")
+{
+    argParecida, optIdiomaDic, optMaximo, optBanco,
+};
+cmdParecidas.SetAction(async (resultado, ct) => await Executar(() =>
+{
+    using var dicionario = DicionarioSqlite.Abrir(resultado.GetValue(optBanco)!.FullName);
+    var relogio = Stopwatch.StartNew();
+    var parecidas = dicionario.ProcurarParecidas(resultado.GetValue(argParecida)!, resultado.GetValue(optIdiomaDic)!, resultado.GetValue(optMaximo));
+    var tempo = relogio.Elapsed;
+    foreach (var p in parecidas)
+    {
+        Console.WriteLine($"{p.Termo,-20} pronúncia {p.DistanciaPronuncia}  escrita {p.DistanciaEscrita}  verbetes {p.Sentidos}");
+    }
+
+    Console.Error.WriteLine($"({parecidas.Count} palavras, {tempo.TotalMilliseconds:F1} ms, inclui carregar as chaves na 1ª consulta)");
+    return Task.FromResult(parecidas.Count > 0 ? 0 : 3);
+}));
+
 var cmdDicionario = new Command("dicionario", "Dicionário inglês ↔ português local (Wiktionary em SQLite).")
 {
-    cmdImportar, cmdProcurar,
+    cmdImportar, cmdProcurar, cmdParecidas,
 };
 
 var raiz = new RootCommand("Cli de teste da Transcritor lib.")

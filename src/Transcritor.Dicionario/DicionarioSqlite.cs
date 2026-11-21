@@ -103,6 +103,95 @@ public sealed class DicionarioSqlite : IDisposable
 
     public void Dispose() => SqliteConnection.ClearAllPools();
 
+    /// <summary>
+    /// Palavras do dicionário que soam parecido com <paramref name="palavra"/> (chave de pronúncia igual ou a uma letra
+    /// de distância), para corrigir uma palavra que o reconhecimento de fala ouviu errado ("arts" → "aunts", "ants").
+    /// Ordem: menor soma das distâncias de pronúncia e de escrita, depois pronúncia mais próxima, depois a mais comum
+    /// (mais verbetes). A própria palavra não entra. Palavras soltas que têm verbete e as flexões delas.
+    /// </summary>
+    /// <param name="palavra">Palavra como foi reconhecida.</param>
+    /// <param name="idioma">Idioma da palavra: pt ou en.</param>
+    /// <param name="maximo">Teto de resultados.</param>
+    public IReadOnlyList<Parecida> ProcurarParecidas(string palavra, string idioma, int maximo = 10)
+    {
+        ArgumentNullException.ThrowIfNull(palavra);
+        var i = Idiomas.Normalizar(idioma);
+        var termo = Chave(palavra);
+        var chaves = ChaveFonetica.Calcular(termo, i);
+        if (chaves.Count == 0 || maximo <= 0)
+        {
+            return [];
+        }
+
+        // Chaves próximas: comparação em memória (são poucas dezenas de milhares por idioma, de até 4 letras no inglês).
+        var proximas = _chavesPorIdioma.GetOrAdd(i, CarregarChaves)
+            .Select(c => (Chave: c, Distancia: chaves.Min(q => ChaveFonetica.Distancia(q, c))))
+            .Where(c => c.Distancia <= 1)
+            .ToDictionary(c => c.Chave, c => c.Distancia, StringComparer.Ordinal);
+        if (proximas.Count == 0)
+        {
+            return [];
+        }
+
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        var nomes = proximas.Keys.Select((_, n) => $"$k{n}").ToList();
+        cmd.CommandText = $"SELECT chave, termo, sentidos FROM fonetica WHERE idioma = $i AND chave IN ({string.Join(',', nomes)})";
+        cmd.Parameters.AddWithValue("$i", i);
+        foreach (var (nome, chave) in nomes.Zip(proximas.Keys))
+        {
+            cmd.Parameters.AddWithValue(nome, chave);
+        }
+
+        var achadas = new Dictionary<string, Parecida>(StringComparer.Ordinal);
+        using (var leitor = cmd.ExecuteReader())
+        {
+            while (leitor.Read())
+            {
+                var t = leitor.GetString(1);
+                if (t == termo)
+                {
+                    continue;
+                }
+
+                var nova = new Parecida(t, proximas[leitor.GetString(0)], ChaveFonetica.Distancia(termo, t), leitor.GetInt32(2));
+                if (!achadas.TryGetValue(t, out var atual) || nova.DistanciaPronuncia < atual.DistanciaPronuncia)
+                {
+                    achadas[t] = nova;
+                }
+            }
+        }
+
+        return achadas.Values
+            .OrderBy(p => p.DistanciaPronuncia + p.DistanciaEscrita)
+            .ThenBy(p => p.DistanciaPronuncia)
+            .ThenByDescending(p => p.Sentidos)
+            .ThenBy(p => p.Termo, StringComparer.Ordinal)
+            .Take(maximo)
+            .ToList();
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<string>> _chavesPorIdioma =
+        new(StringComparer.Ordinal);
+
+    private IReadOnlyList<string> CarregarChaves(string idioma)
+    {
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        cmd.CommandText = "SELECT DISTINCT chave FROM fonetica WHERE idioma = $i";
+        cmd.Parameters.AddWithValue("$i", idioma);
+        var chaves = new List<string>();
+        using var leitor = cmd.ExecuteReader();
+        while (leitor.Read())
+        {
+            chaves.Add(leitor.GetString(0));
+        }
+
+        return chaves;
+    }
+
     /// <summary>Formas base de uma flexão ("gave" → "give"); vazio se o termo não é flexão conhecida.</summary>
     internal IReadOnlyList<string> Lemas(string termo, string idioma)
     {

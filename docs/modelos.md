@@ -138,6 +138,25 @@ ambíguas, 22 en → pt e 10 pt → en), RTX 3060:
 - Conjunto pequeno e as regras foram ajustadas nele: os números indicam a direção, não a precisão. Ampliar o
   conjunto antes de outras mudanças.
 
+### Palavras de som parecido (chave de pronúncia)
+
+Para corrigir palavra que o reconhecimento de fala ouviu errado. Cada palavra do dicionário e suas flexões ganha
+uma chave de pronúncia (Double Metaphone no inglês, biblioteca Phonix; Metaphone pt-BR, biblioteca MetaphonePtBr);
+`ProcurarParecidas` devolve as de chave igual ou a uma letra, ordenadas pela soma das distâncias de pronúncia e de
+escrita e pela quantidade de verbetes. Medido em 2026-11-21:
+
+| Item | Valor |
+|---|---|
+| Palavras com chave | 495.880 (com as flexões); importação passou de 27 s para 32 s; banco continua com ~60 MB |
+| Consulta | 5,8 ms (inglês) e 11 ms (português) com as chaves em memória; a 1ª consulta carrega as chaves (~50–150 ms) |
+| Posição da palavra certa em 20 pares de confusão montados à mão (12 en, 8 pt: "wright" → "right", "xuva" → "chuva"…) | 1º lugar em 8/20; até o 5º em 16/20; até o 15º em 18/20 |
+
+- Fora dos 15: "arts" → "aunts" (chave a 1 letra, mas escrita a 2 e dezenas de palavras mais próximas, como "parts",
+  "warts") e "pesego" → "pêssego". Só a pronúncia não decide: a escolha final precisa do contexto da frase (LLM) ou de
+  ouvir o trecho de novo.
+- Os pares não são erros reais do Whisper; falta medir com gravações do usuário.
+- Sem frequência de uso real: "mais comum" é aproximado pela quantidade de verbetes.
+
 ## Requisitos de hardware e software (testado)
 
 | Item | Testado com | Mínimo recomendado |

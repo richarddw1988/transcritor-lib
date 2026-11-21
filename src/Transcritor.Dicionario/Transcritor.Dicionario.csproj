@@ -7,6 +7,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- Chaves fonéticas: Double Metaphone (Apache 2.0) e Metaphone pt-BR (MIT). -->
+    <PackageReference Include="Phonix" />
+    <PackageReference Include="MetaphonePtBr" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Transcritor.Tests" />

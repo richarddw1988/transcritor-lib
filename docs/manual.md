@@ -206,6 +206,17 @@ serviços. A pasta `dados/` não vai para o Git.
    Mostra cada sentido com a classe e o sentido em inglês, por exemplo `give (de give) · verbo: dar [transfer the
    possession of something to someone else]`. Aceita expressões (`"give up"`, `"call it a day"`). Maiúsculas e
    pontuação em volta são ignoradas. No inglês, sem verbete para o possessivo, procura sem o `'s` ("nation's").
+3. Palavras de som parecido (para corrigir o que o reconhecimento de fala ouviu errado):
+   ```powershell
+   dotnet run --project src/Transcritor.Cli -- dicionario parecidas weather --idioma en
+   ```
+   Lista palavras do dicionário (e flexões) com chave de pronúncia igual ou a uma letra de distância, ordenadas pela
+   soma das distâncias de pronúncia e de escrita e, no empate, pelas mais comuns. `--maximo` muda quantas aparecem
+   (padrão 10). Pronúncia: Double Metaphone no inglês (biblioteca Phonix, Apache 2.0) e Metaphone pt-BR no português
+   (biblioteca MetaphonePtBr, MIT).
+
+Dicionário gerado por uma versão anterior da lib é recusado com a mensagem de gerar de novo: rode
+`transcritor dicionario importar` (os dumps baixados continuam valendo).
 
 O que tem e quanto custa: [modelos.md](modelos.md#dicionário-local-wiktionary).
 
@@ -325,6 +336,8 @@ foreach (var v in sentidos)
   explicada em inglês, ex.: "pêssego" → "peach (fruit)"). As traduções vêm antes das definições.
 - Arquivo ausente ou de outra versão: `FileNotFoundException`, com o comando para gerar.
 - Para gerar pelo código: `ImportadorWiktionary.ImportarAsync(jsonlIngles, jsonlPortugues, caminhoBanco)`.
+- Palavras de som parecido: `dicionario.ProcurarParecidas("weather", "en")` devolve `Parecida(Termo, DistanciaPronuncia,
+  DistanciaEscrita, Sentidos)` — ex.: `feather`, `whether`, `water`…; a própria palavra não entra.
 
 ### 5.5 Erros
 Todos herdam de `TranscritorException`:
