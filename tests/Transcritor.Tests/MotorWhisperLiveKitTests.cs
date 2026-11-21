@@ -12,7 +12,7 @@ namespace Transcritor.Tests;
 
 /// <summary>Servidor falso: manda "config", responde a cada bloco de áudio com a próxima mensagem do roteiro e,
 /// quando recebe o frame vazio, manda o resto do roteiro e "ready_to_stop".</summary>
-internal sealed class FakeConexaoWlk(IReadOnlyList<string> roteiro, bool usaPcm = true, Exception? erroAoConectar = null) : IConexaoWebSocket
+internal sealed class FakeConexaoWlk(IReadOnlyList<string> roteiro, bool usaPcm = true, Exception? erroAoConectar = null, bool contextoSuportado = true) : IConexaoWebSocket
 {
     private readonly Channel<string?> _saida = Channel.CreateUnbounded<string?>();
     private int _proxima;
@@ -29,7 +29,7 @@ internal sealed class FakeConexaoWlk(IReadOnlyList<string> roteiro, bool usaPcm 
         }
 
         Uri = uri;
-        _saida.Writer.TryWrite($$"""{"type":"config","useAudioWorklet":{{(usaPcm ? "true" : "false")}},"mode":"full"}""");
+        _saida.Writer.TryWrite("{\"type\":\"config\",\"useAudioWorklet\":" + (usaPcm ? "true" : "false") + ",\"mode\":\"full\",\"context\":{\"supported\":" + (contextoSuportado ? "true" : "false") + ",\"maxCharacters\":1000}}");
         return Task.CompletedTask;
     }
 
@@ -140,6 +140,44 @@ public class MotorWhisperLiveKitTests
         await Coletar(Criar(conexao).TranscreverAsync(Audio(1), new OpcoesSessaoTempoReal("pt-BR"), CancellationToken.None));
 
         Assert.Contains("language=pt", conexao.Uri!.Query, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Contexto_vai_na_url_escapado()
+    {
+        var conexao = new FakeConexaoWlk([]);
+        await Coletar(Criar(conexao).TranscreverAsync(Audio(1), new OpcoesSessaoTempoReal("pt", "Dona Chica & Luis Barcellos"), CancellationToken.None));
+
+        Assert.Contains("context=Dona%20Chica%20%26%20Luis%20Barcellos.", conexao.Uri!.Query, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("praça da matriz, banco azul, crianças", "Praça da matriz, banco azul, crianças.")]
+    [InlineData("  Conversa sobre a praça.  ", "Conversa sobre a praça.")]
+    [InlineData("Quem é a Dona Chica?", "Quem é a Dona Chica?")]
+    [InlineData("linha um\nlinha   dois", "Linha um linha dois.")]
+    [InlineData("   ", null)]
+    public void Contexto_sempre_comeca_com_maiuscula_e_termina_pontuado(string entrada, string? esperado) =>
+        Assert.Equal(esperado, MotorWhisperLiveKit.NormalizarContexto(entrada));
+
+    [Fact]
+    public async Task Contexto_grande_demais_e_recusado_antes_de_conectar()
+    {
+        var conexao = new FakeConexaoWlk([]);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => Coletar(Criar(conexao).TranscreverAsync(
+            Audio(1), new OpcoesSessaoTempoReal(null, new string('x', 1001)), CancellationToken.None)));
+        Assert.Null(conexao.Uri);
+    }
+
+    [Fact]
+    public async Task Backend_sem_suporte_a_contexto_gera_erro_claro()
+    {
+        var conexao = new FakeConexaoWlk([], contextoSuportado: false);
+
+        var ex = await Assert.ThrowsAsync<TranscritorException>(() => Coletar(Criar(conexao).TranscreverAsync(
+            Audio(1), new OpcoesSessaoTempoReal(null, "Dona Chica"), CancellationToken.None)));
+        Assert.Contains("contexto", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

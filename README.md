@@ -61,7 +61,7 @@ que faltam e roda `transcritor servicos`. Pode rodar quantas vezes quiser; só f
 | Serviço | Porta | Imagem | Modelos |
 |---|---|---|---|
 | Speaches (arquivo) | 8000 | `ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3` | `Systran/faster-whisper-large-v3` |
-| WhisperLiveKit (tempo real) | 8001 | construída localmente | `medium` (baixado na 1ª subida) |
+| WhisperLiveKit (tempo real) | 8001 | construída localmente | `large-v3-turbo` (baixado na 1ª subida) |
 | Ollama (tradução) | 11434 | `ollama/ollama` | `translategemma:12b` (frases do arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra); opcional `gemma3:12b` (análise de sentido) |
 
 ## Testar
@@ -74,7 +74,7 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 dotnet run --project src/Transcritor.Cli -- traduzir "O banco fecha às quatro." --de pt --para en --antes "Preciso pagar contas."
 dotnet run --project src/Transcritor.Cli -- palavra banco --frase "O banco foi pintado de azul." --de pt --para en
 dotnet run --project src/Transcritor.Cli -- captura --fonte Microfone --segundos 5
-dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt
+dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt --contexto "Dona Chica, Luis Barcellos"
 dotnet run --project src/Transcritor.Cli -- sistema --saida Ambos
 dotnet run --project src/Transcritor.Cli -- simular C:\videos\aula.mp4 --saida Ambos
 ```

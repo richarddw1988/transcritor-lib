@@ -20,24 +20,24 @@ public sealed class TranscritorTempoReal(
 {
     private readonly OpcoesTempoReal _opcoes = opcoes.Value;
 
-    public IAsyncEnumerable<EventoTempoReal> IniciarAsync(Fonte fonte, Saida saida, string? idioma = null, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<EventoTempoReal> IniciarAsync(Fonte fonte, Saida saida, OpcoesSessaoTempoReal? sessao = null, CancellationToken cancellationToken = default)
     {
         var fabrica = fabricaFontes ?? throw new InvalidOperationException(
             "Nenhuma IFabricaFonteAudio registrada. No Windows, chame services.AddTranscritorCaptura().");
-        return Executar(fabrica.Criar(fonte), descartarFonte: true, saida, idioma, cancellationToken);
+        return Executar(fabrica.Criar(fonte), descartarFonte: true, saida, sessao ?? new OpcoesSessaoTempoReal(), cancellationToken);
     }
 
-    public IAsyncEnumerable<EventoTempoReal> IniciarAsync(IFonteAudio fonte, Saida saida, string? idioma = null, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<EventoTempoReal> IniciarAsync(IFonteAudio fonte, Saida saida, OpcoesSessaoTempoReal? sessao = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(fonte);
-        return Executar(fonte, descartarFonte: false, saida, idioma, cancellationToken);
+        return Executar(fonte, descartarFonte: false, saida, sessao ?? new OpcoesSessaoTempoReal(), cancellationToken);
     }
 
     private async IAsyncEnumerable<EventoTempoReal> Executar(
         IFonteAudio fonte,
         bool descartarFonte,
         Saida saida,
-        string? idioma,
+        OpcoesSessaoTempoReal sessao,
         [EnumeratorCancellation] CancellationToken parar)
     {
         // "parar" encerra só a captura; "abortar" corta tudo se a finalização passar do prazo
@@ -57,7 +57,7 @@ public sealed class TranscritorTempoReal(
         var saidaEventos = Channel.CreateUnbounded<EventoTempoReal>(new UnboundedChannelOptions { SingleReader = true });
         var paraTraduzir = Channel.CreateUnbounded<EventoTempoReal>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
 
-        var reconhecimento = Task.Run(() => ReconhecerAsync(fonte, idioma, saidaEventos.Writer, paraTraduzir.Writer, parar, abortar.Token), CancellationToken.None);
+        var reconhecimento = Task.Run(() => ReconhecerAsync(fonte, sessao, saidaEventos.Writer, paraTraduzir.Writer, parar, abortar.Token), CancellationToken.None);
         var traducao = Task.Run(() => TraduzirAsync(saida, paraTraduzir.Reader, saidaEventos.Writer, abortar.Token), CancellationToken.None);
         var tudo = Task.WhenAll(reconhecimento, traducao).ContinueWith(
             t => saidaEventos.Writer.TryComplete(t.Exception?.InnerExceptions.FirstOrDefault(e => e is not OperationCanceledException)),
@@ -85,7 +85,7 @@ public sealed class TranscritorTempoReal(
 
     private async Task ReconhecerAsync(
         IFonteAudio fonte,
-        string? idioma,
+        OpcoesSessaoTempoReal sessao,
         ChannelWriter<EventoTempoReal> saida,
         ChannelWriter<EventoTempoReal> paraTraduzir,
         CancellationToken parar,
@@ -93,7 +93,7 @@ public sealed class TranscritorTempoReal(
     {
         try
         {
-            await foreach (var evento in motor.TranscreverAsync(fonte.CapturarAsync(parar), new OpcoesSessaoTempoReal(idioma), abortar).ConfigureAwait(false))
+            await foreach (var evento in motor.TranscreverAsync(fonte.CapturarAsync(parar), sessao, abortar).ConfigureAwait(false))
             {
                 await saida.WriteAsync(evento, abortar).ConfigureAwait(false);
                 if (evento.Tipo == TipoEvento.Confirmado)

@@ -60,7 +60,8 @@ services:
       - "127.0.0.1:8001:8000"
     # ENTRYPOINT da imagem: wlk --host 0.0.0.0
     # --pcm-input: aceita PCM s16le 16 kHz mono (o que o Transcritor.Captura entrega).
-    command: ["--model", "medium", "--language", "auto", "--backend-policy", "simulstreaming", "--pcm-input"]
+    # large-v3-turbo: mesmo atraso do medium e da família large-v3 (melhor em português); ver docs/pesquisa-asr.md.
+    command: ["--model", "large-v3-turbo", "--language", "auto", "--backend-policy", "simulstreaming", "--pcm-input"]
     volumes:
       - hf-cache-wlk:/root/.cache/huggingface/hub
     deploy:

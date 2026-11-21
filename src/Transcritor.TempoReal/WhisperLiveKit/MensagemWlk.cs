@@ -18,6 +18,7 @@ internal sealed record MensagemWlk(
     string? Status,
     string? Erro,
     bool? UsaPcm,
+    bool? ContextoSuportado,
     IReadOnlyList<LinhaWlk> Linhas,
     string BufferTranscricao)
 {
@@ -46,11 +47,17 @@ internal sealed record MensagemWlk(
             ? ua.GetBoolean()
             : null;
 
+        bool? contextoSuportado = r.TryGetProperty("context", out var ctx) && ctx.ValueKind == JsonValueKind.Object
+            && ctx.TryGetProperty("supported", out var sup) && sup.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? sup.GetBoolean()
+            : null;
+
         return new MensagemWlk(
             Texto(r, "type"),
             Texto(r, "status"),
             Texto(r, "error"),
             usaPcm,
+            contextoSuportado,
             linhas,
             Texto(r, "buffer_transcription") ?? string.Empty);
     }

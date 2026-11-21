@@ -192,10 +192,12 @@ var optSaidaTr = new Option<Saida>("--saida")
     DefaultValueFactory = _ => Saida.Ambos,
 };
 var optIdiomaTr = new Option<string?>("--idioma") { Description = "Força o idioma falado: pt ou en (padrão: detecção automática)." };
+var optContexto = new Option<string?>("--contexto") { Description = "Nomes e vocabulário esperados, para ajudar o reconhecimento (até 1000 caracteres)." };
+OpcoesSessaoTempoReal Sessao(System.CommandLine.ParseResult r) => new(r.GetValue(optIdiomaTr), r.GetValue(optContexto));
 
 Command ComandoCaptura(string nome, Fonte fonte, string descricao)
 {
-    var cmd = new Command(nome, descricao + " Ctrl+C encerra.") { optSaidaTr, optIdiomaTr };
+    var cmd = new Command(nome, descricao + " Ctrl+C encerra.") { optSaidaTr, optIdiomaTr, optContexto };
     cmd.SetAction(async (resultado, ct) =>
     {
         using var sp = CriarServicos(null);
@@ -204,7 +206,7 @@ Command ComandoCaptura(string nome, Fonte fonte, string descricao)
             var dispositivo = new FonteAudioWasapi(fonte).NomeDispositivo();
             Console.Error.WriteLine($"{fonte}: {dispositivo}. Fale/toque algo; Ctrl+C encerra.");
             var transcritor = sp.GetRequiredService<ITranscritorTempoReal>();
-            await MostrarEventos(transcritor.IniciarAsync(fonte, resultado.GetValue(optSaidaTr), resultado.GetValue(optIdiomaTr), ct));
+            await MostrarEventos(transcritor.IniciarAsync(fonte, resultado.GetValue(optSaidaTr), Sessao(resultado), ct));
             return 0;
         });
     });
@@ -218,7 +220,7 @@ var argMidia = new Argument<FileInfo>("caminho") { Description = "Áudio ou víd
 var optVelocidade = new Option<double>("--velocidade") { Description = "1 = tempo real (padrão), 2 = dobro.", DefaultValueFactory = _ => 1 };
 var cmdSimular = new Command("simular", "Envia um arquivo ao tempo real como se fosse o microfone (teste sem falar).")
 {
-    argMidia, optSaidaTr, optIdiomaTr, optVelocidade,
+    argMidia, optSaidaTr, optIdiomaTr, optContexto, optVelocidade,
 };
 cmdSimular.SetAction(async (resultado, ct) =>
 {
@@ -232,7 +234,7 @@ cmdSimular.SetAction(async (resultado, ct) =>
             await sp.GetRequiredService<Transcritor.Arquivo.Midia.IConversorMidia>().ConverterParaWavAsync(midia.FullName, wav, null, ct);
             await using var fonte = new FonteAudioWav(wav, resultado.GetValue(optVelocidade));
             var transcritor = sp.GetRequiredService<ITranscritorTempoReal>();
-            await MostrarEventos(transcritor.IniciarAsync(fonte, resultado.GetValue(optSaidaTr), resultado.GetValue(optIdiomaTr), ct));
+            await MostrarEventos(transcritor.IniciarAsync(fonte, resultado.GetValue(optSaidaTr), Sessao(resultado), ct));
             return 0;
         }
         finally
@@ -325,7 +327,11 @@ static async Task MostrarEventos(IAsyncEnumerable<EventoTempoReal> eventos)
             }
             else
             {
-                Console.Write($"\r\u001b[2K\u001b[90m… {e.Texto}\u001b[0m");
+                // Uma linha só: se o texto quebrasse, "\r" voltaria só para a última linha visual e o
+                // redesenho apagaria/embaralharia os confirmados de cima. Mostra o final do texto.
+                var largura = Math.Max(20, LarguraConsole() - 3);
+                var texto = e.Texto.Length <= largura ? e.Texto : "…" + e.Texto[^(largura - 1)..];
+                Console.Write($"\r\u001b[2K\u001b[90m… {texto}\u001b[0m");
             }
 
             continue;
@@ -345,6 +351,18 @@ static async Task MostrarEventos(IAsyncEnumerable<EventoTempoReal> eventos)
     }
 
     Console.WriteLine(simples ? $"Fim: {provisorios} provisórios, {confirmados} confirmados." : $"\r\u001b[2KFim: {provisorios} provisórios, {confirmados} confirmados.");
+}
+
+static int LarguraConsole()
+{
+    try
+    {
+        return Console.WindowWidth > 0 ? Console.WindowWidth : 80;
+    }
+    catch (IOException)
+    {
+        return 80;
+    }
 }
 
 // ---- apoio -----------------------------------------------------------------

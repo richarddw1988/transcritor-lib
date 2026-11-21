@@ -29,7 +29,14 @@ public sealed class MotorWhisperLiveKit(IFabricaConexaoWebSocket fabrica, IOptio
         ArgumentNullException.ThrowIfNull(audio);
         ArgumentNullException.ThrowIfNull(sessao);
 
-        var uri = MontarUri(sessao.Idioma);
+        var contexto = NormalizarContexto(sessao.Contexto);
+        if (contexto?.Length > OpcoesSessaoTempoReal.MaximoContexto)
+        {
+            throw new ArgumentException(
+                $"O contexto tem {contexto.Length} caracteres; o máximo é {OpcoesSessaoTempoReal.MaximoContexto}.", nameof(sessao));
+        }
+
+        var uri = MontarUri(sessao.Idioma, contexto);
         await using var conexao = fabrica.Criar();
         await ConectarAsync(conexao, uri, cancellationToken).ConfigureAwait(false);
 
@@ -61,6 +68,12 @@ public sealed class MotorWhisperLiveKit(IFabricaConexaoWebSocket fabrica, IOptio
                     {
                         throw new TranscritorException(
                             $"O {Nome} em {uri} não foi iniciado com --pcm-input; a lib envia PCM s16le 16 kHz mono.");
+                    }
+
+                    if (primeira && contexto is not null && mensagem.ContextoSuportado == false)
+                    {
+                        throw new TranscritorException(
+                            $"O backend do {Nome} não aceita contexto de sessão; rode sem contexto ou use o backend Whisper/SimulStreaming.");
                     }
 
                     primeira = false;
@@ -119,12 +132,34 @@ public sealed class MotorWhisperLiveKit(IFabricaConexaoWebSocket fabrica, IOptio
         await conexao.EnviarBinarioAsync(ReadOnlyMemory<byte>.Empty, cancellationToken).ConfigureAwait(false);
     }
 
-    internal Uri MontarUri(string? idioma)
+    /// <summary>
+    /// O Whisper usa o contexto como "texto anterior" e imita o estilo: uma lista solta sem pontuação fez ele parar de
+    /// pontuar, e sem pontuação as frases não fecham (Confirmado só 18 s depois, num teste). Então o contexto sempre
+    /// começa com maiúscula e termina com pontuação final.
+    /// </summary>
+    internal static string? NormalizarContexto(string? contexto)
+    {
+        if (string.IsNullOrWhiteSpace(contexto))
+        {
+            return null;
+        }
+
+        var t = string.Join(' ', contexto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        t = char.ToUpper(t[0], System.Globalization.CultureInfo.InvariantCulture) + t[1..];
+        return t[^1] is '.' or '!' or '?' or '…' ? t : t + ".";
+    }
+
+    internal Uri MontarUri(string? idioma, string? contexto = null)
     {
         var codigo = string.IsNullOrWhiteSpace(idioma) ? "auto" : Idiomas.Normalizar(idioma);
         var construtor = new UriBuilder(_opcoes.WhisperLiveKitUrl);
         var consulta = construtor.Query.TrimStart('?');
         var extra = $"language={Uri.EscapeDataString(codigo)}&mode=full";
+        if (!string.IsNullOrWhiteSpace(contexto))
+        {
+            extra += $"&context={Uri.EscapeDataString(contexto)}";
+        }
+
         construtor.Query = string.IsNullOrEmpty(consulta) ? extra : consulta + "&" + extra;
         return construtor.Uri;
     }

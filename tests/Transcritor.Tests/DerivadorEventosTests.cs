@@ -9,7 +9,7 @@ public class DerivadorEventosTests
 
     private static LinhaWlk Silencio(double inicio, double fim) => new(-2, null, inicio, fim, null);
 
-    private static MensagemWlk Msg(string buffer, params LinhaWlk[] linhas) => new(null, "active_transcription", null, null, linhas, buffer);
+    private static MensagemWlk Msg(string buffer, params LinhaWlk[] linhas) => new(null, "active_transcription", null, null, null, linhas, buffer);
 
     [Fact]
     public void Linha_aberta_sem_pontuacao_so_gera_provisorio()
@@ -50,7 +50,7 @@ public class DerivadorEventosTests
         var d = new DerivadorEventos(null);
         d.Processar(Msg("", Fala("Hello how are you. I am", 0, 2)));
 
-        var eventos = d.Processar(Msg("", Fala("Hello how are you. I am fine", 0, 2.5), Silencio(2.5, 3.5)));
+        var eventos = d.Processar(Msg("", Fala("Hello how are you. I am fine", 0, 2.5), Silencio(2.5, 4.0)));
 
         Assert.Equal(2, eventos.Count);
         Assert.Equal(TipoEvento.Confirmado, eventos[0].Tipo);
@@ -60,6 +60,41 @@ public class DerivadorEventosTests
         Assert.Equal(TipoEvento.Provisorio, eventos[1].Tipo);
         Assert.Equal(string.Empty, eventos[1].Texto);
     }
+
+    [Fact]
+    public void Pausa_curta_no_meio_da_palavra_espera_a_continuacao_e_junta()
+    {
+        var d = new DerivadorEventos(null);
+
+        // A pausa caiu entre "chu" e "va": a linha termina em letra e o silêncio ainda é curto.
+        var antes = d.Processar(Msg("", Fala(" correr na chu", 0, 1), Silencio(1, 1.4)));
+        Assert.DoesNotContain(antes, e => e.Tipo == TipoEvento.Confirmado);
+        Assert.Equal("correr na chu", Assert.Single(antes).Texto);
+
+        // A continuação começa sem espaço: é a mesma palavra.
+        var depois = d.Processar(Msg("", Fala(" correr na chu", 0, 1), Silencio(1, 1.4), Fala("va. E", 1.4, 2)));
+        var conf = Assert.Single(depois, e => e.Tipo == TipoEvento.Confirmado);
+        Assert.Equal("correr na chuva.", conf.Texto);
+        Assert.Equal(0, conf.Inicio);
+        Assert.Equal("E", Assert.Single(depois, e => e.Tipo == TipoEvento.Provisorio).Texto);
+    }
+
+    [Fact]
+    public void Pausa_longa_confirma_mesmo_terminando_no_meio_da_palavra()
+    {
+        var d = new DerivadorEventos(null);
+
+        var eventos = d.Processar(Msg("", Fala(" correr na chu", 0, 1), Silencio(1, 2.6)));
+
+        Assert.Equal("correr na chu", Assert.Single(eventos, e => e.Tipo == TipoEvento.Confirmado).Texto);
+    }
+
+    [Theory]
+    [InlineData("na chu", "va", true)]
+    [InlineData("na chuva", " e", false)]
+    [InlineData("chuva.", "E", false)]
+    public void Detecta_continuacao_de_palavra(string anterior, string proxima, bool esperado) =>
+        Assert.Equal(esperado, DerivadorEventos.ContinuaPalavra(anterior, proxima));
 
     [Fact]
     public void Linha_nova_depois_da_pausa_nao_repete_as_anteriores()

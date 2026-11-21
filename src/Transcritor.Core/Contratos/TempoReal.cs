@@ -32,7 +32,15 @@ public sealed record EventoTempoReal(
 
 /// <summary>Opções de uma sessão de tempo real.</summary>
 /// <param name="Idioma">Força o idioma falado ("pt" ou "en"); nulo = detecção automática.</param>
-public sealed record OpcoesSessaoTempoReal(string? Idioma = null);
+/// <param name="Contexto">
+/// Texto que prepara o reconhecimento com nomes e vocabulário esperados ("Dona Chica, Luis Barcellos, NAudio").
+/// Até <see cref="MaximoContexto"/> caracteres.
+/// </param>
+public sealed record OpcoesSessaoTempoReal(string? Idioma = null, string? Contexto = null)
+{
+    /// <summary>Limite do WhisperLiveKit para o contexto da sessão.</summary>
+    public const int MaximoContexto = 1000;
+}
 
 /// <summary>
 /// Motor de reconhecimento em tempo real (ex.: WhisperLiveKit). Recebe PCM s16le 16 kHz mono e emite eventos
@@ -66,13 +74,13 @@ public interface ITranscritorTempoReal
     /// <summary>Inicia uma sessão.</summary>
     /// <param name="fonte">Microfone ou som do sistema.</param>
     /// <param name="saida">Idiomas pedidos; a tradução chega num Confirmado reemitido com o mesmo Id.</param>
-    /// <param name="idioma">Força o idioma falado; nulo = detecção automática.</param>
+    /// <param name="sessao">Idioma forçado e contexto (nomes, vocabulário); nulo = detecção automática, sem contexto.</param>
     /// <param name="cancellationToken">
     /// Para a captura. A sessão então termina com calma: os últimos trechos são confirmados e traduzidos
     /// (com limite de tempo) e a sequência acaba sem exceção.
     /// </param>
-    IAsyncEnumerable<EventoTempoReal> IniciarAsync(Fonte fonte, Saida saida, string? idioma = null, CancellationToken cancellationToken = default);
+    IAsyncEnumerable<EventoTempoReal> IniciarAsync(Fonte fonte, Saida saida, OpcoesSessaoTempoReal? sessao = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Mesmo que <see cref="IniciarAsync(Fonte, Saida, string?, CancellationToken)"/>, com uma fonte de áudio qualquer.</summary>
-    IAsyncEnumerable<EventoTempoReal> IniciarAsync(IFonteAudio fonte, Saida saida, string? idioma = null, CancellationToken cancellationToken = default);
+    /// <summary>Mesmo que <see cref="IniciarAsync(Fonte, Saida, OpcoesSessaoTempoReal?, CancellationToken)"/>, com uma fonte de áudio qualquer.</summary>
+    IAsyncEnumerable<EventoTempoReal> IniciarAsync(IFonteAudio fonte, Saida saida, OpcoesSessaoTempoReal? sessao = null, CancellationToken cancellationToken = default);
 }

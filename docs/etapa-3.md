@@ -45,3 +45,19 @@ Corrige o relatório da Etapa 0:
 A imagem do WhisperLiveKit tem 22,3 GB (PyTorch + CUDA). O disco do Docker foi movido para
 `F:\Docker\wsl` (o C: tinha enchido durante o build); cópia das configurações anteriores em
 `%APPDATA%\Docker\settings-store.json.bak-2026-11-20`.
+
+## Ajustes depois do teste real no microfone (2026-11-21)
+
+- **Modelo**: `medium` → `large-v3-turbo` (medições e pesquisa em [pesquisa-asr.md](pesquisa-asr.md)).
+- **Contexto da sessão**: `OpcoesSessaoTempoReal(Idioma, Contexto)` / `--contexto "Dona Chica, Luis Barcellos"`;
+  vai na URL (`context=`) e prepara o reconhecimento com nomes e vocabulário (até 1000 caracteres). Se o backend
+  não aceitar contexto, a lib avisa antes de mandar áudio.
+  Achado no teste: o Whisper usa o contexto como "texto anterior" e imita o estilo. Uma lista solta sem pontuação
+  ("praça da matriz, banco azul, crianças") fez ele parar de pontuar, e sem pontuação as frases não fecham: tudo
+  saiu num único Confirmado 18 s depois. A lib agora normaliza o contexto (maiúscula no início, pontuação no fim);
+  com isso a mesma lista volta a dar frases pontuadas confirmadas em 3–4 s.
+- **Palavra cortada na pausa** ("correr pelados na chu"): o texto de uma linha do servidor é a junção crua dos
+  tokens, e palavra nova começa com espaço. Linha que começa sem espaço continua a palavra da anterior e as duas
+  viram uma; linha que termina no meio de uma palavra espera até 1,5 s de pausa pela continuação.
+- **Cli**: o provisório ocupa uma linha só (mostra o final do texto); antes, texto maior que a janela quebrava a
+  linha e o redesenho apagava confirmados (sumiram o #9 e o #10 no teste).
