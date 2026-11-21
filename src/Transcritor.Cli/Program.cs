@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Transcritor.Arquivo;
 using Transcritor.Core;
 using Transcritor.Core.Contratos;
+using Transcritor.Captura;
+using Transcritor.TempoReal;
 using Transcritor.Traducao;
 using Transcritor.Core.Erros;
 using Transcritor.Core.Modelos;
@@ -136,7 +138,7 @@ cmdPalavra.SetAction(async (resultado, ct) =>
 });
 
 // ---- servicos --------------------------------------------------------------
-var cmdServicos = new Command("servicos", "Verifica se ffmpeg, Speaches e Ollama (com os modelos) estão disponíveis.");
+var cmdServicos = new Command("servicos", "Verifica ffmpeg, Speaches, Ollama (com os modelos) e WhisperLiveKit.");
 cmdServicos.SetAction(async (_, ct) =>
 {
     using var sp = CriarServicos(null);
@@ -158,8 +160,167 @@ cmdServicos.SetAction(async (_, ct) =>
     return falhas == 0 ? 0 : 1;
 });
 
-var raiz = new RootCommand("Cli de teste da Transcritor lib.") { cmdArquivo, cmdTraduzir, cmdPalavra, cmdServicos };
+// ---- tempo real: microfone, sistema, simular ------------------------------------
+var optSaidaTr = new Option<Saida>("--saida")
+{
+    Description = "Portugues, Ingles ou Ambos.",
+    DefaultValueFactory = _ => Saida.Ambos,
+};
+var optIdiomaTr = new Option<string?>("--idioma") { Description = "Força o idioma falado: pt ou en (padrão: detecção automática)." };
+
+Command ComandoCaptura(string nome, Fonte fonte, string descricao)
+{
+    var cmd = new Command(nome, descricao + " Ctrl+C encerra.") { optSaidaTr, optIdiomaTr };
+    cmd.SetAction(async (resultado, ct) =>
+    {
+        using var sp = CriarServicos(null);
+        return await Executar(async () =>
+        {
+            var dispositivo = new FonteAudioWasapi(fonte).NomeDispositivo();
+            Console.Error.WriteLine($"{fonte}: {dispositivo}. Fale/toque algo; Ctrl+C encerra.");
+            var transcritor = sp.GetRequiredService<ITranscritorTempoReal>();
+            await MostrarEventos(transcritor.IniciarAsync(fonte, resultado.GetValue(optSaidaTr), resultado.GetValue(optIdiomaTr), ct));
+            return 0;
+        });
+    });
+    return cmd;
+}
+
+var cmdMicrofone = ComandoCaptura("microfone", Fonte.Microfone, "Transcreve o microfone em tempo real.");
+var cmdSistema = ComandoCaptura("sistema", Fonte.SomDoSistema, "Transcreve o som que está tocando no computador.");
+
+var argMidia = new Argument<FileInfo>("caminho") { Description = "Áudio ou vídeo; é tocado para o WhisperLiveKit no ritmo real." };
+var optVelocidade = new Option<double>("--velocidade") { Description = "1 = tempo real (padrão), 2 = dobro.", DefaultValueFactory = _ => 1 };
+var cmdSimular = new Command("simular", "Envia um arquivo ao tempo real como se fosse o microfone (teste sem falar).")
+{
+    argMidia, optSaidaTr, optIdiomaTr, optVelocidade,
+};
+cmdSimular.SetAction(async (resultado, ct) =>
+{
+    using var sp = CriarServicos(null);
+    return await Executar(async () =>
+    {
+        var midia = resultado.GetValue(argMidia)!;
+        var wav = Path.Combine(Path.GetTempPath(), $"transcritor-simular-{Guid.NewGuid():N}.wav");
+        try
+        {
+            await sp.GetRequiredService<Transcritor.Arquivo.Midia.IConversorMidia>().ConverterParaWavAsync(midia.FullName, wav, null, ct);
+            await using var fonte = new FonteAudioWav(wav, resultado.GetValue(optVelocidade));
+            var transcritor = sp.GetRequiredService<ITranscritorTempoReal>();
+            await MostrarEventos(transcritor.IniciarAsync(fonte, resultado.GetValue(optSaidaTr), resultado.GetValue(optIdiomaTr), ct));
+            return 0;
+        }
+        finally
+        {
+            File.Delete(wav);
+        }
+    });
+});
+
+var optFonte = new Option<Fonte>("--fonte") { Description = "Microfone ou SomDoSistema.", DefaultValueFactory = _ => Fonte.Microfone };
+var optSegundos = new Option<int>("--segundos") { Description = "Duração da gravação.", DefaultValueFactory = _ => 5 };
+var optWav = new Option<FileInfo?>("--wav") { Description = "Salva o áudio capturado (16 kHz mono) neste WAV." };
+var cmdCaptura = new Command("captura", "Grava alguns segundos da fonte e mostra o nível por segundo (testa a captura sem o WhisperLiveKit).")
+{
+    optFonte, optSegundos, optWav,
+};
+cmdCaptura.SetAction(async (resultado, ct) => await Executar(async () =>
+{
+    var fonteEscolhida = resultado.GetValue(optFonte);
+    var segundos = resultado.GetValue(optSegundos);
+    await using var fonte = new FonteAudioWasapi(fonteEscolhida);
+    Console.WriteLine($"{fonteEscolhida}: {fonte.NomeDispositivo()} — gravando {segundos} s...");
+
+    using var limite = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    limite.CancelAfter(TimeSpan.FromSeconds(segundos));
+    using var pcm = new MemoryStream();
+    var segundoAtual = 0;
+    var pico = 0;
+    await foreach (var bloco in fonte.CapturarAsync(limite.Token))
+    {
+        pcm.Write(bloco.Span);
+        for (var i = 0; i + 1 < bloco.Length; i += 2)
+        {
+            pico = Math.Max(pico, Math.Abs((int)BitConverter.ToInt16(bloco.Span.Slice(i, 2))));
+        }
+
+        if (pcm.Length / 32000 > segundoAtual)
+        {
+            segundoAtual = (int)(pcm.Length / 32000);
+            var pct = pico * 100 / short.MaxValue;
+            Console.WriteLine($"  {segundoAtual,2}s  pico {pct,3}%  {new string('#', pct / 2)}");
+            pico = 0;
+        }
+    }
+
+    Console.WriteLine($"Capturado: {pcm.Length / 32000d:F1} s de áudio 16 kHz mono ({pcm.Length} bytes).");
+    var wav = resultado.GetValue(optWav);
+    if (wav is not null)
+    {
+        await File.WriteAllBytesAsync(wav.FullName, CabecalhoWav((int)pcm.Length).Concat(pcm.ToArray()).ToArray(), ct);
+        Console.WriteLine($"WAV: {wav.FullName}");
+    }
+
+    return 0;
+}));
+
+var raiz = new RootCommand("Cli de teste da Transcritor lib.")
+{
+    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos,
+};
 return await raiz.Parse(args).InvokeAsync();
+
+static byte[] CabecalhoWav(int bytesDados)
+{
+    using var m = new MemoryStream();
+    using var w = new BinaryWriter(m);
+    w.Write("RIFF"u8); w.Write(36 + bytesDados); w.Write("WAVE"u8);
+    w.Write("fmt "u8); w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(16000); w.Write(32000); w.Write((short)2); w.Write((short)16);
+    w.Write("data"u8); w.Write(bytesDados);
+    w.Flush();
+    return m.ToArray();
+}
+
+// Terminal: o provisório fica numa linha que se reescreve. Saída redirecionada: uma linha por evento.
+static async Task MostrarEventos(IAsyncEnumerable<EventoTempoReal> eventos)
+{
+    var simples = Console.IsOutputRedirected;
+    var relogio = Stopwatch.StartNew();
+    var provisorios = 0;
+    var confirmados = 0;
+    await foreach (var e in eventos)
+    {
+        var quando = $"{relogio.Elapsed.TotalSeconds,6:F1}s";
+        if (e.Tipo == TipoEvento.Provisorio)
+        {
+            provisorios++;
+            if (simples)
+            {
+                Console.WriteLine($"{quando} PROV  #{e.Id} [{e.Idioma}] {e.Texto}");
+            }
+            else
+            {
+                Console.Write($"\r\u001b[2K\u001b[90m… {e.Texto}\u001b[0m");
+            }
+
+            continue;
+        }
+
+        if (e.Traducao is null)
+        {
+            confirmados++;
+            var linha = $"CONF  #{e.Id} [{e.Idioma}] ({e.Inicio:F1}–{e.Fim:F1}s) {e.Texto}";
+            Console.WriteLine(simples ? $"{quando} {linha}" : $"\r\u001b[2K{linha}");
+        }
+        else
+        {
+            var linha = $"TRAD  #{e.Id} → {e.Traducao}";
+            Console.WriteLine(simples ? $"{quando} {linha}" : $"\r\u001b[2K\u001b[36m{linha}\u001b[0m");
+        }
+    }
+
+    Console.WriteLine(simples ? $"Fim: {provisorios} provisórios, {confirmados} confirmados." : $"\r\u001b[2KFim: {provisorios} provisórios, {confirmados} confirmados.");
+}
 
 // ---- apoio -----------------------------------------------------------------
 static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar)
@@ -173,8 +334,11 @@ static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar)
     var services = new ServiceCollection();
     services.AddTranscritorArquivo();
     services.AddTranscritorTraducao();
+    services.AddTranscritorTempoReal();
+    services.AddTranscritorCaptura();
     services.Configure<OpcoesArquivo>(config.GetSection("Transcritor:Arquivo"));
     services.Configure<OpcoesTraducao>(config.GetSection("Transcritor:Traducao"));
+    services.Configure<OpcoesTempoReal>(config.GetSection("Transcritor:TempoReal"));
     if (ajustar is not null)
     {
         services.PostConfigure(ajustar);

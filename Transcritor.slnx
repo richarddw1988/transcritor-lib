@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Transcritor.Arquivo/Transcritor.Arquivo.csproj" />
+    <Project Path="src/Transcritor.Captura/Transcritor.Captura.csproj" />
     <Project Path="src/Transcritor.Cli/Transcritor.Cli.csproj" />
     <Project Path="src/Transcritor.Core/Transcritor.Core.csproj" />
+    <Project Path="src/Transcritor.TempoReal/Transcritor.TempoReal.csproj" />
     <Project Path="src/Transcritor.Traducao/Transcritor.Traducao.csproj" />
   </Folder>
   <Folder Name="/tests/">

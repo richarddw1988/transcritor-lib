@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WASAPI só existe no Windows; os outros projetos continuam multiplataforma. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Description>Captura de microfone e som do sistema (WASAPI via NAudio), entregando PCM s16le 16 kHz mono.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Transcritor.Core\Transcritor.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" />
+    <PackageReference Include="NAudio.Core" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Transcritor.Tests" />
+  </ItemGroup>
+</Project>
