@@ -37,13 +37,35 @@ await foreach (var e in sp.GetRequiredService<ITranscritorTempoReal>().IniciarAs
 O JSON vai para o cache (`%LOCALAPPDATA%\Transcritor\cache`) e para `aula.mp4.transcricao.json`.
 `texto` fica no idioma falado; `traducao` vem quando a `Saida` pede o outro idioma (regra em [docs/etapa-2.md](docs/etapa-2.md)).
 
+## Preparar o ambiente
+
+Pré-requisitos: Windows 10/11, GPU NVIDIA, [Docker Desktop](https://www.docker.com/products/docker-desktop/) (WSL2),
+.NET SDK 10 e ffmpeg (`winget install Microsoft.DotNet.SDK.10` e `winget install Gyan.FFmpeg`).
+
+Um script faz o resto: confere os pré-requisitos, constrói a imagem do WhisperLiveKit (não há imagem
+publicada; o `docker-compose.yml` a constrói a partir da tag `v0.2.27`), sobe os serviços, baixa os modelos
+que faltam e roda `transcritor servicos`. Pode rodar quantas vezes quiser; só faz o que falta.
+
+```powershell
+.\scripts\preparar-ambiente.ps1
+```
+
+- Na 1ª vez baixa ~40 GB (imagem do WhisperLiveKit 22 GB, Speaches 8 GB, Ollama, modelos) e leva de 20 a 60 min.
+- `-SoConferir` só confere, sem baixar nada; `-SemTempoReal` dispensa o WhisperLiveKit (arquivo e tradução continuam).
+- Outros modelos: `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloPalavras` (ponha os mesmos no `appsettings.json`).
+- Se o PowerShell bloquear o script: `powershell -ExecutionPolicy Bypass -File .\scripts\preparar-ambiente.ps1`.
+- O script avisa se o disco do Docker tiver pouco espaço ou se o `.wslconfig` limitar a VM a menos de 10 GB
+  (com 4 GB o Ollama trava ao trocar de modelo).
+
+| Serviço | Porta | Imagem | Modelos |
+|---|---|---|---|
+| Speaches (arquivo) | 8000 | `ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3` | `Systran/faster-whisper-large-v3` |
+| WhisperLiveKit (tempo real) | 8001 | construída localmente | `medium` (baixado na 1ª subida) |
+| Ollama (tradução) | 11434 | `ollama/ollama` | `translategemma:4b`, `gemma3:4b` |
+
 ## Testar
 
 ```powershell
-docker compose up -d --build
-curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3
-docker exec ollama ollama pull translategemma:4b
-docker exec ollama ollama pull gemma3:4b
 dotnet test
 dotnet run --project src/Transcritor.Cli -- servicos
 dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida Ambos

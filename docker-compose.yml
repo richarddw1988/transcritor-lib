@@ -5,7 +5,8 @@
 #   Ollama          -> http://localhost:11434  (tradução)
 #
 # Requisitos: Docker Desktop com WSL2 + suporte a GPU NVIDIA.
-# Primeira subida:  docker compose up -d --build
+# Preparação completa (imagens, modelos, conferência): .\scripts\preparar-ambiente.ps1
+# Manual: docker compose up -d --build
 # Modelo de transcrição (uma vez):
 #   curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3
 # Modelos de tradução (uma vez):
