@@ -34,6 +34,15 @@ public sealed class OpcoesArquivo
     /// <summary>Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches).</summary>
     public int MaximoTrechosReparados { get; set; } = 30;
 
+    /// <summary>
+    /// Com a correção da transcrição ligada, confere cada troca no áudio: reouve a frase com a versão trocada como
+    /// dica e só aceita se o Whisper ouvir a palavra nova (veja <see cref="LimiteConfiancaReouvir"/>).
+    /// </summary>
+    public bool ConferirCorrecaoNoAudio { get; set; } = true;
+
+    /// <summary>Confiança mínima da palavra nova na frase reouvida para a troca valer.</summary>
+    public double LimiteConfiancaReouvir { get; set; } = 0.2;
+
     /// <summary>Tempo máximo de uma chamada de transcrição.</summary>
     public TimeSpan TimeoutTranscricao { get; set; } = TimeSpan.FromHours(1);
 

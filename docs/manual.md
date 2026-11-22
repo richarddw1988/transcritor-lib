@@ -132,9 +132,10 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   e precisa do `gemma3:12b` (`preparar-ambiente.ps1 -ComAnaliseDeSentido`); com 12 GB de GPU, pare o tempo real antes
   (`docker stop whisperlivekit`).
 - `--corrigir` corrige palavras ouvidas errado antes de traduzir (`CorrigirTranscricao`, seção 6). **Experimental:** no
-  teste, ajudou pouco na fala ao microfone e trocou palavras certas no audiolivro (ver `docs/modelos.md`). Só frases com
-  alguma palavra de confiança abaixo de 0,95 vão ao modelo (~3,5 s cada); a palavra trocada guarda a original em
-  `ouvida` no JSON.
+  teste, corrigiu 3 das 17 palavras erradas da fala ao microfone sem errar nenhuma, e no audiolivro só mudou uma grafia
+  ("marvellous" → "marvelous"); ver `docs/modelos.md`. Só frases com alguma palavra de confiança abaixo de 0,95 vão ao
+  modelo, e cada troca proposta é conferida no áudio (a frase é transcrita de novo); no audiolivro de 17 min a correção
+  levou ~3 min. A palavra trocada guarda a original em `ouvida` no JSON.
 
 Tempo de referência (RTX 3060): 6 min de áudio em inglês → ~8 min com a tradução 12b (7 min só da tradução);
 ~16 min com `--sentido`. Só na 1ª vez; depois vem do cache.
@@ -263,6 +264,8 @@ Uma resposta conta como certa se contém uma das `aceitas`.
    dotnet run --project src/Transcritor.Cli -- avaliar-fala --corrigir
    ```
    Mostra cada troca feita (marcando as que pioraram a frase) e, no fim, o WER antes e depois e o tempo por frase.
+   Usa o mesmo caminho do arquivo (correção pelo texto + conferência no áudio). Para comparar variações, use as
+   variáveis de ambiente, ex.: `$env:TRANSCRITOR_Transcritor__Arquivo__ConferirCorrecaoNoAudio = "false"`.
 
 ## 5. Usar a lib no seu projeto
 
@@ -383,8 +386,12 @@ foreach (var t in trocas)
   `LimiteConfiancaCorrecao` (passe `Confiancas` no pedido), por outra de 4+ letras que soa parecido (chave de
   pronúncia igual ou a uma letra) e não é flexão dela ("take" → "taken"). Palavras acrescentadas, removidas ou de som
   diferente são ignoradas: a correção não reescreve a frase nem corrige gramática.
-- Cada troca que passa vai a uma 2ª chamada, que compara a frase com e sem a troca e só a aceita se a frase sem ela não
-  fizer sentido.
+- No arquivo, cada troca que passa é conferida no áudio (`ConferirCorrecaoNoAudio`, ligada): a frase é transcrita de
+  novo com a versão trocada como dica (`prompt` do Whisper), e a troca só vale se o Whisper devolver a palavra nova
+  com confiança de pelo menos `LimiteConfiancaReouvir` (0,2). Quando o som não bate, o Whisper até copia a dica, mas
+  com confiança perto de zero.
+- `CorrigirAsync` sozinho não tem o áudio: para frase avulsa, ligue `ConfirmarCorrecaoComModelo`, uma 2ª chamada ao
+  modelo que compara a frase com e sem a troca e só a aceita se a frase sem ela não fizer sentido.
 - Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
 - `CorrigirAsync` funciona mesmo com `CorrigirTranscricao = false`; `Ativo` só diz se o arquivo deve usar.
@@ -415,6 +422,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `TimeoutTranscricao` | `01:00:00` | Tempo máximo de uma transcrição |
 | `RepararTrechosSuspeitos` | `true` | Transcreve de novo, isolado, cada trecho em que o Whisper se perdeu na transcrição longa — 3+ palavras com duração zero (alucinação/repetição) ou 15 s+ sem nenhuma pontuação — e troca se o resultado for melhor |
 | `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
+| `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
+| `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
 
 **`Transcritor:Traducao`**
 
@@ -428,6 +437,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
+| `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |
 | `ModeloAnalise` | `gemma3:12b` | Modelo da análise |
 | `FrasesAntes` / `FrasesDepois` | `2` / `2` | Janela de contexto da tradução do arquivo |
@@ -466,7 +476,7 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 ## 7. Cache
 
 - Resultados de arquivo: um JSON por chave em `%LOCALAPPDATA%\Transcritor\cache`. A chave junta o hash do arquivo, o
-  modelo e as versões da montagem, do reparo de trechos, da correção, da tradução e da análise; trocar modelo ou prompt gera
+  modelo e as versões da montagem, do reparo de trechos, da correção (e da conferência no áudio), da tradução e da análise; trocar modelo ou prompt gera
   resultado novo.
 - Palavras: `palavras.json` na mesma pasta.
 - Para limpar: apague a pasta (os serviços refazem tudo na próxima vez).

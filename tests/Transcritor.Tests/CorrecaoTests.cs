@@ -98,9 +98,9 @@ public class TrocasDaCorrecaoTests
 
 public class CorretorOllamaTests
 {
-    private static CorretorOllama Criar(FakeHttpHandler handler, bool ativo = true)
+    private static CorretorOllama Criar(FakeHttpHandler handler, bool ativo = true, bool confirmar = true)
     {
-        var opcoes = Options.Create(new OpcoesTraducao { CorrigirTranscricao = ativo, ModeloCorrecao = "gemma3:12b" });
+        var opcoes = Options.Create(new OpcoesTraducao { CorrigirTranscricao = ativo, ModeloCorrecao = "gemma3:12b", ConfirmarCorrecaoComModelo = confirmar });
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://ollama.test:11434/") };
         return new CorretorOllama(new ClienteOllama(http, opcoes), opcoes, new FonteDicionario(opcoes));
     }
@@ -146,6 +146,18 @@ public class CorretorOllamaTests
 
         Assert.Empty(await Criar(handler).CorrigirAsync(Pedido, CancellationToken.None));
         Assert.Equal(2, handler.Recebidas.Count);
+    }
+
+    [Fact]
+    public async Task Sem_a_confirmacao_pelo_modelo_a_troca_sai_da_primeira_chamada()
+    {
+        var handler = Modelo("The knight rode through the forest.", escolha: 1);
+        var corretor = Criar(handler, confirmar: false);
+
+        Assert.Equal(new Correcao(1, "night", "knight"), Assert.Single(await corretor.CorrigirAsync(Pedido, CancellationToken.None)));
+        Assert.Single(handler.Recebidas);
+        Assert.DoesNotContain("-conf", corretor.Identificador, StringComparison.Ordinal);
+        Assert.EndsWith("-conf", Criar(handler).Identificador, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -226,6 +238,33 @@ internal sealed class FakeCorretor(Dictionary<string, string> trocas, bool ativo
     }
 }
 
+public class ConferenciaCorrecaoTests
+{
+    private static TranscricaoBruta Ouvida(params (string Texto, double Confianca)[] palavras) =>
+        new("pt", 3, [], palavras.Select((p, i) => new Palavra(" " + p.Texto, i * 0.2, (i + 1) * 0.2, p.Confianca)).ToList());
+
+    [Fact]
+    public void Confere_a_palavra_na_mesma_posicao_e_nao_outra_igual_na_frase()
+    {
+        string[] trocada = ["o", "conserto", "e", "o", "concerto."];
+        var soPrimeira = Ouvida(("O", 0.9), ("concerto", 0.5), ("e", 0.9), ("o", 0.9), ("conserto.", 0.9));
+        var naPosicao = Ouvida(("O", 0.9), ("conserto", 0.9), ("e", 0.9), ("o", 0.9), ("Concerto.", 0.5));
+
+        Assert.False(ConferenciaCorrecao.Confirma(trocada, 4, soPrimeira, 0.2));
+        Assert.True(ConferenciaCorrecao.Confirma(trocada, 4, naPosicao, 0.2));
+    }
+
+    [Fact]
+    public void Palavra_que_sumiu_ou_veio_com_confianca_baixa_nao_confirma()
+    {
+        string[] trocada = ["a", "sela", "do", "cavalo"];
+
+        Assert.False(ConferenciaCorrecao.Confirma(trocada, 1, Ouvida(("a", 0.9), ("do", 0.9), ("cavalo", 0.9)), 0.2));
+        Assert.False(ConferenciaCorrecao.Confirma(trocada, 1, Ouvida(("a", 0.9), ("sela", 0.1), ("do", 0.9), ("cavalo", 0.9)), 0.2));
+        Assert.True(ConferenciaCorrecao.Confirma(trocada, 1, Ouvida(("a", 0.9), ("sela", 0.53), ("do", 0.9), ("cavalo", 0.9)), 0.2));
+    }
+}
+
 public sealed class TranscritorArquivoCorrecaoTests : IDisposable
 {
     private static readonly TranscricaoBruta Bruta = new("en", 4.0, [],
@@ -240,9 +279,62 @@ public sealed class TranscritorArquivoCorrecaoTests : IDisposable
 
     private TranscritorArquivo Criar(FakeCorretor corretor, FakeTradutor tradutor)
     {
-        var opcoes = Opcoes.Arquivo(o => o.PastaCache = Path.Combine(_pasta.Caminho, "cache"));
+        var opcoes = Opcoes.Arquivo(o =>
+        {
+            o.PastaCache = Path.Combine(_pasta.Caminho, "cache");
+            o.ConferirCorrecaoNoAudio = false;
+        });
         return new TranscritorArquivo(
             new FakeConversor(new InfoMidia(4, "mp3", 1)), new FakeMotor(Bruta), new CacheEmDisco(opcoes), opcoes, tradutor, corretor: corretor);
+    }
+
+    private (TranscritorArquivo Transcritor, FakeMotorSequencia Motor) CriarComAudio(FakeCorretor corretor, TranscricaoBruta reouvida)
+    {
+        var opcoes = Opcoes.Arquivo(o => o.PastaCache = Path.Combine(_pasta.Caminho, "cache"));
+        var motor = new FakeMotorSequencia(Bruta, reouvida);
+        var conversor = new FakeConversor(new InfoMidia(4, "mp3", 1), ReparadorTrechosTests.Wav(16000 * 4));
+        return (new TranscritorArquivo(conversor, motor, new CacheEmDisco(opcoes), opcoes, corretor: corretor), motor);
+    }
+
+    [Fact]
+    public async Task Conferencia_no_audio_aceita_a_troca_quando_o_whisper_ouve_a_palavra_nova()
+    {
+        var reouvida = new TranscricaoBruta("en", 1.2, [],
+            [new Palavra(" The", 0.3, 0.6, 0.9), new Palavra(" knight", 0.6, 0.9, 0.45), new Palavra(" rode.", 0.9, 1.2, 0.97)]);
+        var (transcritor, motor) = CriarComAudio(new FakeCorretor(new() { ["night"] = "knight" }), reouvida);
+
+        var r = await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles);
+
+        Assert.Equal("The knight rode.", r.Frases[0].Texto);
+        Assert.Equal([null, "The knight rode."], motor.Contextos);
+        Assert.Equal([null, "en"], motor.Idiomas);
+        // Recorte da frase (0 a 0,9 s) com 0,3 s de folga: 1,2 s de PCM 16 kHz mono.
+        Assert.Equal(44 + (long)(1.2 * 32000), motor.TamanhosWav[1]);
+    }
+
+    [Theory]
+    [InlineData(" knight", 0.05)]
+    [InlineData(" night", 0.9)]
+    public async Task Conferencia_no_audio_recusa_a_troca_quando_o_som_nao_bate(string ouvida, double confianca)
+    {
+        var reouvida = new TranscricaoBruta("en", 1.2, [],
+            [new Palavra(" The", 0.3, 0.6, 0.9), new Palavra(ouvida, 0.6, 0.9, confianca), new Palavra(" rode.", 0.9, 1.2, 0.97)]);
+        var (transcritor, _) = CriarComAudio(new FakeCorretor(new() { ["night"] = "knight" }), reouvida);
+
+        var r = await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles);
+
+        Assert.Equal("The night rode.", r.Frases[0].Texto);
+        Assert.All(r.Frases.SelectMany(f => f.Palavras), p => Assert.Null(p.Ouvida));
+    }
+
+    [Fact]
+    public async Task Sem_troca_proposta_nao_reouve_nada()
+    {
+        var (transcritor, motor) = CriarComAudio(new FakeCorretor([]), Bruta);
+
+        await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles);
+
+        Assert.Single(motor.TamanhosWav);
     }
 
     [Fact]

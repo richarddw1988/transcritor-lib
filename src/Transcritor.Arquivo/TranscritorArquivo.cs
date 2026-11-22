@@ -56,12 +56,15 @@ public sealed class TranscritorArquivo(
         // Correção de palavras ouvidas errado (opcional): antes da tradução, que passa a usar o texto corrigido.
         if (corretor is { Ativo: true })
         {
-            var chaveCorrecao = $"{chave}.corr.{corretor.Identificador}".Replace('/', '_');
+            var conferencia = _opcoes.ConferirCorrecaoNoAudio
+                ? FormattableString.Invariant($".a{ConferenciaCorrecao.Versao}-{_opcoes.LimiteConfiancaReouvir}")
+                : string.Empty;
+            var chaveCorrecao = $"{chave}.corr.{corretor.Identificador}{conferencia}".Replace('/', '_');
             var corrigido = await cache.LerAsync(chaveCorrecao, cancellationToken).ConfigureAwait(false);
             if (corrigido is null)
             {
                 tudoDoCache = false;
-                corrigido = await CorrigirAsync(corretor, transcricao, progresso, cancellationToken).ConfigureAwait(false);
+                corrigido = await CorrigirAsync(corretor, caminho, hash, transcricao, progresso, cancellationToken).ConfigureAwait(false);
                 await cache.GravarAsync(chaveCorrecao, corrigido, cancellationToken).ConfigureAwait(false);
             }
 
@@ -237,36 +240,78 @@ public sealed class TranscritorArquivo(
         return transcricao with { Frases = frases };
     }
 
-    private static async Task<ResultadoTranscricao> CorrigirAsync(
+    private async Task<ResultadoTranscricao> CorrigirAsync(
         ICorretorTranscricao corretor,
+        string caminho,
+        string hash,
         ResultadoTranscricao transcricao,
         IProgress<ProgressoProcessamento>? progresso,
         CancellationToken cancellationToken)
     {
         progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, 0));
-        var frases = transcricao.Frases;
-        var corrigidas = new List<Frase>(frases.Count);
-        for (var i = 0; i < frases.Count; i++)
+        var pastaTemporaria = Path.Combine(Path.GetTempPath(), "transcritor");
+        var wav = Path.Combine(pastaTemporaria, $"{hash}-{Guid.NewGuid():N}.corr.wav");
+        var recorte = Path.Combine(pastaTemporaria, $"{Guid.NewGuid():N}.corr.trecho.wav");
+        var wavPronto = false;
+        try
         {
-            var f = frases[i];
-            var pedido = new PedidoCorrecao(
-                f.Palavras.Select(p => p.Texto).ToList(),
-                transcricao.Arquivo.Idioma,
-                frases.Skip(Math.Max(0, i - 2)).Take(Math.Min(i, 2)).Select(x => x.Texto).ToList(),
-                frases.Skip(i + 1).Take(1).Select(x => x.Texto).ToList(),
-                f.Palavras.Select(p => p.Confianca).ToList());
-            var correcoes = f.Palavras.Count == 0 ? [] : await corretor.CorrigirAsync(pedido, cancellationToken).ConfigureAwait(false);
-            var palavras = f.Palavras.ToList();
-            foreach (var c in correcoes.Where(c => c.Indice >= 0 && c.Indice < palavras.Count))
+            var frases = transcricao.Frases;
+            var corrigidas = new List<Frase>(frases.Count);
+            for (var i = 0; i < frases.Count; i++)
             {
-                palavras[c.Indice] = palavras[c.Indice] with { Texto = c.Corrigida, Ouvida = palavras[c.Indice].Ouvida ?? palavras[c.Indice].Texto };
+                var f = frases[i];
+                var pedido = new PedidoCorrecao(
+                    f.Palavras.Select(p => p.Texto).ToList(),
+                    transcricao.Arquivo.Idioma,
+                    frases.Skip(Math.Max(0, i - 2)).Take(Math.Min(i, 2)).Select(x => x.Texto).ToList(),
+                    frases.Skip(i + 1).Take(1).Select(x => x.Texto).ToList(),
+                    f.Palavras.Select(p => p.Confianca).ToList());
+                var correcoes = f.Palavras.Count == 0 ? [] : await corretor.CorrigirAsync(pedido, cancellationToken).ConfigureAwait(false);
+                var palavras = f.Palavras.ToList();
+                var atual = f.Palavras.Select(p => p.Texto).ToArray();
+                var aceitas = 0;
+                foreach (var c in correcoes.Where(c => c.Indice >= 0 && c.Indice < palavras.Count))
+                {
+                    if (_opcoes.ConferirCorrecaoNoAudio)
+                    {
+                        // O áudio só é convertido de novo se alguma frase tiver troca para conferir.
+                        if (!wavPronto)
+                        {
+                            Directory.CreateDirectory(pastaTemporaria);
+                            await conversor.ConverterParaWavAsync(caminho, wav, null, cancellationToken).ConfigureAwait(false);
+                            wavPronto = true;
+                        }
+
+                        var trocada = atual.ToArray();
+                        trocada[c.Indice] = c.Corrigida;
+                        await RecorteWav.RecortarAsync(
+                            wav, recorte, f.Inicio - ConferenciaCorrecao.Margem, f.Fim + ConferenciaCorrecao.Margem, cancellationToken).ConfigureAwait(false);
+                        var reouvida = await motor.TranscreverAsync(
+                            recorte, transcricao.Arquivo.Idioma, string.Join(' ', trocada), cancellationToken).ConfigureAwait(false);
+                        if (!ConferenciaCorrecao.Confirma(trocada, c.Indice, reouvida, _opcoes.LimiteConfiancaReouvir))
+                        {
+                            continue;
+                        }
+                    }
+
+                    atual[c.Indice] = c.Corrigida;
+                    palavras[c.Indice] = palavras[c.Indice] with { Texto = c.Corrigida, Ouvida = palavras[c.Indice].Ouvida ?? palavras[c.Indice].Texto };
+                    aceitas++;
+                }
+
+                corrigidas.Add(aceitas == 0 ? f : f with { Palavras = palavras, Texto = string.Join(' ', palavras.Select(p => p.Texto)) });
+                progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, (i + 1) * 100d / frases.Count));
             }
 
-            corrigidas.Add(correcoes.Count == 0 ? f : f with { Palavras = palavras, Texto = string.Join(' ', palavras.Select(p => p.Texto)) });
-            progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, (i + 1) * 100d / frases.Count));
+            return transcricao with { Frases = corrigidas };
         }
-
-        return transcricao with { Frases = corrigidas };
+        finally
+        {
+            foreach (var temporario in new[] { wav, recorte }.Where(File.Exists))
+            {
+                File.Delete(temporario);
+            }
+        }
     }
 
     private static async Task<ResultadoTranscricao> AnalisarAsync(

@@ -12,7 +12,7 @@ namespace Transcritor.Traducao.Correcoes;
 /// Correção de palavras ouvidas errado com um modelo de instrução do Ollama, travada pela pronúncia: o modelo
 /// devolve a frase corrigida e só valem as trocas de uma palavra por outra que soa parecido (chave de pronúncia
 /// igual ou a uma letra). Assim o modelo não reescreve a frase nem troca o sentido ("mau humor" → "bom humor").
-/// Cada troca que passa ainda vai a uma segunda chamada que compara a frase ouvida com a trocada.
+/// Com <see cref="OpcoesTraducao.ConfirmarCorrecaoComModelo"/>, cada troca que passa ainda vai a uma segunda chamada que compara a frase ouvida com a trocada.
 /// </summary>
 internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraducao> opcoes, Dicionario.FonteDicionario fonte)
     : ICorretorTranscricao, IServicoVerificavel
@@ -36,7 +36,7 @@ internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraduc
 
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
 
-    public string Identificador => $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}";
+    public string Identificador => $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}";
 
     public bool Ativo => _opcoes.CorrigirTranscricao && !string.IsNullOrWhiteSpace(_opcoes.ModeloCorrecao);
 
@@ -81,7 +81,7 @@ internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraduc
         var atual = pedido.Palavras.ToArray();
         foreach (var troca in Trocas(pedido.Palavras, corrigida, pedido.Idioma, i => podeTrocar[i], fonte.Dicionario))
         {
-            if (await ConfirmarAsync(pedido, atual, troca, cancellationToken).ConfigureAwait(false))
+            if (!_opcoes.ConfirmarCorrecaoComModelo || await ConfirmarAsync(pedido, atual, troca, cancellationToken).ConfigureAwait(false))
             {
                 aceitas.Add(troca);
                 atual[troca.Indice] = troca.Corrigida;

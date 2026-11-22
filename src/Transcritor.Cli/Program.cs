@@ -505,34 +505,40 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
         Console.WriteLine($"     {string.Join(' ', reconhecidas.Select(p => p.Texto))}");
         if (corrigir)
         {
+            // Correção pelo pipeline do arquivo (texto + conferência no áudio, conforme a configuração).
             errosAntes += AlinharPalavras(PalavrasNormalizadas(texto), reconhecidas).Count(a => a.Certa != a.Ouvida);
+            using var spCorrecao = CriarServicos(
+                o =>
+                {
+                    o.Idioma = idioma;
+                    o.GravarJsonAoLado = false;
+                },
+                t => t.CorrigirTranscricao = true);
             var relogioCorrecao = Stopwatch.StartNew();
-            var correcoes = await sp.GetRequiredService<ICorretorTranscricao>().CorrigirAsync(
-                new PedidoCorrecao(reconhecidas.Select(p => p.Texto).ToList(), idioma, [], [], reconhecidas.Select(p => p.Confianca).ToList()), ct);
+            var corrigido = await spCorrecao.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(
+                wav, idioma == Idiomas.Ingles ? Saida.Ingles : Saida.Portugues, null, ct);
             tempoCorrecao += relogioCorrecao.Elapsed;
             var certasDaFrase = PalavrasNormalizadas(texto);
             int Erros(IReadOnlyList<Palavra> lista) => AlinharPalavras(certasDaFrase, lista).Count(a => a.Certa != a.Ouvida);
             var errosSemCorrecao = Erros(reconhecidas);
             var original = reconhecidas.ToList();
-            foreach (var c in correcoes)
-            {
-                reconhecidas[c.Indice] = reconhecidas[c.Indice] with { Texto = c.Corrigida };
-            }
-
-            var melhora = errosSemCorrecao - Erros(reconhecidas);
-            foreach (var c in correcoes)
+            var novas = corrigido.Frases.SelectMany(f => f.Palavras).ToList();
+            var trocadas = Enumerable.Range(0, Math.Min(novas.Count, original.Count)).Where(i => novas[i].Ouvida is not null).ToList();
+            foreach (var i in trocadas)
             {
                 // Certa = sozinha, esta troca diminui os erros da frase.
                 var soEsta = original.ToList();
-                soEsta[c.Indice] = soEsta[c.Indice] with { Texto = c.Corrigida };
+                soEsta[i] = soEsta[i] with { Texto = novas[i].Texto };
                 var acertou = Erros(soEsta) < errosSemCorrecao;
                 corrigidasCertas += acertou ? 1 : 0;
                 corrigidasErradas += acertou ? 0 : 1;
-                Console.WriteLine($"     corrigida: \"{c.Ouvida}\" → \"{c.Corrigida}\"{(acertou ? "" : " (ERRADA)")}");
+                Console.WriteLine($"     corrigida: \"{novas[i].Ouvida}\" → \"{novas[i].Texto}\"{(acertou ? "" : " (ERRADA)")}");
             }
 
-            if (correcoes.Count > 0)
+            if (trocadas.Count > 0)
             {
+                reconhecidas = novas;
+                var melhora = errosSemCorrecao - Erros(reconhecidas);
                 Console.WriteLine($"     {string.Join(' ', reconhecidas.Select(p => p.Texto))}  ({(melhora >= 0 ? "-" : "+")}{Math.Abs(melhora)} erros)");
             }
         }

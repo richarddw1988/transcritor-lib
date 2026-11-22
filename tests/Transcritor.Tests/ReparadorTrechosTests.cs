@@ -232,7 +232,7 @@ public sealed class ReparadorTrechosTests : IDisposable
         Assert.DoesNotContain(".r", transcritor.ChaveCache("abc"), StringComparison.Ordinal);
     }
 
-    private static byte[] Wav(int amostras, bool comList = false)
+    internal static byte[] Wav(int amostras, bool comList = false)
     {
         var list = comList ? 26 : 0;
         var b = new byte[44 + list + (amostras * 2)];

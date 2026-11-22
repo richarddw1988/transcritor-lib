@@ -1,6 +1,6 @@
 # Especificação: modelos de IA usados e testados
 
-Última atualização: 2026-11-21. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
+Última atualização: 2026-11-22. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
 configuração ou uma medição mudar (ver [CLAUDE.md](../CLAUDE.md)).
 
 Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum dado sai da máquina.
@@ -14,7 +14,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
-| Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | ~3,5 s por frase com palavra de confiança < 0,95; na fala do usuário WER 8,0% → 7,1%; no audiolivro ainda troca ~4 palavras certas (ver abaixo) |
+| Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | cada troca conferida no áudio pelo Whisper; na fala do usuário WER 8,0% → 6,6% (3 certas, 0 erradas); no audiolivro de 17 min só uma grafia trocada, ~3 min (ver abaixo) |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -197,7 +197,9 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 | Idem, 10 parecidas | 6,6% (5 certas, 0 erradas) | 27 trocas, quase todas erradas ("know" → "knew", "terrible" → "horrible", "right" → "fight") | 3,6 s/frase |
 | Idem + modelo explica antes ("analise") | 10,8% (11 certas, 8 erradas) | não medido | 5,5 s/frase |
 | + só palavra com confiança < 0,95, sem flexão ("take" → "taken"), sem apóstrofo novo | 7,5% (3 certas, 2 erradas) | 19 trocas em 2.348 palavras, quase todas erradas ("well" → "wall", "blunt" → "plant", "stale" → "still"); 57 de 179 frases foram ao modelo | 2,6 s/frase duvidosa; audiolivro 69 s |
-| **Atual**: + 2ª chamada que compara a frase com e sem a troca (uma troca por vez, a original é o padrão) | **7,1% (2 certas, 0 erradas)** | **5 trocas**: "marvellous" → "marvelous" (só grafia), "sandpit" → "sandbox", "tummy" → "dummy", "stale" → "still", "Three" → "There" (no "Chapter Three") | 3,4 s/frase duvidosa; audiolivro 86 s |
+| + 2ª chamada que compara a frase com e sem a troca (uma troca por vez, a original é o padrão) | 7,1% (2 certas, 0 erradas) | 5 trocas: "marvellous" → "marvelous" (só grafia), "sandpit" → "sandbox", "tummy" → "dummy", "stale" → "still", "Three" → "There" (no "Chapter Three") | 3,4 s/frase duvidosa; audiolivro 86 s |
+| 2ª chamada + conferência no áudio | 7,1% (2 certas, 0 erradas) | 1 troca ("marvellous" → "marvelous", só grafia) | 5,2 s/frase (todas as 20, pelo pipeline); audiolivro 340 s |
+| **Atual**: sem a 2ª chamada, só a conferência no áudio (frase reouvida com a versão trocada como `prompt`, palavra nova com confiança ≥ 0,2) | **6,6% (3 certas, 0 erradas)** | **1 troca** ("marvellous" → "marvelous", só grafia) | 5,3 s/frase (todas as 20, pelo pipeline); audiolivro 181 s |
 
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
@@ -208,7 +210,20 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
   a trocá-las.
 - Homófonos com sentido claro na frase ("sela do cavalo", "bare paws") quase nunca foram corrigidos, mesmo com a certa
   na lista de parecidas.
-- Ideias não medidas: reouvir o trecho com a palavra candidata (o Speaches aceita `hotwords` e `prompt`); modelo maior.
+- **Conferência no áudio** (medida em 2026-11-22, `faster-whisper-large-v3`): só a palavra candidata como `hotwords`
+  ou `prompt` não mudou nada em 13 trocas da fala do usuário. Já a frase inteira trocada como `prompt` faz o Whisper
+  copiar a dica, mas a confiança separa: com a frase certa, a palavra nova veio com 0,25–0,77 em 8 de 10 casos
+  ("invited" 0,27, "sessão" 0,77, "sela" 0,53), e 0,01–0,11 em "cheap", "bare" e "paws"; com frases erradas de
+  controle, 0,00–0,09 ("woke", "bass", "mal", "peixes", "pitch"), com uma exceção ("alargada" por "alagada", 0,67).
+  No audiolivro, 16 trocas erradas (as 4 que passavam pela 2ª chamada e 12 de controle, como "gizzard" → "lizard")
+  vieram com confiança < 0,001 ou nem apareceram. Daí o limite de 0,2.
+- Com a mesma proposta do modelo (limite de confiança 0,95, sem 2ª chamada), antes eram 3 trocas certas e 2 erradas
+  na fala; a conferência no áudio recusou as 2 erradas e manteve as 3 certas. Agora o que limita é a proposta: só 3 das
+  17 palavras erradas são corrigidas. Homófonos com sentido claro ("sela do cavalo", "bare paws", confiança 0,64–1,00)
+  continuam sem correção.
+- O tempo a mais do audiolivro (86 s → 181 s) vem de reouvir cada frase com troca proposta, com o Whisper e o
+  `gemma3:12b` dividindo a GPU de 12 GB; não medido em separado.
+- Ideia não medida: modelo maior para propor as trocas.
 
 ## Requisitos de hardware e software (testado)
 

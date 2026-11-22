@@ -46,6 +46,13 @@ public sealed class OpcoesTraducao
     /// </summary>
     public double LimiteConfiancaCorrecao { get; set; } = 0.95;
 
+    /// <summary>
+    /// Cada troca proposta vai a uma segunda chamada ao modelo, que compara a frase com e sem ela; a troca só vale se a
+    /// frase sem ela não fizer sentido. Desligada por padrão porque no arquivo a troca já é conferida no áudio
+    /// (<c>OpcoesArquivo.ConferirCorrecaoNoAudio</c>), que mediu melhor; ligue ao corrigir frase avulsa, sem áudio.
+    /// </summary>
+    public bool ConfirmarCorrecaoComModelo { get; set; }
+
     /// <summary>Quantas frases anteriores vão como contexto.</summary>
     public int FrasesAntes { get; set; } = 2;
 
