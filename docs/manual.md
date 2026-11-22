@@ -229,11 +229,11 @@ Dicionário gerado por uma versão anterior da lib é recusado com a mensagem de
 O que tem e quanto custa: [modelos.md](modelos.md#dicionário-local-wiktionary).
 
 Com o dicionário gerado, a tradução de palavra (comando `palavra` e `TraduzirPalavraAsync`) passa a usá-lo, pela
-opção `CaminhoDicionario` (seção 6), que no Cli já aponta para `dados/dicionario.db`:
-- sem a tradução da frase (`--traducao-frase`), o modelo recebe os sentidos da palavra e das expressões que a contêm
-  como opções numeradas, marcando os que aparecem na tradução que a lib fez da frase, e escolhe um;
-- com a tradução da frase, só quando a palavra faz parte de uma expressão do dicionário ("gave" em "gave up",
-  "running" em "running out of"); nos outros casos a tradução da frase já é a melhor pista.
+opção `CaminhoDicionario` (seção 6), que no Cli já aponta para `dados/dicionario.db`. O dicionário só entra quando a
+palavra faz parte de uma expressão dele ("gave" em "gave up", "running" em "running out of"): o modelo recebe os
+sentidos da expressão como opções numeradas, marcando os que aparecem na tradução da frase (a passada em
+`--traducao-frase` ou, sem ela, a que a lib fez), e escolhe um. Palavra fora de expressão vai só com a frase e a
+tradução dela: as opções da palavra sozinha faziam o modelo escolher sentidos raros de palavras comuns.
 
 ### 4.7 Medir a tradução de palavra
 ```powershell
@@ -242,8 +242,10 @@ dotnet run --project src/Transcritor.Cli -- avaliar-palavras docs/avaliacao/pala
 Traduz cada caso do arquivo (palavra, frase, tradução da frase, idiomas e respostas aceitas), sem cache, e mostra
 acertos e tempo. `--sem-dicionario` desliga o dicionário; `--sem-traducao-frase` não passa a tradução da frase.
 Uma resposta conta como certa se contém uma das `aceitas`.
-Há dois conjuntos: `palavras-ambiguas.json` (32 casos, em que as regras do dicionário foram ajustadas) e
-`palavras-validacao.json` (78 casos que não entram no ajuste; use para conferir uma mudança).
+Há três conjuntos: `palavras-ambiguas.json` (32 casos, em que as regras do dicionário foram ajustadas),
+`palavras-validacao.json` (78 casos, que sugeriram a regra atual mas não serviram para decidi-la) e
+`palavras-teste.json` (82 casos, onde a regra atual foi decidida). Para conferir uma mudança, rode os três e não ajuste
+nada olhando os erros de um conjunto que você vai usar para decidir.
 
 ### 4.8 Medir o reconhecimento da sua fala
 1. Grave as frases de `docs/avaliacao/frases-para-gravar.json` pelo microfone (mostra cada frase, Enter grava; salva
@@ -437,7 +439,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloFrases` | `translategemma:12b` | Frases do arquivo |
 | `ModeloFrasesTempoReal` | `translategemma:4b` | Frases no tempo real e comando `traduzir` (vazio = `ModeloFrases`) |
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
-| `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta recebe os sentidos do dicionário como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
+| `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta que faz parte de uma expressão do dicionário recebe os sentidos da expressão como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
 | `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |

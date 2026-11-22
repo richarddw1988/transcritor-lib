@@ -140,14 +140,13 @@ internal sealed class TradutorOllama(
             ? await TraduzirFraseAsync(new PedidoTraducaoFrase(pedido.Frase, pedido.Origem, pedido.Destino, [], []), cancellationToken).ConfigureAwait(false)
             : pedido.TraducaoDaFrase;
 
-        // Medido (docs/modelos.md): com a tradução da frase vinda de quem chama (ex.: o JSON, feito pelo modelo maior),
-        // as opções da palavra sozinha mais atrapalham que ajudam; só as de expressão ("gave up", "run out of") ajudam.
-        // Com a tradução feita aqui, mais fraca, todas as opções ajudam.
+        // Medido (docs/modelos.md, três conjuntos de casos): só as opções de expressão ("gave up", "run out of")
+        // ajudam. As da palavra sozinha fazem o modelo escolher um sentido raro de palavra comum ("fan" → "abanar",
+        // "glasses" → "vidro"), com ou sem a tradução da frase.
         var opcoes = dicionario is null
             ? []
             : CandidatosDicionario.Buscar(
-                dicionario, pedido.Palavra, pedido.Frase, pedido.Origem, pedido.Destino, traducaoDaFrase,
-                soExpressao: !string.IsNullOrWhiteSpace(pedido.TraducaoDaFrase));
+                dicionario, pedido.Palavra, pedido.Frase, pedido.Origem, pedido.Destino, traducaoDaFrase, soExpressao: true);
         var traducao = opcoes.Count == 0
             ? await TraduzirPalavraSoComModeloAsync(pedido, traducaoDaFrase, cancellationToken).ConfigureAwait(false)
             : await EscolherOpcaoAsync(pedido, traducaoDaFrase, opcoes, cancellationToken).ConfigureAwait(false);
@@ -236,7 +235,7 @@ internal sealed class TradutorOllama(
     }
 
     /// <summary>Muda a escolha de opções do dicionário; entra na chave do cache de palavras.</summary>
-    private const int VersaoDicionario = 3;
+    private const int VersaoDicionario = 4;
 
     private static bool MesmoIdioma(string a, string b) => Idiomas.Normalizar(a) == Idiomas.Normalizar(b);
 }

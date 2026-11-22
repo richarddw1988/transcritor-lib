@@ -121,7 +121,8 @@ GFDL), para dar à tradução os sentidos reais de cada palavra. Opcional; como 
 
 O modelo de palavra (`gemma3:4b`) recebe os sentidos do dicionário como opções numeradas (formato de escolha
 múltipla) e responde `{"opcao": n, "traducao": "..."}`. As opções vêm da maior expressão da frase que contém a
-palavra e da palavra sozinha, e as que aparecem na tradução da frase ficam marcadas. O texto do modelo é descartado,
+palavra, e as que aparecem na tradução da frase ficam marcadas; palavra fora de expressão vai sem opções (regra atual,
+decidida no conjunto de teste mais abaixo). O texto do modelo é descartado,
 voltando à tradução da opção, quando copia a frase original ou fica longo demais.
 
 Medido em 2026-11-21 com `transcritor avaliar-palavras docs/avaliacao/palavras-ambiguas.json` (32 palavras
@@ -130,7 +131,7 @@ ambíguas, 22 en → pt e 10 pt → en), RTX 3060:
 | Situação | Sem dicionário | Com dicionário (regra final) | Tempo médio por palavra |
 |---|---|---|---|
 | Tradução da frase fornecida (ex.: do JSON, feita pelo 12b) | 30/32 (94%) — erra "gave up" e "running out" | **31/32 (97%)** — só usa o dicionário em expressões | 0,35 s → 0,36 s |
-| Sem a tradução da frase (a lib traduz a frase com o 4b) | 26/32 (81%) — "pêra" para *peach*, "pena" para *feather*… | **29/32 (91%)** | 0,54 s → 0,73 s |
+| Sem a tradução da frase (a lib traduz a frase com o 4b) | 26/32 (81%) — "pêra" para *peach*, "pena" para *feather*… | **29/32 (91%)** com todas as opções; 28/32 só com expressões (regra atual, ver abaixo) | 0,54 s → 0,73 s |
 
 - Com a tradução da frase fornecida e **todas** as opções, o acerto caiu para 28/32 (88%): o modelo trocava o sentido
   que a tradução já indicava ("desist" em vez de "gave up"). Daí a regra: com tradução fornecida, só expressões.
@@ -160,10 +161,34 @@ mesmos números da tabela acima.
   bucket*, *piece of cake*, *under the weather*, *eventually*, *pupils*, "puxa-saco", "cola" = cheat sheet), mas erra
   palavras comuns que o modelo sozinho acertava, escolhendo o sentido errado entre as opções (*scale* "escala" na
   balança, *nail* "pregar", *row* "linha" e "discutir", *ring* "toque", *mean* "querer", *plant* "aparelhagem",
-  "ligar" a TV "call"). Daí a hipótese a testar: sem tradução, usar o dicionário só em expressões, como já é com
-  tradução. Testar exige um terceiro conjunto, para não ajustar a regra no de validação.
+  "ligar" a TV "call"). Daí a hipótese: sem tradução, usar o dicionário só em expressões, como já era com tradução,
+  testada no conjunto abaixo.
 - Casos no limite que o gabarito conta como erro: "dê o seu melhor!" para *break a leg* e "apertou" (sem "os olhos")
   para *squinted*. O gabarito foi escrito antes da medição e não foi mexido depois.
+
+**Conjunto de teste e regra atual** (`docs/avaliacao/palavras-teste.json`, 82 casos novos: 58 en → pt e 24 pt → en,
+mesma mistura do de validação, gabarito escrito antes de medir). Serviu para decidir a regra "dicionário só em
+expressões, com ou sem a tradução da frase". Medido em 2026-11-22, mesma máquina:
+
+| Situação | Sem dicionário | Dicionário completo (regra anterior) | **Só expressões (regra atual)** |
+|---|---|---|---|
+| Teste (82), tradução da frase fornecida | 73/82 (89%) | — (já era só expressões) | **76/82 (93%)** |
+| Teste (82), sem a tradução da frase | 68/82 (83%) | 61/82 (74%) | **70/82 (85%)** |
+| Validação (78), sem a tradução | 59/78 (76%) | 59/78 (76%) | **60/78 (77%)** |
+| Ambíguas (32), sem a tradução | 26/32 (81%) | 29/32 (91%) | 28/32 (88%) |
+| **Os três (192), sem a tradução** | 153/192 (80%) | 149/192 (78%) | **158/192 (82%)** |
+
+- Tempo médio por palavra no teste, sem a tradução: 0,41 s sem dicionário, 0,71 s com o completo, 0,45 s só com
+  expressões; com a tradução: 0,24 s → 0,39 s.
+- No teste, o dicionário completo errou 13 palavras comuns que o modelo sozinho acertava, todas por escolher um sentido
+  raro entre as opções: *bear* "carregar", *glasses* "vidro", *mine* "mineiros", *fan* "ventoinha" e "abanar", *tie* "amarrar", *order*
+  "pedir", *set off* "irritar", *chuckled* "gracejar", "assistir" "attend", "esperar" "stand by", "corrente" (de ouro)
+  "fob", "batendo" (na porta) "pound". Só com expressões, todas voltaram a acertar, e as expressões continuaram certas
+  (*traffic jam*, *takes after*, "água corrente").
+- O que se perde em relação ao completo: palavras sozinhas em que a opção ajudava (*toast* "brinde", "cara" = guy, e
+  nas ambíguas "pêra"/"pena"); e *spill the beans* e *brought up*, em que o modelo escolheu outra opção.
+- Às vezes a resposta é a frase inteira traduzida ("Eles cancelaram o casamento.", "This phone is very expensive"):
+  conta como certa no gabarito, mas não é o formato esperado. Não tratado.
 
 ### Dicionário na tradução de frases (testado, não adotado)
 

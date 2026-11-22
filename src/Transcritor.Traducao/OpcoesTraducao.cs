@@ -67,7 +67,8 @@ public sealed class OpcoesTraducao
 
     /// <summary>
     /// SQLite do dicionário inglês ↔ português (gerado por <c>transcritor dicionario importar</c>). Quando existe, a
-    /// tradução de palavra recebe os sentidos do dicionário como opções numeradas e o modelo escolhe uma.
+    /// palavra que faz parte de uma expressão do dicionário ("gave" em "gave up") recebe os sentidos da expressão como
+    /// opções numeradas e o modelo escolhe uma.
     /// Nulo ou arquivo ausente = tradução de palavra só com o modelo.
     /// </summary>
     public string? CaminhoDicionario { get; set; }

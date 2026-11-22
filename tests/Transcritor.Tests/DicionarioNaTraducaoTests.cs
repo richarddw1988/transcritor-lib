@@ -109,33 +109,39 @@ public sealed class DicionarioNaTraducaoTests : IDisposable
     }
 
     [Fact]
-    public async Task Sem_traducao_da_frase_o_modelo_recebe_as_opcoes_numeradas_e_marcadas()
+    public async Task Sem_traducao_da_frase_so_a_expressao_recebe_as_opcoes_numeradas_e_marcadas()
     {
-        var respostas = new Queue<string>(["Sentamos na margem do rio.", """{"opcao": 1, "traducao": "margem"}"""]);
+        var respostas = new Queue<string>([
+            "Sentamos na margem do rio.", """{"traducao": "margem"}""",
+            "Ela resolveu desistir de fumar.", """{"opcao": 1, "traducao": "desistiu"}""",
+        ]);
         var (tradutor, http) = await CriarAsync((_, _) => RespostaChat(respostas.Dequeue()));
 
-        var r = await tradutor.TraduzirPalavraAsync(
+        var banco = await tradutor.TraduzirPalavraAsync(
             new PedidoTraducaoPalavra("bank", "We sat on the bank of the river.", "en", "pt"), CancellationToken.None);
+        var desistiu = await tradutor.TraduzirPalavraAsync(
+            new PedidoTraducaoPalavra("gave", "She gave up smoking.", "en", "pt"), CancellationToken.None);
 
-        Assert.Equal("margem", r);
-        var usuario = Usuario(http.Recebidas[1].Corpo);
-        Assert.Contains("1. bank (substantivo): margem [edge of river] (in translation)", usuario, StringComparison.Ordinal);
-        Assert.Contains("2. bank (substantivo): banco [institution]", usuario, StringComparison.Ordinal);
-        Assert.Contains("\"opcao\"", http.Recebidas[1].Corpo, StringComparison.Ordinal);
+        Assert.Equal("margem", banco);
+        Assert.DoesNotContain("opcoes", Usuario(http.Recebidas[1].Corpo), StringComparison.Ordinal);
+        Assert.Equal("desistiu", desistiu);
+        var usuario = Usuario(http.Recebidas[3].Corpo);
+        Assert.Contains("1. give up (verbo): desistir [stop, quit] (in translation)", usuario, StringComparison.Ordinal);
+        Assert.Contains("\"opcao\"", http.Recebidas[3].Corpo, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("""{"opcao": 1, "traducao": "desisti"}""", "give up")] // copiou a palavra da frase original
-    [InlineData("""{"opcao": 1, "traducao": "I gave up running the whole marathon yesterday"}""", "give up")] // frase inteira
-    [InlineData("""{"opcao": 1, "traducao": ""}""", "give up")]
-    [InlineData("""{"opcao": 1, "traducao": "gave up"}""", "gave up")] // adaptado à frase: vale
-    [InlineData("""{"opcao": 0, "traducao": "quit"}""", "quit")] // nenhuma opção: tradução livre
+    [InlineData("""{"opcao": 1, "traducao": "gave"}""", "desistir")] // copiou a palavra da frase original
+    [InlineData("""{"opcao": 1, "traducao": "Ela desistiu de correr a maratona inteira ontem"}""", "desistir")] // frase inteira
+    [InlineData("""{"opcao": 1, "traducao": ""}""", "desistir")]
+    [InlineData("""{"opcao": 1, "traducao": "desistiu"}""", "desistiu")] // adaptado à frase: vale
+    [InlineData("""{"opcao": 0, "traducao": "largou"}""", "largou")] // nenhuma opção: tradução livre
     public async Task Texto_do_modelo_so_vale_se_parecer_traducao(string resposta, string esperado)
     {
-        var respostas = new Queue<string>(["I gave up.", resposta]);
+        var respostas = new Queue<string>(["Ela desistiu.", resposta]);
         var (tradutor, _) = await CriarAsync((_, _) => RespostaChat(respostas.Dequeue()));
 
-        var r = await tradutor.TraduzirPalavraAsync(new PedidoTraducaoPalavra("desisti", "Eu desisti.", "pt", "en"), CancellationToken.None);
+        var r = await tradutor.TraduzirPalavraAsync(new PedidoTraducaoPalavra("gave", "She gave up.", "en", "pt"), CancellationToken.None);
 
         Assert.Equal(esperado, r);
     }
@@ -143,12 +149,12 @@ public sealed class DicionarioNaTraducaoTests : IDisposable
     [Fact]
     public async Task Opcao_invalida_sem_texto_aproveitavel_traduz_so_com_o_modelo()
     {
-        var respostas = new Queue<string>(["I gave up.", """{"opcao": 9, "traducao": "desisti"}""", """{"traducao": "gave up"}"""]);
+        var respostas = new Queue<string>(["Ela desistiu.", """{"opcao": 9, "traducao": "gave"}""", """{"traducao": "desistiu"}"""]);
         var (tradutor, http) = await CriarAsync((_, _) => RespostaChat(respostas.Dequeue()));
 
-        var r = await tradutor.TraduzirPalavraAsync(new PedidoTraducaoPalavra("desisti", "Eu desisti.", "pt", "en"), CancellationToken.None);
+        var r = await tradutor.TraduzirPalavraAsync(new PedidoTraducaoPalavra("gave", "She gave up.", "en", "pt"), CancellationToken.None);
 
-        Assert.Equal("gave up", r);
+        Assert.Equal("desistiu", r);
         Assert.Equal(3, http.Recebidas.Count);
         Assert.DoesNotContain("opcoes", Usuario(http.Recebidas[2].Corpo), StringComparison.Ordinal);
     }
