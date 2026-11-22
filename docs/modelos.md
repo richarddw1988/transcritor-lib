@@ -190,7 +190,7 @@ expressões, com ou sem a tradução da frase". Medido em 2026-11-22, mesma máq
 - Às vezes a resposta é a frase inteira traduzida ("Eles cancelaram o casamento.", "This phone is very expensive"):
   conta como certa no gabarito, mas não é o formato esperado. Não tratado.
 
-### Dicionário na tradução de frases (testado, não adotado)
+### Dicionário na tradução de frases (testado, não adotado por ora)
 
 Ideia: dar ao `translategemma` os sentidos do dicionário das palavras da frase, no mesmo lugar do prompt em que
 entra a dica do glossário. Medido em 2026-11-22 com script fora da lib, sem contexto de frases vizinhas,
@@ -215,9 +215,32 @@ realista (todas as palavras) foi comparada em 40 frases do audiolivro com o 12b:
 - Escolher só as palavras raras resolveria o ruído, mas o dicionário não tem frequência: o número de sentidos não
   separa rara de comum (*toothbrush* 1, *river* 4, *gizzard* 1). Palavras raras de verdade do audiolivro (*wistfully*,
   *beauteous*, *musty*, *curvy*) nem têm verbete.
-- Conclusão: não entra na lib por ora. Para retomar, faltam uma lista de frequência de palavras para escolher as
-  raras, pular nomes próprios e um avaliador de qualidade da frase inteira (o acerto da palavra ambígua do 12b já é
-  30/32 sem dica).
+- Conclusão da 1ª rodada: não entrou na lib. Faltavam uma lista de frequência de palavras para escolher as raras,
+  pular nomes próprios e um avaliador de qualidade da frase inteira.
+
+**2ª rodada: dica só das palavras raras** (medido em 2026-11-22, mesmo script e máquina, 12b). Lista de frequência:
+[FrequencyWords](https://github.com/hermitdave/FrequencyWords) 2018, `en_50k.txt` e `pt_br_50k.txt` (contagens de
+legendas do OpenSubtitles, CC BY-SA 4.0, ~0,6 MB cada). Recebem dica as palavras de conteúdo fora das 10.000 mais
+frequentes (vale a melhor posição entre a palavra e a forma base) que têm verbete; palavra com maiúscula no meio da
+frase é tratada como nome e pula. O limiar de 10.000 foi escolhido antes de medir.
+
+| Medição | Sem dica | Dica só das raras |
+|---|---|---|
+| Ambíguas (32), acerto da palavra | 30/32 | 30/32 (2 frases com dica) |
+| Validação (78) | 72/78 | 72/78 (13 com dica, 6 mudaram, todas certas nas duas) |
+| Teste (82) | 80/82 | 79/82 (9 com dica; *scowled* "careta" → "cara de desgosto") |
+| Audiolivro, 40 frases | — | 17 com dica (média 208 caracteres, contra 1.470 com todas as palavras), 10 mudaram |
+
+- Tempo: +0,1 s nas frases com dica (2,7 → 2,8 s/frase nos conjuntos); nas sem dica, nada muda.
+- Melhorou no audiolivro: *gizzard* "bucho" → "moela", *porcupine* "ouriço" → "porco-espinho", *spoonfuls* "colheres
+  de sopa" → "colheradas", *clump* "conjunto" → "amontoado" (2 frases), *clutching* "segurando" → "segurando com força".
+- Piorou: "My dear old trout" perdeu o "velhinha" ("Minha querida, você está só pele e ossos"). Neutras (troca de
+  palavra sem ganho claro): *mischief*, *flabby*, *unhappiness*, *seaside*, *creaky* ("rouca" → "com um tom áspero").
+- Nenhum nome traduzido ("James" ficou "James"), o problema que travou a 1ª rodada.
+- Nos conjuntos de palavras quase não há palavra rara, então eles medem só o dano (1 caso no limite); o ganho aparece
+  em texto literário, onde a amostra é pequena (40 frases, sem gabarito).
+- Situação: ganho pequeno e real em vocabulário raro, sem dano relevante medido. Não implementado na lib: exigiria
+  baixar e importar a lista de frequência (passo novo de instalação). Decisão pendente com o dono.
 
 ### Palavras de som parecido (chave de pronúncia)
 
