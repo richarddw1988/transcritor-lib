@@ -84,7 +84,8 @@ Precisa de Windows 10/11 com GPU NVIDIA (12 GB recomendado; ver [modelos.md](mod
 
 O script é idempotente (pode rodar quantas vezes quiser, só faz o que falta):
 1. confere .NET 10, ffmpeg/ffprobe, GPU e driver, Docker, espaço do disco do Docker e memória do WSL;
-2. constrói a imagem do WhisperLiveKit (não há imagem publicada; ~22 GB, 20+ min na 1ª vez) e sobe os serviços;
+2. constrói a imagem do Speaches (a oficial 0.8.3 com uma correção, ver seção 8) e a do WhisperLiveKit (não há
+   imagem publicada; ~22 GB, 20+ min na 1ª vez) e sobe os serviços;
 3. espera cada serviço responder e confere se os contêineres enxergam a GPU;
 4. baixa os modelos que faltam (Whisper no Speaches; translategemma 12b e 4b e gemma3 4b no Ollama);
 5. compila a solução e roda `transcritor servicos`.
@@ -456,7 +457,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
 | `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
 | `DescarregarModelosEntreEtapas` | `true` | Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o modelo usado antes de a próxima carregar o seu (seção 8) |
-| `EsperaDescarregarTranscricao` | `00:00:20` | Quanto esperar o Whisper sair da GPU; o Speaches o tira depois de `WHISPER__TTL` segundos ocioso (10 no `docker-compose.yml`) |
+| `EsperaDescarregarTranscricao` | `00:00:20` | Quanto esperar o Whisper sair da GPU depois de pedir. Com a imagem original do Speaches 0.8 (sem o comando de descarregar), é o tempo máximo de espera pelo `WHISPER__TTL` |
 
 **`Transcritor:Traducao`**
 
@@ -522,12 +523,18 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 - No processamento de arquivo, cada etapa tira o seu modelo da GPU antes da próxima (`DescarregarModelosEntreEtapas`,
   ligada): o Whisper sai depois da transcrição, o modelo da correção depois das propostas (a correção roda em duas
   fases: primeiro o modelo propõe as trocas de todas as frases, depois o Whisper confere cada uma no áudio), o da
-  tradução depois da tradução. Assim o Whisper (~3,9 GB) e um modelo de 8 GB do Ollama não disputam a placa.
-- O Ollama tira o modelo na hora (`keep_alive` 0). O Speaches não: o comando dele para descarregar (`DELETE /api/ps`)
-  trava o serviço na versão 0.8; a lib espera o tempo ocioso dele, `WHISPER__TTL`, que no `docker-compose.yml` é de
-  10 s. Com um valor maior, a etapa seguinte começa com o Whisper ainda carregado.
-- Fora disso, os modelos descarregam sozinhos (Ollama: 10 min; Speaches: 10 s). A 1ª chamada depois disso é mais lenta
-  (carga do modelo: ~9 s o Whisper, ~4 s um modelo de 4 GB do Ollama).
+  tradução depois da tradução. Antes de cada etapa, a lib também tira o modelo do outro serviço (o Whisper antes das
+  etapas do Ollama e vice-versa), mesmo que ele tenha ficado na GPU de outra execução. Assim o Whisper (~3,9 GB) e um
+  modelo de 8 GB do Ollama não disputam a placa.
+- O Ollama tira o modelo na hora (`keep_alive` 0) e o Speaches também (`DELETE /api/ps`, ~0,4 s). No Speaches 0.8
+  original esse comando trava o serviço; por isso o projeto usa uma imagem própria, a 0.8.3 com uma linha corrigida
+  (`docker/speaches/Dockerfile`, construída pelo `preparar-ambiente.ps1`). A lib só manda o comando quando o `/health`
+  do Speaches traz o cabeçalho `X-Transcritor-Descarregar` dessa imagem; com a original, espera o tempo ocioso
+  (`WHISPER__TTL`) por até `EsperaDescarregarTranscricao`.
+- Fora disso, os modelos descarregam sozinhos (Ollama: 10 min; Speaches: 5 min, `WHISPER__TTL`). A 1ª chamada depois
+  disso é mais lenta (carga do modelo: ~5–9 s o Whisper, ~4 s um modelo de 4 GB do Ollama).
+- O WhisperLiveKit (tempo real) carrega o modelo na 1ª sessão e não solta mais: medido em 2026-11-22, a GPU foi de
+  0,9 GB para 3,0 GB numa sessão e continuou em 3,0 GB depois dela. Para liberar: `docker restart whisperlivekit`.
 - Ver o uso: `nvidia-smi` e `docker exec ollama ollama ps`.
 
 ## 9. Problemas comuns
@@ -541,7 +548,7 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 | Script diz que o contêiner não enxerga a GPU | Driver antigo ou Docker sem backend WSL2 | Atualize o driver (576+); `docker run --rm --gpus all ubuntu nvidia-smi` deve funcionar |
 | Porta 8000, 8001 ou 11434 já em uso | Outro programa (ex.: um Ollama instalado no Windows) | Feche o outro programa ou mude a porta no `docker-compose.yml` e no `appsettings.json` |
 | Frase repetida várias vezes no JSON, com início = fim | Alucinação do Whisper na transcrição longa | Já tratado com `RepararTrechosSuspeitos=true` (padrão); se sobrar, apague o cache do arquivo e rode de novo |
-| Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` no Speaches 0.8 trava o serviço | `docker restart speaches`; para liberar a GPU, espere o `WHISPER__TTL` (10 s) |
+| Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` trava o Speaches 0.8 original | `docker restart speaches`; use a imagem do projeto (`docker compose build speaches`; `docker compose up -d speaches`) |
 | Tempo real começa em inglês na fala em português | Detecção automática puxa para o inglês | `--idioma pt` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |

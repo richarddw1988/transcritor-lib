@@ -5,7 +5,8 @@
 .DESCRIPTION
     Idempotente: pode rodar quantas vezes quiser; só faz o que falta.
       1. Confere os pré-requisitos: .NET 10, Docker com GPU NVIDIA, ffmpeg/ffprobe, espaço do Docker e memória do WSL.
-      2. Constrói a imagem do WhisperLiveKit (não há imagem publicada) e sobe os serviços do docker-compose.yml.
+      2. Constrói as imagens do Speaches (a oficial 0.8.3 com uma correção) e do WhisperLiveKit (não há imagem
+         publicada) e sobe os serviços do docker-compose.yml.
       3. Espera cada serviço responder.
       4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama.
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
@@ -184,6 +185,15 @@ if (-not $SemTempoReal) { $servicos += 'whisperlivekit' }
 
 if (-not $SoConferir -and $dockerOk) {
     Escrever-Etapa '2. Imagens e contêineres'
+    # Speaches 0.8.3 com a correção do descarregar (docker/speaches/Dockerfile): build rápido sobre a imagem oficial.
+    $imagemSpeaches = & docker images -q 'transcritor/speaches:0.8.3-descarregar'
+    if ($imagemSpeaches) { Escrever-Ok 'Imagem do Speaches já existe' }
+    else {
+        Write-Host '  Construindo a imagem do Speaches (baixa a oficial, ~8 GB, na 1ª vez)...'
+        & docker compose build speaches
+        if ($LASTEXITCODE -ne 0) { Escrever-Falha 'Falhou o build do Speaches (veja o log acima).'; exit 1 }
+        Escrever-Ok 'Imagem do Speaches construída'
+    }
     if (-not $SemTempoReal) {
         $imagem = & docker images -q 'transcritor/whisperlivekit:0.2.27'
         if ($imagem) { Escrever-Ok 'Imagem do WhisperLiveKit já existe' }

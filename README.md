@@ -57,6 +57,9 @@ dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt
 | WhisperLiveKit | 8001 | Transcrição em tempo real (WebSocket) | `large-v3-turbo` |
 | Ollama | 11434 | Tradução, análise e correção | `translategemma:12b` (arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra), `gemma3:12b` (análise e correção da transcrição, opcionais) |
 
+O Speaches roda numa imagem própria, a 0.8.3 oficial com uma linha corrigida ([docker/speaches](docker/speaches/Dockerfile)),
+para a lib poder tirar o Whisper da GPU entre as etapas; o `preparar-ambiente.ps1` constrói essa imagem.
+
 Por que esses modelos, o que mais foi testado e quanto cada um custa: [docs/modelos.md](docs/modelos.md).
 
 ## Projetos

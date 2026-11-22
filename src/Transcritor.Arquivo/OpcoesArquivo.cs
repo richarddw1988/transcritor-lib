@@ -45,16 +45,17 @@ public sealed class OpcoesArquivo
 
     /// <summary>
     /// Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o
-    /// modelo usado antes de carregar o da etapa seguinte, para cada um caber inteiro na placa (com 12 GB, o Whisper e um
-    /// modelo de 8 GB do Ollama não cabem juntos com o WhisperLiveKit). Serviços que não implementam
+    /// modelo usado antes de carregar o da etapa seguinte; antes de cada etapa, tira também o do outro serviço (Whisper ou
+    /// Ollama) que tenha sobrado de outra execução. Assim cada um cabe inteiro na placa (com 12 GB, o Whisper e um
+    /// modelo de 8 GB do Ollama ficam a poucos MB do limite). Serviços que não implementam
     /// <see cref="Core.Contratos.IDescarregavel"/> são pulados.
     /// </summary>
     public bool DescarregarModelosEntreEtapas { get; set; } = true;
 
     /// <summary>
-    /// Quanto esperar o Whisper sair da GPU ao fim da etapa. O Speaches tira o modelo depois de <c>WHISPER__TTL</c>
-    /// segundos ocioso (10 no docker-compose.yml); com um TTL maior que esta espera, a etapa seguinte começa com o Whisper
-    /// ainda carregado.
+    /// Quanto esperar o Whisper sair da GPU ao fim da etapa, depois de pedir. Com a imagem original do Speaches 0.8, que
+    /// não aceita o pedido, é o tempo máximo de espera pelo tempo ocioso do serviço (<c>WHISPER__TTL</c>); com um TTL
+    /// maior, a etapa seguinte começa com o Whisper ainda carregado.
     /// </summary>
     public TimeSpan EsperaDescarregarTranscricao { get; set; } = TimeSpan.FromSeconds(20);
 

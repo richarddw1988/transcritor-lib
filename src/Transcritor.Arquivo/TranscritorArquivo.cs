@@ -51,6 +51,8 @@ public sealed class TranscritorArquivo(
         var tudoDoCache = transcricao is not null;
         if (transcricao is null)
         {
+            // Modelos do Ollama que sobraram de outra execução (KeepAlive) disputariam a GPU com o Whisper.
+            await DescarregarAsync([corretor, tradutor, analisador], cancellationToken).ConfigureAwait(false);
             transcricao = await TranscreverAsync(caminho, hash, progresso, cancellationToken).ConfigureAwait(false);
             await cache.GravarAsync(chave, transcricao, cancellationToken).ConfigureAwait(false);
             await DescarregarAsync(motor, cancellationToken).ConfigureAwait(false);
@@ -87,6 +89,7 @@ public sealed class TranscritorArquivo(
             if (traduzido is null)
             {
                 tudoDoCache = false;
+                await DescarregarAsync([motor], cancellationToken).ConfigureAwait(false);
                 traduzido = await TraduzirAsync(tradutorUsado, transcricao, destino, progresso, cancellationToken).ConfigureAwait(false);
                 await cache.GravarAsync(chaveTraducao, traduzido, cancellationToken).ConfigureAwait(false);
                 await DescarregarAsync(tradutorUsado, cancellationToken).ConfigureAwait(false);
@@ -102,6 +105,7 @@ public sealed class TranscritorArquivo(
                 if (analisado is null)
                 {
                     tudoDoCache = false;
+                    await DescarregarAsync([motor], cancellationToken).ConfigureAwait(false);
                     analisado = await AnalisarAsync(analisador, traduzido, destino, progresso, cancellationToken).ConfigureAwait(false);
                     await cache.GravarAsync(chaveAnalise, analisado, cancellationToken).ConfigureAwait(false);
                     await DescarregarAsync(analisador, cancellationToken).ConfigureAwait(false);
@@ -123,7 +127,25 @@ public sealed class TranscritorArquivo(
 
     /// <summary>Tira da GPU o modelo do serviço, se a opção estiver ligada e o serviço souber (<see cref="IDescarregavel"/>).</summary>
     private Task DescarregarAsync(object servico, CancellationToken cancellationToken) =>
-        _opcoes.DescarregarModelosEntreEtapas && servico is IDescarregavel d ? d.DescarregarAsync(cancellationToken) : Task.CompletedTask;
+        DescarregarAsync([servico], cancellationToken);
+
+    /// <summary>
+    /// Tira da GPU os modelos dos serviços, um por vez. Antes de cada etapa a lib tira os do outro serviço (Whisper antes
+    /// das etapas do Ollama e vice-versa), mesmo que tenham sido carregados por outra execução; o Ollama troca sozinho
+    /// os modelos dele entre si.
+    /// </summary>
+    private async Task DescarregarAsync(IEnumerable<object?> servicos, CancellationToken cancellationToken)
+    {
+        if (!_opcoes.DescarregarModelosEntreEtapas)
+        {
+            return;
+        }
+
+        foreach (var d in servicos.OfType<IDescarregavel>().Distinct())
+        {
+            await d.DescarregarAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>Hash do arquivo + motor/modelo + idioma forçado: trocar o modelo não reaproveita resultado de outro.</summary>
     internal string ChaveCache(string hash)
@@ -265,7 +287,9 @@ public sealed class TranscritorArquivo(
         progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, 0));
         var frases = transcricao.Frases;
 
-        // Fase 1: propostas do modelo (metade do progresso).
+        // Fase 1: propostas do modelo (metade do progresso). O Whisper pode ter ficado na GPU (transcrição recém-feita
+        // ou de outra execução).
+        await DescarregarAsync([motor], cancellationToken).ConfigureAwait(false);
         var propostas = new IReadOnlyList<Correcao>[frases.Count];
         for (var i = 0; i < frases.Count; i++)
         {
@@ -284,7 +308,7 @@ public sealed class TranscritorArquivo(
             progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, (i + 1) * 50d / frases.Count));
         }
 
-        await DescarregarAsync(corretor, cancellationToken).ConfigureAwait(false);
+        await DescarregarAsync([corretor, tradutor, analisador], cancellationToken).ConfigureAwait(false);
 
         // Fase 2: conferência no áudio e aplicação das trocas.
         var pastaTemporaria = Path.Combine(Path.GetTempPath(), "transcritor");

@@ -17,20 +17,21 @@ name: transcritor
 
 services:
   speaches:
-    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    # Speaches 0.8.3 com a correção do descarregar (DELETE /api/ps travava o serviço); ver docker/speaches/Dockerfile.
+    build:
+      context: ./docker/speaches
+    image: transcritor/speaches:0.8.3-descarregar
     container_name: speaches
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      # O modelo NÃO é baixado sozinho, e esta imagem estável (v0.8) não tem PRELOAD_MODELS
-      # (só existe nas 0.9 RC). Baixe uma vez, depois de subir:
+      # O modelo NÃO é baixado sozinho, e a v0.8 não tem PRELOAD_MODELS. Baixe uma vez, depois de subir:
       #   curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3
-      # Descarrega o Whisper da VRAM 10 s depois de ficar ocioso, para o modelo do Ollama da etapa seguinte
-      # caber inteiro na GPU (a lib espera ele sair; ver OpcoesArquivo.DescarregarModelosEntreEtapas).
-      # O nome certo na v0.8 é WHISPER__TTL (STT_MODEL_TTL é ignorado). Não use DELETE /api/ps para
-      # descarregar: na v0.8 ele trava o serviço.
-      WHISPER__TTL: "10"
+      # Descarrega o Whisper da VRAM 5 min depois de ficar ocioso. No processamento de arquivo a lib não espera:
+      # tira o Whisper com DELETE /api/ps ao fim de cada etapa (OpcoesArquivo.DescarregarModelosEntreEtapas).
+      # Na v0.8 o nome é WHISPER__TTL (STT_MODEL_TTL é ignorado).
+      WHISPER__TTL: "300"
       LOG_LEVEL: info
     volumes:
       - hf-cache-speaches:/home/ubuntu/.cache/huggingface/hub

@@ -66,12 +66,46 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
         return Converter(corpo);
     }
 
+    /// <summary>Cabeçalho do /health da imagem do projeto (docker/speaches/Dockerfile), que corrige o DELETE /api/ps.</summary>
+    internal const string CabecalhoDescarregar = "X-Transcritor-Descarregar";
+
     /// <summary>
-    /// Espera o Whisper sair da GPU (GET /api/ps até o modelo sumir), no máximo <see cref="OpcoesArquivo.EsperaDescarregarTranscricao"/>.
-    /// Não pede para descarregar: no Speaches v0.8 o DELETE /api/ps trava o serviço (a trava do gerenciador de modelos é
-    /// pega duas vezes). Quem tira o modelo é o tempo ocioso do serviço, <c>WHISPER__TTL</c> no docker-compose.yml.
+    /// Tira o Whisper da GPU e volta quando ele saiu. Com a imagem do projeto (o /health traz
+    /// <see cref="CabecalhoDescarregar"/>), pede com DELETE /api/ps/{modelo}. Com a imagem original da v0.8 não pede,
+    /// porque lá esse comando trava o serviço (a trava do gerenciador de modelos é pega duas vezes): só espera o tempo
+    /// ocioso do serviço (<c>WHISPER__TTL</c>), consultando GET /api/ps por no máximo
+    /// <see cref="OpcoesArquivo.EsperaDescarregarTranscricao"/>. Falha de rede é ignorada.
     /// </summary>
     public async Task DescarregarAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (await AceitaDescarregarAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var modelo = Uri.EscapeDataString(_opcoes.ModeloTranscricao).Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+                using var resposta = await http.DeleteAsync(new Uri($"api/ps/{modelo}", UriKind.Relative), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            return;
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await EsperarSairAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> AceitaDescarregarAsync(CancellationToken cancellationToken)
+    {
+        using var saude = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken).ConfigureAwait(false);
+        return saude.IsSuccessStatusCode && saude.Headers.Contains(CabecalhoDescarregar);
+    }
+
+    /// <summary>Consulta GET /api/ps até o Whisper sumir da lista, no máximo <see cref="OpcoesArquivo.EsperaDescarregarTranscricao"/>.</summary>
+    private async Task EsperarSairAsync(CancellationToken cancellationToken)
     {
         var limite = DateTime.UtcNow + _opcoes.EsperaDescarregarTranscricao;
         while (true)

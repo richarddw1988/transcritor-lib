@@ -34,10 +34,10 @@ public sealed class DescarregarModelosTests : IDisposable
 
         Assert.Equal(
             [
-                "transcrever", "descarregar:motor",
-                "propor", "propor", "descarregar:corretor",
+                "descarregar:corretor", "descarregar:tradutor", "transcrever", "descarregar:motor",
+                "descarregar:motor", "propor", "propor", "descarregar:corretor", "descarregar:tradutor",
                 "reouvir", "reouvir", "descarregar:motor",
-                "traduzir", "descarregar:tradutor",
+                "descarregar:motor", "traduzir", "descarregar:tradutor",
             ],
             eventos);
         Assert.Equal(["The knight rode.", "Good knight."], r.Frases.Select(f => f.Texto));
@@ -50,6 +50,19 @@ public sealed class DescarregarModelosTests : IDisposable
         await Criar(eventos, descarregar: false).ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ambos);
 
         Assert.Equal(["transcrever", "propor", "propor", "reouvir", "reouvir", "traduzir"], eventos);
+    }
+
+    [Fact]
+    public async Task Whisper_de_outra_execucao_sai_antes_da_traducao_mesmo_com_a_transcricao_do_cache()
+    {
+        var midia = _pasta.Arquivo("a.mp3", "x");
+        await Criar([], descarregar: true).ProcessarAsync(midia, Saida.Ingles);
+
+        // Transcrição e correção vêm do cache; só a tradução roda.
+        var eventos = new List<string>();
+        await Criar(eventos, descarregar: true).ProcessarAsync(midia, Saida.Ambos);
+
+        Assert.Equal(["descarregar:motor", "traduzir", "descarregar:tradutor"], eventos);
     }
 
     [Fact]
@@ -83,27 +96,58 @@ public sealed class DescarregarModelosTests : IDisposable
     }
 
     [Fact]
-    public async Task Speaches_espera_o_whisper_sair_da_lista_de_carregados()
+    public async Task Speaches_da_imagem_do_projeto_descarrega_com_delete()
+    {
+        var carregado = true;
+        var handler = new FakeHttpHandler((req, _) =>
+        {
+            switch (req.Method.Method, req.RequestUri!.AbsolutePath)
+            {
+                case ("GET", "/health"):
+                    var saude = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") };
+                    saude.Headers.Add(SpeachesMotorTranscricao.CabecalhoDescarregar, "1");
+                    return saude;
+                case ("DELETE", "/api/ps/Systran/faster-whisper-large-v3"):
+                    carregado = false;
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                default:
+                    return FakeHttpHandler.Json(carregado ? """{"models": ["Systran/faster-whisper-large-v3"]}""" : """{"models": []}""");
+            }
+        });
+
+        await CriarSpeaches(handler, TimeSpan.FromSeconds(10)).DescarregarAsync(CancellationToken.None);
+
+        Assert.Equal(
+            ["GET /health", "DELETE /api/ps/Systran/faster-whisper-large-v3", "GET /api/ps"],
+            handler.Recebidas.Select(r => $"{r.Requisicao.Method} {r.Requisicao.RequestUri!.AbsolutePath}"));
+    }
+
+    [Fact]
+    public async Task Speaches_original_nao_manda_delete_e_espera_o_whisper_sair_da_lista()
     {
         var respostas = new Queue<string>([
             """{"models": ["Systran/faster-whisper-large-v3"]}""",
             """{"models": ["Systran/faster-whisper-large-v3"]}""",
             """{"models": []}""",
         ]);
-        var handler = new FakeHttpHandler((_, _) => FakeHttpHandler.Json(respostas.Dequeue()));
+        var handler = new FakeHttpHandler((req, _) => req.RequestUri!.AbsolutePath == "/health"
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") }
+            : FakeHttpHandler.Json(respostas.Dequeue()));
 
         await CriarSpeaches(handler, TimeSpan.FromSeconds(10)).DescarregarAsync(CancellationToken.None);
 
-        Assert.Equal(3, handler.Recebidas.Count);
-        Assert.All(handler.Recebidas, r => Assert.Equal((HttpMethod.Get, "/api/ps"), (r.Requisicao.Method, r.Requisicao.RequestUri!.AbsolutePath)));
+        Assert.DoesNotContain(handler.Recebidas, r => r.Requisicao.Method == HttpMethod.Delete);
+        Assert.Equal(3, handler.Recebidas.Count(r => r.Requisicao.RequestUri!.AbsolutePath == "/api/ps"));
     }
 
     [Fact]
     public async Task Speaches_desiste_depois_da_espera_maxima_e_ignora_servico_fora()
     {
-        var carregado = new FakeHttpHandler((_, _) => FakeHttpHandler.Json("""{"models": ["Systran/faster-whisper-large-v3"]}"""));
+        var carregado = new FakeHttpHandler((req, _) => req.RequestUri!.AbsolutePath == "/health"
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            : FakeHttpHandler.Json("""{"models": ["Systran/faster-whisper-large-v3"]}"""));
         await CriarSpeaches(carregado, TimeSpan.FromMilliseconds(50)).DescarregarAsync(CancellationToken.None);
-        Assert.NotEmpty(carregado.Recebidas);
+        Assert.Contains(carregado.Recebidas, r => r.Requisicao.RequestUri!.AbsolutePath == "/api/ps");
 
         var fora = new FakeHttpHandler((_, _) => throw new HttpRequestException("recusado"));
         await CriarSpeaches(fora, TimeSpan.FromSeconds(10)).DescarregarAsync(CancellationToken.None);

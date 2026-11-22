@@ -18,7 +18,8 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
-Imagens Docker: `ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3` (Speaches v0.8), `ollama/ollama:latest`,
+Imagens Docker: `transcritor/speaches:0.8.3-descarregar` (Speaches 0.8.3, `ghcr.io/speaches-ai/speaches:0.8.3-cuda-12.6.3`,
+com o `DELETE /api/ps` corrigido; ver [docker/speaches/Dockerfile](../docker/speaches/Dockerfile)), `ollama/ollama:latest`,
 `transcritor/whisperlivekit:0.2.27` (construída do repositório oficial, tag `v0.2.27`, CUDA 12.9).
 
 ### Reparo de trechos na transcrição de arquivo
@@ -72,6 +73,7 @@ palavra por palavra — a análise é pelo contexto:
 | `faster-whisper-large-v3` | arquivo | melhor modelo aberto em português nos benchmarks; resultados limpos nos testes | **em uso** | [pesquisa-asr.md](pesquisa-asr.md) |
 | `medium` | tempo real | gravação real: WER 21,6% (`pt`) / 23,5% (auto); atraso 3,1–3,2 s | foi o padrão até 2026-11-21; trocado pelo turbo por escolha do dono, mesmo um pouco melhor nessa gravação | [pesquisa-asr.md](pesquisa-asr.md) |
 | `large-v3-turbo` | tempo real | gravação real: WER 25,5% (`pt`) / 29,4% (auto); atraso 3,3–3,6 s; inventou "Hello"/"Tchau" no silêncio do começo | **em uso** | [pesquisa-asr.md](pesquisa-asr.md) |
+| `faster-whisper-large-v3` no Speaches 0.9.0-rc.3 | arquivo | fala do usuário (20 frases, 2026-11-22): WER 7,5% (0.8: 8,0%), mas frases sem ponto final e começando com minúscula ("my aunt's life near the beach but they never swim in the sea"); não devolve a confiança das palavras. A 0.9 sempre corta o áudio por VAD e transcreve os pedaços em lote (`BatchedInferencePipeline`), sem o texto anterior como contexto; não dá para desligar | não usado: a montagem das frases depende da pontuação, e a correção da confiança | abaixo |
 | Qwen3-ASR-1.7B, Voxtral Mini Realtime, Parakeet TDT v3, Canary-1B-v2 | só pesquisa | números de benchmark coletados; não instalados | não testados aqui | [pesquisa-asr.md](pesquisa-asr.md) |
 
 ### Tradução e análise
@@ -349,7 +351,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 - O tempo a mais do audiolivro (86 s → 181 s) vem de reouvir cada frase com troca proposta, com o Whisper e o
   `gemma3:12b` dividindo a GPU de 12 GB; não medido em separado. Desde 2026-11-22 a correção roda em duas fases
   (todas as propostas, depois toda a conferência; ver [Um modelo por vez](#um-modelo-por-vez-no-processamento-de-arquivo-descarregarmodelosentreetapas)):
-  propostas ~75 s + conferência ~30 s + 10 s de espera do Whisper sair, com o mesmo resultado.
+  propostas ~75–85 s + conferência ~25–30 s, com o mesmo resultado.
 - Modelo maior para propor as trocas: não testado. O `gemma3:27b` (~17 GB) não cabe na GPU de 12 GB nem sozinho.
 
 ## Requisitos de hardware e software (testado)
@@ -372,34 +374,47 @@ Os serviços dividem a mesma GPU. Medido em 2026-11-21:
 - arquivo com análise de sentido: `translategemma:12b` e `gemma3:12b` (~8 GB cada) são usados um depois do outro;
   rode com o WhisperLiveKit parado (`docker stop whisperlivekit`) se a GPU tiver 12 GB.
 
-O Ollama descarrega um modelo depois de 10 min sem uso (`KeepAlive`), e o Speaches depois de 10 s (`WHISPER__TTL` no
-`docker-compose.yml`; até 2026-11-22 o arquivo usava `STT_MODEL_TTL`, nome que a v0.8 ignora, e valia o padrão de 300 s).
+O Ollama descarrega um modelo depois de 10 min sem uso (`KeepAlive`), e o Speaches depois de 5 min (`WHISPER__TTL` no
+`docker-compose.yml`; até 2026-11-22 o arquivo usava `STT_MODEL_TTL`, nome que a v0.8 ignora, e valia o padrão de 300 s
+do mesmo jeito). No processamento de arquivo a lib não espera esses tempos (abaixo).
 
 ### Um modelo por vez no processamento de arquivo (`DescarregarModelosEntreEtapas`)
 
-Ao fim de cada etapa a lib tira o modelo usado da GPU antes de a próxima carregar o seu: Ollama na hora
-(`keep_alive` 0, ~0,3 s); Speaches pelo tempo ocioso de 10 s, que a lib espera (`GET /api/ps`), porque o
-`DELETE /api/ps` da v0.8 trava o serviço (a trava do gerenciador de modelos é pega duas vezes; o modelo sai da GPU,
-mas a resposta não volta e a transcrição seguinte fica pendurada até `docker restart speaches`). A correção passou a
-rodar em duas fases: primeiro o `gemma3:12b` propõe as trocas de todas as frases, depois o Whisper confere cada uma
-no áudio.
+Ao fim de cada etapa a lib tira o modelo usado da GPU antes de a próxima carregar o seu, e antes de cada etapa tira
+o do outro serviço (Whisper ou Ollama) que tenha sobrado de outra execução. Ollama: `keep_alive` 0, ~0,3 s. Speaches:
+`DELETE /api/ps/{modelo}`, ~0,4 s. A correção passou a rodar em duas fases: primeiro o `gemma3:12b` propõe as trocas
+de todas as frases, depois o Whisper confere cada uma no áudio.
+
+O `DELETE /api/ps` da 0.8.3 original trava o serviço: o gerenciador de modelos pega a própria trava
+(`threading.Lock`) duas vezes; o modelo sai da GPU, mas a resposta não volta e a transcrição seguinte fica pendurada
+até `docker restart speaches`. A 0.9.0-rc.3 corrige isso, mas transcreve pior (tabela de transcrição acima). O projeto
+usa a 0.8.3 com `threading.RLock` ([docker/speaches/Dockerfile](../docker/speaches/Dockerfile)): o `DELETE` respondeu
+204 em 0,4 s, liberou os 3,8 GB e as transcrições seguintes saíram iguais. A imagem marca o `/health` com o cabeçalho
+`X-Transcritor-Descarregar`; sem ele (imagem original), a lib não manda o `DELETE` e só espera o tempo ocioso.
 
 Medido em 2026-11-22 no audiolivro de 17 min (179 frases; transcrição do cache), correção com conferência no áudio +
 tradução com o `translategemma:12b`, memória da GPU lida a cada 2 s (`nvidia-smi`):
 
-| Item | Antes (frase a frase, Whisper ocioso por 300 s) | Depois (um modelo por vez) |
-|---|---|---|
-| Tempo total | 784 s | 800 s |
-| Pico de memória da GPU | 12,0 GB de 12,3 GB | 10,4 GB |
-| Média de memória da GPU | 10,6 GB | 9,2 GB |
-| Durante a tradução | Whisper (3,9 GB) + `translategemma:12b` (8,1 GB) juntos | só o `translategemma:12b` |
-| Resultado | 1 troca ("marvellous" → "marvelous"), 179 traduções | idêntico (mesmos textos e traduções) |
+| Item | Antes (frase a frase, Whisper ocioso por 300 s) | Um modelo por vez, esperando o TTL de 10 s | **Um modelo por vez, `DELETE` (atual)** |
+|---|---|---|---|
+| Início | Whisper carregado (da transcrição anterior) | GPU vazia | Whisper carregado (de propósito) |
+| Tempo total | 784 s | 800 s | 878 s |
+| Correção (propostas + conferência) | ~117 s, intercaladas | ~75 + ~30 s, mais 10 s de espera | ~85 + ~25 s; o Whisper do início saiu em ~5 s |
+| Tradução (179 frases, mesmo texto) | ~625 s | ~640 s | ~710 s |
+| Pico de memória da GPU | 12,0 GB de 12,3 GB | 10,4 GB | 10,7 GB |
+| Média de memória da GPU | 10,6 GB | 9,2 GB | 9,4 GB |
+| Durante a tradução | Whisper (3,9 GB) + `translategemma:12b` (8,1 GB) juntos | só o `translategemma:12b` | só o `translategemma:12b` |
+| Resultado | 1 troca ("marvellous" → "marvelous"), 179 traduções | idêntico | idêntico |
 
-- Linha do tempo de "depois": propostas do `gemma3:12b` (~75 s, 9,9 GB) → descarrega (0,7 GB) → conferência no
-  áudio com o Whisper (~30 s, 4,8 GB) → 10 s ocioso até o Whisper sair → tradução (~640 s, 9,9–10,4 GB).
-- O tempo não melhorou (+16 s, 2%: a espera do Whisper sair e uma carga a mais de cada modelo). Com a GPU quase
-  cheia, a tradução de "antes" não ficou mais lenta nesta máquina; o ganho é a folga de ~1,6 GB, que deixa o tempo
-  real ou outro programa usar a placa ao mesmo tempo sem o Windows passar memória de vídeo para a RAM.
+- O tempo total não serve para comparar: a tradução, que é igual nas três (mesmo modelo, mesmas frases, mesmo
+  resultado), variou de 625 a 710 s entre as rodadas. A correção levou ~2 min nas três. O ganho é a folga de
+  ~1,3–1,6 GB no pico, que deixa o tempo real ou outro programa usar a placa ao mesmo tempo sem o Windows passar
+  memória de vídeo para a RAM, e o Whisper sair na hora em vez de 10 s depois.
+- Uma rodada com o `DELETE` antes de a lib descarregar "o outro serviço" começou com o Whisper sobrando de testes
+  manuais; como a transcrição veio do cache, a lib não o tirou e o pico foi 12,0 GB (862 s). Daí a regra de descarregar
+  o outro serviço antes de cada etapa.
 - Uma 1ª rodada de "depois" com o nome errado da variável (`STT_MODEL_TTL`) deixou o Whisper na GPU durante a
   tradução: 817 s e pico de 12,0 GB. Foi assim que o nome errado apareceu.
-- A GPU em repouso, com o WhisperLiveKit de pé e sem sessão aberta, ficou em 0,7 GB nesta medição.
+- A GPU em repouso, com o WhisperLiveKit de pé e sem sessão aberta, ficou em 0,7–0,9 GB. Depois de uma sessão de
+  tempo real (`simular`, 10 s de áudio) foi para 3,0 GB e continuou assim: o WhisperLiveKit não solta o modelo até
+  `docker restart whisperlivekit`.
