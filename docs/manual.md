@@ -351,6 +351,9 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 - `ouvida` só aparece com `CorrigirTranscricao = true`, na palavra que a correção trocou: `texto` traz a corrigida
   e `ouvida` a que o Whisper escreveu (`{ "texto": "knight", "ouvida": "night", … }`). O `texto` da frase já vem corrigido.
 - Formato detalhado: [etapa-2.md](etapa-2.md) (regra da saída) e [etapa-4.md](etapa-4.md) (blocos).
+- Entre as etapas, o modelo de cada serviço sai da GPU antes de a próxima carregar o seu (`DescarregarModelosEntreEtapas`,
+  seção 8). Um motor, tradutor, corretor ou analisador seu entra nisso se implementar `IDescarregavel`
+  (`Task DescarregarAsync(CancellationToken)`, que não deve lançar exceção se o serviço não responder).
 
 ### 5.2 Tradução
 ```csharp
@@ -452,6 +455,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
 | `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
 | `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
+| `DescarregarModelosEntreEtapas` | `true` | Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o modelo usado antes de a próxima carregar o seu (seção 8) |
+| `EsperaDescarregarTranscricao` | `00:00:20` | Quanto esperar o Whisper sair da GPU; o Speaches o tira depois de `WHISPER__TTL` segundos ocioso (10 no `docker-compose.yml`) |
 
 **`Transcritor:Traducao`**
 
@@ -514,7 +519,15 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 
 - Os três serviços dividem a GPU. Com 12 GB: tempo real + tradução 4b cabem juntos; a análise de sentido (12b) pede
   o tempo real parado (`docker stop whisperlivekit`; volta com `docker start whisperlivekit`).
-- Modelos descarregam sozinhos (Ollama: 10 min; Speaches: 5 min). A 1ª chamada depois disso é lenta (carga do modelo).
+- No processamento de arquivo, cada etapa tira o seu modelo da GPU antes da próxima (`DescarregarModelosEntreEtapas`,
+  ligada): o Whisper sai depois da transcrição, o modelo da correção depois das propostas (a correção roda em duas
+  fases: primeiro o modelo propõe as trocas de todas as frases, depois o Whisper confere cada uma no áudio), o da
+  tradução depois da tradução. Assim o Whisper (~3,9 GB) e um modelo de 8 GB do Ollama não disputam a placa.
+- O Ollama tira o modelo na hora (`keep_alive` 0). O Speaches não: o comando dele para descarregar (`DELETE /api/ps`)
+  trava o serviço na versão 0.8; a lib espera o tempo ocioso dele, `WHISPER__TTL`, que no `docker-compose.yml` é de
+  10 s. Com um valor maior, a etapa seguinte começa com o Whisper ainda carregado.
+- Fora disso, os modelos descarregam sozinhos (Ollama: 10 min; Speaches: 10 s). A 1ª chamada depois disso é mais lenta
+  (carga do modelo: ~9 s o Whisper, ~4 s um modelo de 4 GB do Ollama).
 - Ver o uso: `nvidia-smi` e `docker exec ollama ollama ps`.
 
 ## 9. Problemas comuns
@@ -528,6 +541,7 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 | Script diz que o contêiner não enxerga a GPU | Driver antigo ou Docker sem backend WSL2 | Atualize o driver (576+); `docker run --rm --gpus all ubuntu nvidia-smi` deve funcionar |
 | Porta 8000, 8001 ou 11434 já em uso | Outro programa (ex.: um Ollama instalado no Windows) | Feche o outro programa ou mude a porta no `docker-compose.yml` e no `appsettings.json` |
 | Frase repetida várias vezes no JSON, com início = fim | Alucinação do Whisper na transcrição longa | Já tratado com `RepararTrechosSuspeitos=true` (padrão); se sobrar, apague o cache do arquivo e rode de novo |
+| Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` no Speaches 0.8 trava o serviço | `docker restart speaches`; para liberar a GPU, espere o `WHISPER__TTL` (10 s) |
 | Tempo real começa em inglês na fala em português | Detecção automática puxa para o inglês | `--idioma pt` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |

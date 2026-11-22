@@ -12,6 +12,8 @@ namespace Transcritor.Arquivo;
 /// Hash → cache → ffprobe → ffmpeg (WAV 16 kHz mono) → motor de transcrição → frases → tradução → cache e JSON.
 /// A transcrição e cada tradução têm cache próprio: repetir o mesmo pedido não chama nenhum serviço,
 /// e trocar só a <see cref="Saida"/> reaproveita a transcrição.
+/// Com <see cref="OpcoesArquivo.DescarregarModelosEntreEtapas"/>, o modelo de cada etapa sai da GPU antes de a próxima
+/// carregar o seu (<see cref="IDescarregavel"/>).
 /// </summary>
 public sealed class TranscritorArquivo(
     IConversorMidia conversor,
@@ -51,6 +53,7 @@ public sealed class TranscritorArquivo(
         {
             transcricao = await TranscreverAsync(caminho, hash, progresso, cancellationToken).ConfigureAwait(false);
             await cache.GravarAsync(chave, transcricao, cancellationToken).ConfigureAwait(false);
+            await DescarregarAsync(motor, cancellationToken).ConfigureAwait(false);
         }
 
         // Correção de palavras ouvidas errado (opcional): antes da tradução, que passa a usar o texto corrigido.
@@ -86,6 +89,7 @@ public sealed class TranscritorArquivo(
                 tudoDoCache = false;
                 traduzido = await TraduzirAsync(tradutorUsado, transcricao, destino, progresso, cancellationToken).ConfigureAwait(false);
                 await cache.GravarAsync(chaveTraducao, traduzido, cancellationToken).ConfigureAwait(false);
+                await DescarregarAsync(tradutorUsado, cancellationToken).ConfigureAwait(false);
             }
 
             resultado = traduzido;
@@ -100,6 +104,7 @@ public sealed class TranscritorArquivo(
                     tudoDoCache = false;
                     analisado = await AnalisarAsync(analisador, traduzido, destino, progresso, cancellationToken).ConfigureAwait(false);
                     await cache.GravarAsync(chaveAnalise, analisado, cancellationToken).ConfigureAwait(false);
+                    await DescarregarAsync(analisador, cancellationToken).ConfigureAwait(false);
                 }
 
                 resultado = analisado;
@@ -115,6 +120,10 @@ public sealed class TranscritorArquivo(
         progresso?.Report(new(EtapaProcessamento.Concluido, 100, DoCache: tudoDoCache));
         return resultado;
     }
+
+    /// <summary>Tira da GPU o modelo do serviço, se a opção estiver ligada e o serviço souber (<see cref="IDescarregavel"/>).</summary>
+    private Task DescarregarAsync(object servico, CancellationToken cancellationToken) =>
+        _opcoes.DescarregarModelosEntreEtapas && servico is IDescarregavel d ? d.DescarregarAsync(cancellationToken) : Task.CompletedTask;
 
     /// <summary>Hash do arquivo + motor/modelo + idioma forçado: trocar o modelo não reaproveita resultado de outro.</summary>
     internal string ChaveCache(string hash)
@@ -240,6 +249,11 @@ public sealed class TranscritorArquivo(
         return transcricao with { Frases = frases };
     }
 
+    /// <summary>
+    /// Em duas fases, para o modelo de texto e o Whisper não disputarem a GPU: primeiro o modelo propõe as trocas de
+    /// todas as frases; depois (com o modelo já descarregado) cada troca é conferida no áudio. O resultado é o mesmo de
+    /// fazer frase a frase: a proposta de uma frase não depende das trocas aceitas nas outras.
+    /// </summary>
     private async Task<ResultadoTranscricao> CorrigirAsync(
         ICorretorTranscricao corretor,
         string caminho,
@@ -249,28 +263,44 @@ public sealed class TranscritorArquivo(
         CancellationToken cancellationToken)
     {
         progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, 0));
+        var frases = transcricao.Frases;
+
+        // Fase 1: propostas do modelo (metade do progresso).
+        var propostas = new IReadOnlyList<Correcao>[frases.Count];
+        for (var i = 0; i < frases.Count; i++)
+        {
+            var f = frases[i];
+            var pedido = new PedidoCorrecao(
+                f.Palavras.Select(p => p.Texto).ToList(),
+                transcricao.Arquivo.Idioma,
+                frases.Skip(Math.Max(0, i - 2)).Take(Math.Min(i, 2)).Select(x => x.Texto).ToList(),
+                frases.Skip(i + 1).Take(1).Select(x => x.Texto).ToList(),
+                f.Palavras.Select(p => p.Confianca).ToList());
+            propostas[i] = f.Palavras.Count == 0
+                ? []
+                : (await corretor.CorrigirAsync(pedido, cancellationToken).ConfigureAwait(false))
+                    .Where(c => c.Indice >= 0 && c.Indice < f.Palavras.Count)
+                    .ToList();
+            progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, (i + 1) * 50d / frases.Count));
+        }
+
+        await DescarregarAsync(corretor, cancellationToken).ConfigureAwait(false);
+
+        // Fase 2: conferência no áudio e aplicação das trocas.
         var pastaTemporaria = Path.Combine(Path.GetTempPath(), "transcritor");
         var wav = Path.Combine(pastaTemporaria, $"{hash}-{Guid.NewGuid():N}.corr.wav");
         var recorte = Path.Combine(pastaTemporaria, $"{Guid.NewGuid():N}.corr.trecho.wav");
         var wavPronto = false;
         try
         {
-            var frases = transcricao.Frases;
             var corrigidas = new List<Frase>(frases.Count);
             for (var i = 0; i < frases.Count; i++)
             {
                 var f = frases[i];
-                var pedido = new PedidoCorrecao(
-                    f.Palavras.Select(p => p.Texto).ToList(),
-                    transcricao.Arquivo.Idioma,
-                    frases.Skip(Math.Max(0, i - 2)).Take(Math.Min(i, 2)).Select(x => x.Texto).ToList(),
-                    frases.Skip(i + 1).Take(1).Select(x => x.Texto).ToList(),
-                    f.Palavras.Select(p => p.Confianca).ToList());
-                var correcoes = f.Palavras.Count == 0 ? [] : await corretor.CorrigirAsync(pedido, cancellationToken).ConfigureAwait(false);
                 var palavras = f.Palavras.ToList();
                 var atual = f.Palavras.Select(p => p.Texto).ToArray();
                 var aceitas = 0;
-                foreach (var c in correcoes.Where(c => c.Indice >= 0 && c.Indice < palavras.Count))
+                foreach (var c in propostas[i])
                 {
                     if (_opcoes.ConferirCorrecaoNoAudio)
                     {
@@ -300,7 +330,12 @@ public sealed class TranscritorArquivo(
                 }
 
                 corrigidas.Add(aceitas == 0 ? f : f with { Palavras = palavras, Texto = string.Join(' ', palavras.Select(p => p.Texto)) });
-                progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, (i + 1) * 100d / frases.Count));
+                progresso?.Report(new(EtapaProcessamento.CorrigindoTranscricao, 50 + ((i + 1) * 50d / frases.Count)));
+            }
+
+            if (wavPronto)
+            {
+                await DescarregarAsync(motor, cancellationToken).ConfigureAwait(false);
             }
 
             return transcricao with { Frases = corrigidas };

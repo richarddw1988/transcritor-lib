@@ -347,8 +347,10 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
   17 palavras erradas são corrigidas. Homófonos com sentido claro ("sela do cavalo", "bare paws", confiança 0,64–1,00)
   continuam sem correção.
 - O tempo a mais do audiolivro (86 s → 181 s) vem de reouvir cada frase com troca proposta, com o Whisper e o
-  `gemma3:12b` dividindo a GPU de 12 GB; não medido em separado.
-- Ideia não medida: modelo maior para propor as trocas.
+  `gemma3:12b` dividindo a GPU de 12 GB; não medido em separado. Desde 2026-11-22 a correção roda em duas fases
+  (todas as propostas, depois toda a conferência; ver [Um modelo por vez](#um-modelo-por-vez-no-processamento-de-arquivo-descarregarmodelosentreetapas)):
+  propostas ~75 s + conferência ~30 s + 10 s de espera do Whisper sair, com o mesmo resultado.
+- Modelo maior para propor as trocas: não testado. O `gemma3:27b` (~17 GB) não cabe na GPU de 12 GB nem sozinho.
 
 ## Requisitos de hardware e software (testado)
 
@@ -370,4 +372,34 @@ Os serviços dividem a mesma GPU. Medido em 2026-11-21:
 - arquivo com análise de sentido: `translategemma:12b` e `gemma3:12b` (~8 GB cada) são usados um depois do outro;
   rode com o WhisperLiveKit parado (`docker stop whisperlivekit`) se a GPU tiver 12 GB.
 
-O Ollama descarrega um modelo depois de 10 min sem uso (`KeepAlive`), e o Speaches depois de 5 min (`STT_MODEL_TTL`).
+O Ollama descarrega um modelo depois de 10 min sem uso (`KeepAlive`), e o Speaches depois de 10 s (`WHISPER__TTL` no
+`docker-compose.yml`; até 2026-11-22 o arquivo usava `STT_MODEL_TTL`, nome que a v0.8 ignora, e valia o padrão de 300 s).
+
+### Um modelo por vez no processamento de arquivo (`DescarregarModelosEntreEtapas`)
+
+Ao fim de cada etapa a lib tira o modelo usado da GPU antes de a próxima carregar o seu: Ollama na hora
+(`keep_alive` 0, ~0,3 s); Speaches pelo tempo ocioso de 10 s, que a lib espera (`GET /api/ps`), porque o
+`DELETE /api/ps` da v0.8 trava o serviço (a trava do gerenciador de modelos é pega duas vezes; o modelo sai da GPU,
+mas a resposta não volta e a transcrição seguinte fica pendurada até `docker restart speaches`). A correção passou a
+rodar em duas fases: primeiro o `gemma3:12b` propõe as trocas de todas as frases, depois o Whisper confere cada uma
+no áudio.
+
+Medido em 2026-11-22 no audiolivro de 17 min (179 frases; transcrição do cache), correção com conferência no áudio +
+tradução com o `translategemma:12b`, memória da GPU lida a cada 2 s (`nvidia-smi`):
+
+| Item | Antes (frase a frase, Whisper ocioso por 300 s) | Depois (um modelo por vez) |
+|---|---|---|
+| Tempo total | 784 s | 800 s |
+| Pico de memória da GPU | 12,0 GB de 12,3 GB | 10,4 GB |
+| Média de memória da GPU | 10,6 GB | 9,2 GB |
+| Durante a tradução | Whisper (3,9 GB) + `translategemma:12b` (8,1 GB) juntos | só o `translategemma:12b` |
+| Resultado | 1 troca ("marvellous" → "marvelous"), 179 traduções | idêntico (mesmos textos e traduções) |
+
+- Linha do tempo de "depois": propostas do `gemma3:12b` (~75 s, 9,9 GB) → descarrega (0,7 GB) → conferência no
+  áudio com o Whisper (~30 s, 4,8 GB) → 10 s ocioso até o Whisper sair → tradução (~640 s, 9,9–10,4 GB).
+- O tempo não melhorou (+16 s, 2%: a espera do Whisper sair e uma carga a mais de cada modelo). Com a GPU quase
+  cheia, a tradução de "antes" não ficou mais lenta nesta máquina; o ganho é a folga de ~1,6 GB, que deixa o tempo
+  real ou outro programa usar a placa ao mesmo tempo sem o Windows passar memória de vídeo para a RAM.
+- Uma 1ª rodada de "depois" com o nome errado da variável (`STT_MODEL_TTL`) deixou o Whisper na GPU durante a
+  tradução: 817 s e pico de 12,0 GB. Foi assim que o nome errado apareceu.
+- A GPU em repouso, com o WhisperLiveKit de pé e sem sessão aberta, ficou em 0,7 GB nesta medição.

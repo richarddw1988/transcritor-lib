@@ -14,7 +14,7 @@ Máquina detectada: RTX 3060 12 GB · Windows 11 Pro · .NET SDK 10.0.400 · Doc
   `language` vem como código ISO (`"en"`, `"pt"`) — vem direto do faster-whisper.
 - Sem `language`, o idioma é detectado automaticamente.
 - VAD (Silero) é aplicado sempre no servidor (padrão `_unstable_vad_filter=True`).
-- Modelo **precisa ser baixado antes**: `POST /v1/models/{model_id}` ou `PRELOAD_MODELS` na subida. `GET /v1/models` lista os instalados. `STT_MODEL_TTL` controla a descarga da VRAM.
+- Modelo **precisa ser baixado antes**: `POST /v1/models/{model_id}` ou `PRELOAD_MODELS` na subida. `GET /v1/models` lista os instalados. `WHISPER__TTL` controla a descarga da VRAM (o nome `STT_MODEL_TTL`, de outras versões, é ignorado na v0.8).
 - Saúde: `GET /health`.
 
 ### WhisperLiveKit (tempo real) — `ws://localhost:8001/asr` (v0.2.27)

@@ -15,7 +15,8 @@ namespace Transcritor.Arquivo.Speaches;
 /// Cliente do Speaches (API compatível com a da OpenAI).
 /// Usa POST /v1/audio/transcriptions com verbose_json e timestamp_granularities[] = word e segment.
 /// </summary>
-public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArquivo> opcoes) : IMotorTranscricao, IServicoVerificavel
+public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArquivo> opcoes)
+    : IMotorTranscricao, IServicoVerificavel, IDescarregavel
 {
     internal const string Nome = "Speaches";
 
@@ -63,6 +64,49 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
         var corpo = await resposta.Content.ReadFromJsonAsync<RespostaVerbose>(cancellationToken).ConfigureAwait(false)
             ?? throw new TranscritorException("O Speaches devolveu uma resposta vazia.");
         return Converter(corpo);
+    }
+
+    /// <summary>
+    /// Espera o Whisper sair da GPU (GET /api/ps até o modelo sumir), no máximo <see cref="OpcoesArquivo.EsperaDescarregarTranscricao"/>.
+    /// Não pede para descarregar: no Speaches v0.8 o DELETE /api/ps trava o serviço (a trava do gerenciador de modelos é
+    /// pega duas vezes). Quem tira o modelo é o tempo ocioso do serviço, <c>WHISPER__TTL</c> no docker-compose.yml.
+    /// </summary>
+    public async Task DescarregarAsync(CancellationToken cancellationToken)
+    {
+        var limite = DateTime.UtcNow + _opcoes.EsperaDescarregarTranscricao;
+        while (true)
+        {
+            try
+            {
+                using var resposta = await http.GetAsync(new Uri("api/ps", UriKind.Relative), cancellationToken).ConfigureAwait(false);
+                var lista = resposta.IsSuccessStatusCode
+                    ? await resposta.Content.ReadFromJsonAsync<ModelosCarregados>(cancellationToken).ConfigureAwait(false)
+                    : null;
+                if (lista?.Models?.Contains(_opcoes.ModeloTranscricao, StringComparer.OrdinalIgnoreCase) != true)
+                {
+                    return;
+                }
+            }
+            catch (HttpRequestException)
+            {
+                return;
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return;
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (DateTime.UtcNow >= limite)
+            {
+                return;
+            }
+
+            await Task.Delay(_opcoes.IntervaloConsultaDescarregar, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async Task VerificarAsync(CancellationToken cancellationToken)
@@ -161,4 +205,6 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
     internal sealed record ListaModelos([property: JsonPropertyName("data")] IReadOnlyList<ModeloListado>? Data);
 
     internal sealed record ModeloListado([property: JsonPropertyName("id")] string Id);
+
+    private sealed record ModelosCarregados([property: JsonPropertyName("models")] IReadOnlyList<string>? Models);
 }

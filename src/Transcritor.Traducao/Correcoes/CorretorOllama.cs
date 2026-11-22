@@ -15,7 +15,7 @@ namespace Transcritor.Traducao.Correcoes;
 /// Com <see cref="OpcoesTraducao.ConfirmarCorrecaoComModelo"/>, cada troca que passa ainda vai a uma segunda chamada que compara a frase ouvida com a trocada.
 /// </summary>
 internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraducao> opcoes, Dicionario.FonteDicionario fonte)
-    : ICorretorTranscricao, IServicoVerificavel
+    : ICorretorTranscricao, IServicoVerificavel, IDescarregavel
 {
     /// <summary>Mudar o prompt ou a trava exige subir a versão (entra na chave do cache).</summary>
     public const int Versao = 3;
@@ -137,6 +137,9 @@ internal sealed class CorretorOllama(ClienteOllama ollama, IOptions<OpcoesTraduc
 
     public Task VerificarAsync(CancellationToken cancellationToken) =>
         Ativo ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken) : Task.CompletedTask;
+
+    public Task DescarregarAsync(CancellationToken cancellationToken) =>
+        ollama.DescarregarAsync(_opcoes.ModeloCorrecao, cancellationToken);
 
     private static string Instrucao(string idioma)
     {

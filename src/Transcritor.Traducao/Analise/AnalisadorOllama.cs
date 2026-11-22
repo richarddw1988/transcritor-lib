@@ -12,7 +12,7 @@ namespace Transcritor.Traducao.Analise;
 /// Unidades de sentido e "o que quis dizer" com um modelo de instrução do Ollama (JSON Schema).
 /// Prompt validado com gemma3 em frases de um audiolivro e expressões idiomáticas (docs/etapa-4.md).
 /// </summary>
-internal sealed class AnalisadorOllama(ClienteOllama ollama, IOptions<OpcoesTraducao> opcoes) : IAnalisadorSentido, IServicoVerificavel
+internal sealed class AnalisadorOllama(ClienteOllama ollama, IOptions<OpcoesTraducao> opcoes) : IAnalisadorSentido, IServicoVerificavel, IDescarregavel
 {
     /// <summary>Mudar o prompt exige subir a versão (entra na chave do cache).</summary>
     public const int Versao = 2;
@@ -94,6 +94,9 @@ internal sealed class AnalisadorOllama(ClienteOllama ollama, IOptions<OpcoesTrad
 
     public Task VerificarAsync(CancellationToken cancellationToken) =>
         Ativo ? ollama.VerificarAsync([_opcoes.ModeloAnalise], cancellationToken) : Task.CompletedTask;
+
+    public Task DescarregarAsync(CancellationToken cancellationToken) =>
+        ollama.DescarregarAsync(_opcoes.ModeloAnalise, cancellationToken);
 
     private static string NomeIdioma(string idioma) => Idiomas.Normalizar(idioma) switch
     {

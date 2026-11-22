@@ -19,11 +19,15 @@ namespace Transcritor.Traducao;
 /// </summary>
 internal sealed class TradutorOllama(
     ClienteOllama ollama, ICachePalavras cachePalavras, IOptions<OpcoesTraducao> opcoes, FonteDicionario? fonteDicionario = null)
-    : ITradutor, IServicoVerificavel
+    : ITradutor, IServicoVerificavel, IDescarregavel
 {
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
 
     public string NomeServico => ClienteOllama.Nome;
+
+    /// <summary>Tira da GPU o modelo das frases do arquivo (o único que o processamento de arquivo usa).</summary>
+    public Task DescarregarAsync(CancellationToken cancellationToken) =>
+        ollama.DescarregarAsync(_opcoes.ModeloFrases, cancellationToken);
 
     public string Identificador =>
         $"ollama:{_opcoes.ModeloFrases}:p{Prompts.Versao}:c{_opcoes.FrasesAntes}-{_opcoes.FrasesDepois}" +

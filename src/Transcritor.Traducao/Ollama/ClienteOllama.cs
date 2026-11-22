@@ -54,6 +54,30 @@ internal sealed class ClienteOllama(HttpClient http, IOptions<OpcoesTraducao> op
             ?? throw new TranscritorException($"O {Nome} devolveu uma resposta sem message.content.");
     }
 
+    /// <summary>
+    /// Tira o modelo da GPU já (POST /api/generate com keep_alive 0), sem esperar o tempo ocioso. Falha de rede ou
+    /// resposta de erro é ignorada: o modelo sai sozinho depois de <see cref="OpcoesTraducao.KeepAlive"/>.
+    /// </summary>
+    internal async Task DescarregarAsync(string modelo, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(modelo))
+        {
+            return;
+        }
+
+        try
+        {
+            using var resposta = await http.PostAsJsonAsync(
+                new Uri("api/generate", UriKind.Relative), new PedidoDescarregar(modelo, 0), Json, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
     /// <summary>Confere se o Ollama responde e se os modelos estão instalados.</summary>
     internal async Task VerificarAsync(IEnumerable<string> modelos, CancellationToken cancellationToken)
     {
@@ -126,6 +150,10 @@ internal sealed class ClienteOllama(HttpClient http, IOptions<OpcoesTraducao> op
         [property: JsonPropertyName("format")] JsonElement? Format,
         [property: JsonPropertyName("keep_alive")] string KeepAlive,
         [property: JsonPropertyName("options")] OpcoesModelo Options);
+
+    private sealed record PedidoDescarregar(
+        [property: JsonPropertyName("model")] string Model,
+        [property: JsonPropertyName("keep_alive")] int KeepAlive);
 
     private sealed record OpcoesModelo(
         [property: JsonPropertyName("temperature")] double Temperature,

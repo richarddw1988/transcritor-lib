@@ -26,8 +26,11 @@ services:
       # O modelo NÃO é baixado sozinho, e esta imagem estável (v0.8) não tem PRELOAD_MODELS
       # (só existe nas 0.9 RC). Baixe uma vez, depois de subir:
       #   curl.exe -X POST http://localhost:8000/v1/models/Systran/faster-whisper-large-v3
-      # Descarrega da VRAM após 5 min sem uso (libera GPU para os outros serviços).
-      STT_MODEL_TTL: "300"
+      # Descarrega o Whisper da VRAM 10 s depois de ficar ocioso, para o modelo do Ollama da etapa seguinte
+      # caber inteiro na GPU (a lib espera ele sair; ver OpcoesArquivo.DescarregarModelosEntreEtapas).
+      # O nome certo na v0.8 é WHISPER__TTL (STT_MODEL_TTL é ignorado). Não use DELETE /api/ps para
+      # descarregar: na v0.8 ele trava o serviço.
+      WHISPER__TTL: "10"
       LOG_LEVEL: info
     volumes:
       - hf-cache-speaches:/home/ubuntu/.cache/huggingface/hub

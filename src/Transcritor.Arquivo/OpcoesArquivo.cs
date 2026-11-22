@@ -43,6 +43,24 @@ public sealed class OpcoesArquivo
     /// <summary>Confiança mínima da palavra nova na frase reouvida para a troca valer.</summary>
     public double LimiteConfiancaReouvir { get; set; } = 0.2;
 
+    /// <summary>
+    /// Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o
+    /// modelo usado antes de carregar o da etapa seguinte, para cada um caber inteiro na placa (com 12 GB, o Whisper e um
+    /// modelo de 8 GB do Ollama não cabem juntos com o WhisperLiveKit). Serviços que não implementam
+    /// <see cref="Core.Contratos.IDescarregavel"/> são pulados.
+    /// </summary>
+    public bool DescarregarModelosEntreEtapas { get; set; } = true;
+
+    /// <summary>
+    /// Quanto esperar o Whisper sair da GPU ao fim da etapa. O Speaches tira o modelo depois de <c>WHISPER__TTL</c>
+    /// segundos ocioso (10 no docker-compose.yml); com um TTL maior que esta espera, a etapa seguinte começa com o Whisper
+    /// ainda carregado.
+    /// </summary>
+    public TimeSpan EsperaDescarregarTranscricao { get; set; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>Intervalo entre as consultas ao Speaches enquanto espera o Whisper sair.</summary>
+    internal TimeSpan IntervaloConsultaDescarregar { get; set; } = TimeSpan.FromMilliseconds(500);
+
     /// <summary>Tempo máximo de uma chamada de transcrição.</summary>
     public TimeSpan TimeoutTranscricao { get; set; } = TimeSpan.FromHours(1);
 
