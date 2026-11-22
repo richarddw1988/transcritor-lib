@@ -48,6 +48,10 @@ public class ExemplosDoManualTests
             Console.WriteLine($"[{frase.Inicio:F1}] {frase.Texto} → {frase.Traducao}");
         }
 
+        IReadOnlyList<ResultadoTranscricao> lote = await transcritor.ProcessarLoteAsync(
+            [@"C:\videos\aula1.mp4", @"C:\videos\aula2.mp4"], Saida.Ambos, progresso, ct);
+        Console.WriteLine(lote.Count);
+
         _ = await JsonTranscricao.LerAsync(@"C:\videos\aula.mp4.transcricao.json", ct);
     }
 

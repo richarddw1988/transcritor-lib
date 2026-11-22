@@ -415,6 +415,23 @@ tradução com o `translategemma:12b`, memória da GPU lida a cada 2 s (`nvidia-
   o outro serviço antes de cada etapa.
 - Uma 1ª rodada de "depois" com o nome errado da variável (`STT_MODEL_TTL`) deixou o Whisper na GPU durante a
   tradução: 817 s e pico de 12,0 GB. Foi assim que o nome errado apareceu.
+**Vários arquivos: um por vez ou em lote** (`ProcessarLoteAsync`, comando `arquivo a b c`). Medido em 2026-11-22 com
+10 gravações curtas da fala do usuário (7–9 s cada, `dados/gravacoes/en01..en10`), transcrição + tradução com o
+`translategemma:12b`, cache vazio, GPU vazia no início; tempo pelo relógio das amostras de memória (1 s):
+
+| Forma | Tempo | Pico de memória da GPU | Resultado |
+|---|---|---|---|
+| Um por vez, descarregando entre as etapas (padrão) | ~486 s (~49 s por arquivo) | 10,2 GB | igual nas três |
+| Um por vez, sem descarregar (`DescarregarModelosEntreEtapas=false`) | ~133 s | 12,0 GB | igual |
+| **Em lote, descarregando** | **~91 s** | **9,8 GB** | igual |
+
+- Um por vez com o descarregar ligado paga, a cada arquivo, a carga do Whisper (~5–9 s) e a do `translategemma:12b`
+  (~15–20 s): em arquivos curtos isso domina. Num arquivo longo (o audiolivro de 17 min) a mesma carga é ~2% do tempo.
+- O lote carrega cada modelo uma vez e fica o mais rápido e com o menor pico. Para processar vários arquivos seguidos,
+  use o lote; um por vez, prefira desligar o descarregar se a GPU tiver folga.
+- Achado à parte, igual nas três formas: em 4 das 10 gravações em inglês, a detecção automática de idioma do Whisper
+  disse "pt" e devolveu o texto já traduzido para o português ("Eu posso descobrir se o clima será bom amanhã").
+  Com sotaque brasileiro, force o idioma (`--idioma en`, opção `Idioma`).
 - A GPU em repouso, com o WhisperLiveKit de pé e sem sessão aberta, ficou em 0,7–0,9 GB. Depois de uma sessão de
   tempo real (`simular`, 10 s de áudio) foi para 3,0 GB e continuou assim: o WhisperLiveKit não solta o modelo até
   `docker restart whisperlivekit`.

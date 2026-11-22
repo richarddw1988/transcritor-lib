@@ -128,7 +128,13 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 ```
 - Grava `C:\videos\aula.mp4.transcricao.json` e guarda no cache (repetir responde em ~0,1 s, sem chamar serviços).
 - Mostra idioma, duração, quantidade de frases e palavras, e as 5 primeiras frases com tradução.
-- `--idioma pt` força o idioma (evita erro de detecção); `--json saida.json` grava uma cópia; `--modelo` troca o Whisper.
+- `--idioma pt` força o idioma (evita erro de detecção); `--json saida.json` grava uma cópia (só com um arquivo);
+  `--modelo` troca o Whisper.
+- Vários arquivos de uma vez (`arquivo aula1.mp4 aula2.mp4 aula3.mp4`) processam em lote: cada etapa roda para todos
+  antes da seguinte (transcreve todos, depois traduz todos), e cada modelo carrega uma vez por lote em vez de uma vez
+  por arquivo. O JSON de cada um fica ao lado da mídia; o progresso mostra `[2/3]`. Se parar no meio, rodar de novo
+  continua de onde parou (cada etapa vai para o cache assim que termina). Medido com 10 gravações curtas: ~91 s em
+  lote contra ~486 s um por vez (cada arquivo recarrega o Whisper e o modelo da tradução); ver `docs/modelos.md`.
 - `--sentido` também gera os blocos (expressões) e o "o que quis dizer" de cada frase. É lento (~10–13 s por frase)
   e precisa do `gemma3:12b` (`preparar-ambiente.ps1 -ComAnaliseDeSentido`); com 12 GB de GPU, pare o tempo real antes
   (`docker stop whisperlivekit`).
@@ -326,6 +332,10 @@ var progresso = new Progress<ProgressoProcessamento>(p => Console.WriteLine($"{p
 ResultadoTranscricao r = await transcritor.ProcessarAsync(@"C:\videos\aula.mp4", Saida.Ambos, progresso, ct);
 foreach (var frase in r.Frases)
     Console.WriteLine($"[{frase.Inicio:F1}] {frase.Texto} → {frase.Traducao}");
+
+// Vários arquivos: uma etapa por vez para todos; um resultado por arquivo, na mesma ordem.
+IReadOnlyList<ResultadoTranscricao> lote = await transcritor.ProcessarLoteAsync(
+    [@"C:\videos\aula1.mp4", @"C:\videos\aula2.mp4"], Saida.Ambos, progresso, ct);
 ```
 O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 ```json
@@ -343,6 +353,9 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
   ]
 }
 ```
+- Em lote, `ProgressoProcessamento.Arquivo` e `TotalArquivos` dizem de qual arquivo é cada aviso de progresso.
+  `ProcessarLoteAsync` tem implementação padrão no `ITranscritorArquivo` (um arquivo por vez), então quem implementa a
+  interface não precisa escrever o lote.
 - Frase = sentença completa (não corta em "Mrs." nem no meio da sentença); `traducao` só quando a saída pede.
   Título de capítulo ("Chapter Three", "Capítulo 2", "Part IV") vira uma frase sozinha, mesmo com pausa entre a
   palavra e o número ou sem ponto depois do número.

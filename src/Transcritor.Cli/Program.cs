@@ -18,7 +18,11 @@ Console.OutputEncoding = Encoding.UTF8;
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 
 // ---- arquivo ---------------------------------------------------------------
-var argCaminho = new Argument<FileInfo>("caminho") { Description = "Áudio ou vídeo (mp4, mp3, mkv, wav, ...)." };
+var argCaminhos = new Argument<FileInfo[]>("caminhos")
+{
+    Description = "Um ou mais áudios ou vídeos (mp4, mp3, mkv, wav, ...). Vários: processa em lote, uma etapa por vez para todos.",
+    Arity = ArgumentArity.OneOrMore,
+};
 var optModelo = new Option<string?>("--modelo") { Description = "Modelo do Speaches (padrão: appsettings.json)." };
 var optIdioma = new Option<string?>("--idioma") { Description = "Força o idioma falado: pt ou en (padrão: detecção automática)." };
 var optJson = new Option<FileInfo?>("--json") { Description = "Também grava o JSON neste caminho." };
@@ -35,13 +39,13 @@ var optCorrigirArquivo = new Option<bool>("--corrigir")
     Description = "Experimental: corrige palavras ouvidas errado antes de traduzir (troca por outra de som parecido; ~3,5 s por frase duvidosa).",
 };
 
-var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um arquivo e grava o JSON com frases e palavras.")
+var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um ou mais arquivos e grava o JSON de cada um com frases e palavras.")
 {
-    argCaminho, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo,
+    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
-    var caminho = resultado.GetValue(argCaminho)!;
+    var caminhos = resultado.GetValue(argCaminhos)!;
     var saida = resultado.GetValue(optSaida);
     var modelo = resultado.GetValue(optModelo);
     var idioma = resultado.GetValue(optIdioma);
@@ -63,12 +67,32 @@ cmdArquivo.SetAction(async (resultado, ct) =>
 
     return await Executar(async () =>
     {
+        if (json is not null && caminhos.Length > 1)
+        {
+            throw new ArgumentException("--json só vale para um arquivo; em lote, o JSON de cada um fica ao lado da mídia.");
+        }
+
         var transcritor = sp.GetRequiredService<ITranscritorArquivo>();
         var relogio = Stopwatch.StartNew();
         var progresso = new ProgressoConsole();
-        var r = await transcritor.ProcessarAsync(caminho.FullName, saida, progresso, ct);
+        var resultados = await transcritor.ProcessarLoteAsync(caminhos.Select(c => c.FullName).ToList(), saida, progresso, ct);
         relogio.Stop();
 
+        if (caminhos.Length > 1)
+        {
+            Console.WriteLine();
+            Console.WriteLine();
+            Console.WriteLine($"Lote:     {caminhos.Length} arquivos em {relogio.Elapsed.TotalSeconds:F1} s");
+            foreach (var (c, lido) in caminhos.Zip(resultados))
+            {
+                Console.WriteLine($"  {c.Name}: {lido.Arquivo.Idioma}, {TimeSpan.FromSeconds(lido.Arquivo.Duracao):hh\\:mm\\:ss}, {lido.Frases.Count} frases → {OpcoesArquivo.CaminhoJsonAoLado(c.FullName)}");
+            }
+
+            return 0;
+        }
+
+        var caminho = caminhos[0];
+        var r = resultados[0];
         if (json is not null)
         {
             await Transcritor.Core.JsonTranscricao.GravarAsync(r, json.FullName, ct);
@@ -814,6 +838,7 @@ internal sealed class ProgressoConsole : IProgress<ProgressoProcessamento>
 {
     private EtapaProcessamento? _etapa;
     private int _ultimoDecimo = -1;
+    private int _arquivo = 1;
 
     public bool DoCache { get; private set; }
 
@@ -821,19 +846,22 @@ internal sealed class ProgressoConsole : IProgress<ProgressoProcessamento>
     {
         DoCache |= value.DoCache;
         var decimo = value.Percentual is { } p ? (int)(p / 10) : -1;
-        if (value.Etapa == _etapa && decimo == _ultimoDecimo)
+        if (value.Etapa == _etapa && decimo == _ultimoDecimo && value.Arquivo == _arquivo)
         {
             return;
         }
 
-        if (value.Etapa != _etapa && _etapa is not null)
+        if ((value.Etapa != _etapa || value.Arquivo != _arquivo) && _etapa is not null)
         {
             Console.WriteLine();
         }
 
+        _arquivo = value.Arquivo;
+
         _etapa = value.Etapa;
         _ultimoDecimo = decimo;
         var percentual = value.Percentual is { } q ? $" {q,5:F1}%" : string.Empty;
-        Console.Write($"\r{value.Etapa,-18}{percentual}");
+        var arquivo = value.TotalArquivos > 1 ? $"[{value.Arquivo}/{value.TotalArquivos}] " : string.Empty;
+        Console.Write($"\r{arquivo}{value.Etapa,-18}{percentual}");
     }
 }

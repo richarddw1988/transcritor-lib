@@ -66,6 +66,72 @@ public sealed class DescarregarModelosTests : IDisposable
     }
 
     [Fact]
+    public async Task Lote_roda_cada_etapa_para_todos_e_carrega_cada_modelo_uma_vez()
+    {
+        var eventos = new List<string>();
+        var a = _pasta.Arquivo("a.mp3", "x");
+        var b = _pasta.Arquivo("b.mp3", "y");
+
+        var r = await Criar(eventos, descarregar: true).ProcessarLoteAsync([a, b], Saida.Ambos);
+
+        Assert.Equal(
+            [
+                "descarregar:corretor", "descarregar:tradutor", "transcrever", "transcrever", "descarregar:motor",
+                "descarregar:motor", "propor", "propor", "propor", "propor", "descarregar:corretor", "descarregar:tradutor",
+                "reouvir", "reouvir", "reouvir", "reouvir", "descarregar:motor",
+                "descarregar:motor", "traduzir", "traduzir", "descarregar:tradutor",
+            ],
+            eventos);
+        Assert.Equal(2, r.Count);
+        Assert.All(r, x => Assert.Equal("The knight rode.", x.Frases[0].Texto));
+        Assert.True(File.Exists(OpcoesArquivo.CaminhoJsonAoLado(a)));
+        Assert.True(File.Exists(OpcoesArquivo.CaminhoJsonAoLado(b)));
+    }
+
+    [Fact]
+    public async Task Lote_informa_o_arquivo_no_progresso_e_reaproveita_o_cache_de_cada_um()
+    {
+        var a = _pasta.Arquivo("a.mp3", "x");
+        var b = _pasta.Arquivo("b.mp3", "y");
+        await Criar([], descarregar: true).ProcessarAsync(a, Saida.Ambos);
+
+        var eventos = new List<string>();
+        var progresso = new ProgressoSincrono();
+        await Criar(eventos, descarregar: true).ProcessarLoteAsync([a, b], Saida.Ambos, progresso);
+
+        // Só o 2º arquivo passa pelas etapas; o 1º vem todo do cache.
+        Assert.Equal(1, eventos.Count(e => e == "transcrever"));
+        Assert.Equal(1, eventos.Count(e => e == "traduzir"));
+        var concluidos = progresso.Recebidos.Where(p => p.Etapa == EtapaProcessamento.Concluido).ToList();
+        Assert.Equal([(1, 2, true), (2, 2, false)], concluidos.Select(p => (p.Arquivo, p.TotalArquivos, p.DoCache)));
+        Assert.Contains(progresso.Recebidos, p => p.Etapa == EtapaProcessamento.Transcrevendo && p.Arquivo == 2);
+        Assert.DoesNotContain(progresso.Recebidos, p => p.Etapa == EtapaProcessamento.Transcrevendo && p.Arquivo == 1);
+    }
+
+    [Fact]
+    public async Task Lote_com_arquivo_ausente_falha_antes_de_chamar_servicos()
+    {
+        var eventos = new List<string>();
+        var ausente = Path.Combine(_pasta.Caminho, "nao.mp3");
+
+        var ex = await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            Criar(eventos, descarregar: true).ProcessarLoteAsync([_pasta.Arquivo("a.mp3", "x"), ausente], Saida.Ambos));
+
+        Assert.Equal(ausente, ex.FileName);
+        Assert.Empty(eventos);
+    }
+
+    [Fact]
+    public async Task Implementacao_padrao_do_lote_processa_um_arquivo_por_vez()
+    {
+        ITranscritorArquivo transcritor = new TranscritorUmPorVez();
+
+        var r = await transcritor.ProcessarLoteAsync(["a.mp3", "b.mp3"], Saida.Ingles);
+
+        Assert.Equal(["a.mp3", "b.mp3"], r.Select(x => x.Arquivo.Hash));
+    }
+
+    [Fact]
     public async Task Tudo_do_cache_nao_descarrega_nada()
     {
         var midia = _pasta.Arquivo("a.mp3", "x");
@@ -182,6 +248,14 @@ public sealed class DescarregarModelosTests : IDisposable
             o.IntervaloConsultaDescarregar = TimeSpan.FromMilliseconds(10);
         });
         return new SpeachesMotorTranscricao(new HttpClient(handler) { BaseAddress = new Uri("http://speaches.test:8000/") }, opcoes);
+    }
+
+    /// <summary>Só implementa <see cref="ITranscritorArquivo.ProcessarAsync"/>; o lote vem da implementação padrão.</summary>
+    private sealed class TranscritorUmPorVez : ITranscritorArquivo
+    {
+        public Task<ResultadoTranscricao> ProcessarAsync(
+            string caminhoArquivo, Saida saida, IProgress<ProgressoProcessamento>? progresso = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ResultadoTranscricao(new InfoArquivo(caminhoArquivo, 1, "en"), []));
     }
 
     /// <summary>Transcreve o arquivo (sem contexto) ou reouve a frase (com a versão trocada como contexto, ouvida com confiança 0,5).</summary>
