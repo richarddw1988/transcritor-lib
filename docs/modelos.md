@@ -141,6 +141,35 @@ ambíguas, 22 en → pt e 10 pt → en), RTX 3060:
 - Conjunto pequeno e as regras foram ajustadas nele: os números indicam a direção, não a precisão. Ampliar o
   conjunto antes de outras mudanças.
 
+### Dicionário na tradução de frases (testado, não adotado)
+
+Ideia: dar ao `translategemma` os sentidos do dicionário das palavras da frase, no mesmo lugar do prompt em que
+entra a dica do glossário. Medido em 2026-11-22 com script fora da lib, sem contexto de frases vizinhas,
+temperatura 0, RTX 3060. Acerto = a tradução traz uma das respostas aceitas da palavra ambígua
+(`docs/avaliacao/palavras-ambiguas.json`, 32 frases).
+
+| Situação | `translategemma:12b` | `translategemma:4b` |
+|---|---|---|
+| Sem dica (como hoje) | 30/32 — "madeira" para *bat*, "bebendo" para *sipping* | 29/32 — "pêra" para *peach*, "saboreando" para *sipping*, "I'm so sorry" para "que pena" |
+| Dica só da palavra ambígua (todos os sentidos) | 32/32 | 29/32 — conserta *peach* e *sipping*, mas erra *bat* ("raquete") e "desisti" ("decided to stop") |
+| Dica de todas as palavras de conteúdo com 2+ traduções (até 6 cada) | 32/32 | não medido |
+
+A dica só da palavra ambígua serve de teto: na prática a lib não sabe qual palavra da frase é a difícil. A versão
+realista (todas as palavras) foi comparada em 40 frases do audiolivro com o 12b:
+
+- Sem dica, rodar duas vezes já muda 4 das 40 frases (variação do próprio modelo, mesmo com temperatura 0). Com dica,
+  36 mudaram; a dica tem em média 1.470 caracteres; tempo 3,2 → 3,5 s/frase.
+- Melhorou: *porcupine* "ouriço" → "porco-espinho", *chopper* "ferramenta de corte" → "machadinha", *stove* "lareira" →
+  "fogão", "querida" → "meu querido" (James é menino).
+- Piorou: "James" virou "Tiago" em 6 frases (o dicionário traduz o nome), *breath* "hálito" → "respiração", *stale*
+  "rançoso" → "abafada", "My dear old trout" saiu sem sentido.
+- Escolher só as palavras raras resolveria o ruído, mas o dicionário não tem frequência: o número de sentidos não
+  separa rara de comum (*toothbrush* 1, *river* 4, *gizzard* 1). Palavras raras de verdade do audiolivro (*wistfully*,
+  *beauteous*, *musty*, *curvy*) nem têm verbete.
+- Conclusão: não entra na lib por ora. Para retomar, faltam uma lista de frequência de palavras para escolher as
+  raras, pular nomes próprios e um avaliador de qualidade da frase inteira (o acerto da palavra ambígua do 12b já é
+  30/32 sem dica).
+
 ### Palavras de som parecido (chave de pronúncia)
 
 Para corrigir palavra que o reconhecimento de fala ouviu errado. Cada palavra do dicionário e suas flexões ganha
