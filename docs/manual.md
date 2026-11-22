@@ -242,6 +242,8 @@ dotnet run --project src/Transcritor.Cli -- avaliar-palavras docs/avaliacao/pala
 Traduz cada caso do arquivo (palavra, frase, tradução da frase, idiomas e respostas aceitas), sem cache, e mostra
 acertos e tempo. `--sem-dicionario` desliga o dicionário; `--sem-traducao-frase` não passa a tradução da frase.
 Uma resposta conta como certa se contém uma das `aceitas`.
+Há dois conjuntos: `palavras-ambiguas.json` (32 casos, em que as regras do dicionário foram ajustadas) e
+`palavras-validacao.json` (78 casos que não entram no ajuste; use para conferir uma mudança).
 
 ### 4.8 Medir o reconhecimento da sua fala
 1. Grave as frases de `docs/avaliacao/frases-para-gravar.json` pelo microfone (mostra cada frase, Enter grava; salva

@@ -138,8 +138,32 @@ ambíguas, 22 en → pt e 10 pt → en), RTX 3060:
   "relinquish" para "desisti".
 - Duas respostas certas que o gabarito não previa foram acrescentadas antes da medição final, valendo para todas as
   colunas: "perceber" (*figure out*) e "too bad" ("que pena").
-- Conjunto pequeno e as regras foram ajustadas nele: os números indicam a direção, não a precisão. Ampliar o
-  conjunto antes de outras mudanças.
+- Conjunto pequeno e as regras foram ajustadas nele: os números indicam a direção, não a precisão.
+
+**Conjunto de validação** (`docs/avaliacao/palavras-validacao.json`, 78 casos novos: 54 en → pt e 24 pt → en, com
+substantivos e verbos ambíguos, phrasal verbs, expressões idiomáticas, gíria e palavras pouco comuns). Não foi usado
+para ajustar nenhuma regra. Medido em 2026-11-22, mesma máquina; o conjunto antigo, repetido no mesmo dia, deu os
+mesmos números da tabela acima.
+
+| Situação | Sem dicionário | Com dicionário | Tempo médio por palavra |
+|---|---|---|---|
+| Tradução da frase fornecida | 68/78 (87%) | 67/78 (86%) | 0,24 s → 0,40 s |
+| Sem a tradução da frase | 59/78 (76%) | 59/78 (76%) | 0,43 s → 0,73 s |
+| **Os dois conjuntos (110 casos), com tradução** | 98/110 (89%) | 98/110 (89%) | |
+| **Os dois conjuntos (110 casos), sem tradução** | 85/110 (77%) | 88/110 (80%) | |
+
+- No conjunto novo o dicionário não melhorou o acerto: o ganho medido nos 32 casos não se repetiu.
+- Com a tradução fornecida, o dicionário acertou *kicked the bucket* e errou *broke down* ("cessar"); os outros erros
+  são os mesmos nas duas colunas ("ouvidinho" para *perfect pitch*, "mole" para *mole* = toupeira, "chair" para
+  "cadeira" = disciplina, "rolled" para "rolou" = aconteceu, "chave" e "mangas" devolvidas sem traduzir).
+- Sem a tradução, o dicionário troca um tipo de erro por outro: conserta expressões e palavras menos comuns (*kicked the
+  bucket*, *piece of cake*, *under the weather*, *eventually*, *pupils*, "puxa-saco", "cola" = cheat sheet), mas erra
+  palavras comuns que o modelo sozinho acertava, escolhendo o sentido errado entre as opções (*scale* "escala" na
+  balança, *nail* "pregar", *row* "linha" e "discutir", *ring* "toque", *mean* "querer", *plant* "aparelhagem",
+  "ligar" a TV "call"). Daí a hipótese a testar: sem tradução, usar o dicionário só em expressões, como já é com
+  tradução. Testar exige um terceiro conjunto, para não ajustar a regra no de validação.
+- Casos no limite que o gabarito conta como erro: "dê o seu melhor!" para *break a leg* e "apertou" (sem "os olhos")
+  para *squinted*. O gabarito foi escrito antes da medição e não foi mexido depois.
 
 ### Dicionário na tradução de frases (testado, não adotado)
 
