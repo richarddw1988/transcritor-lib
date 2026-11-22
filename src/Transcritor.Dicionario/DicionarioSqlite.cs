@@ -11,7 +11,11 @@ public sealed class DicionarioSqlite : IDisposable
 {
     private readonly string _conexao;
 
-    private DicionarioSqlite(string conexao) => _conexao = conexao;
+    private DicionarioSqlite(string conexao)
+    {
+        _conexao = conexao;
+        _temFrequencia = new Lazy<bool>(LerTemFrequencia);
+    }
 
     /// <summary>Caminho do arquivo aberto.</summary>
     public required string Caminho { get; init; }
@@ -190,6 +194,49 @@ public sealed class DicionarioSqlite : IDisposable
         }
 
         return chaves;
+    }
+
+    /// <summary>O banco foi gerado com listas de frequência (<see cref="ListasFrequencia"/>).</summary>
+    public bool TemFrequencia => _temFrequencia.Value;
+
+    private readonly Lazy<bool> _temFrequencia;
+
+    /// <summary>
+    /// Posição da palavra na lista de frequência (1 = a mais comum), a melhor entre a palavra e as formas base dela
+    /// ("nibbled" vale a posição de "nibble" se for melhor). Nulo se a palavra não está na lista ou o banco não tem
+    /// frequência (<see cref="TemFrequencia"/>).
+    /// </summary>
+    /// <param name="palavra">Palavra solta.</param>
+    /// <param name="idioma">Idioma da palavra: pt ou en.</param>
+    public int? PosicaoFrequencia(string palavra, string idioma)
+    {
+        ArgumentNullException.ThrowIfNull(palavra);
+        var chave = Chave(palavra);
+        if (chave.Length == 0 || !TemFrequencia)
+        {
+            return null;
+        }
+
+        var i = Idiomas.Normalizar(idioma);
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        cmd.CommandText = """
+            SELECT MIN(posicao) FROM frequencia WHERE idioma = $i AND chave IN
+                (SELECT $c UNION SELECT lema FROM forma WHERE idioma = $i AND chave = $c)
+            """;
+        cmd.Parameters.AddWithValue("$i", i);
+        cmd.Parameters.AddWithValue("$c", chave);
+        return cmd.ExecuteScalar() is long p ? (int)p : null;
+    }
+
+    private bool LerTemFrequencia()
+    {
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        cmd.CommandText = "SELECT EXISTS (SELECT 1 FROM frequencia)";
+        return cmd.ExecuteScalar() is long n && n != 0;
     }
 
     /// <summary>Formas base de uma flexão ("gave" → "give"); vazio se o termo não é flexão conhecida.</summary>

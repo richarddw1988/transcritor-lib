@@ -377,22 +377,47 @@ var optPortugues = new Option<FileInfo>("--portugues")
     Description = "Dump do Wiktionary com os verbetes em português (kaikki.org, .jsonl ou .jsonl.gz).",
     DefaultValueFactory = _ => new FileInfo(Path.Combine("dados", "kaikki-pt.jsonl.gz")),
 };
+var optFreqIngles = new Option<FileInfo>("--frequencia-ingles")
+{
+    Description = "Lista de frequência do inglês (FrequencyWords en_50k.txt). Sem as duas listas, a dica de palavras raras fica desligada.",
+    DefaultValueFactory = _ => new FileInfo(Path.Combine("dados", "en_50k.txt")),
+};
+var optFreqPortugues = new Option<FileInfo>("--frequencia-portugues")
+{
+    Description = "Lista de frequência do português (FrequencyWords pt_br_50k.txt).",
+    DefaultValueFactory = _ => new FileInfo(Path.Combine("dados", "pt_br_50k.txt")),
+};
 var cmdImportar = new Command("importar", "Gera o SQLite do dicionário inglês ↔ português a partir dos dumps do Wiktionary.")
 {
-    optIngles, optPortugues, optBanco,
+    optIngles, optPortugues, optFreqIngles, optFreqPortugues, optBanco,
 };
 cmdImportar.SetAction(async (resultado, ct) => await Executar(async () =>
 {
     var progresso = new Progress<string>(m => Console.WriteLine($"  {m}"));
+    var freqIngles = resultado.GetValue(optFreqIngles)!;
+    var freqPortugues = resultado.GetValue(optFreqPortugues)!;
+    ListasFrequencia? frequencia = null;
+    if (freqIngles.Exists && freqPortugues.Exists)
+    {
+        frequencia = new ListasFrequencia(freqIngles.FullName, freqPortugues.FullName);
+    }
+    else
+    {
+        Console.WriteLine($"Aviso: sem as listas de frequência ({freqIngles.FullName}, {freqPortugues.FullName}); " +
+            "a dica de palavras raras na tradução das frases fica desligada (ver docs/manual.md, seção 4.6).");
+    }
+
     var resumo = await ImportadorWiktionary.ImportarAsync(
         resultado.GetValue(optIngles)!.FullName,
         resultado.GetValue(optPortugues)!.FullName,
         resultado.GetValue(optBanco)!.FullName,
+        frequencia,
         progresso,
         ct);
     Console.WriteLine(
         $"Pronto em {resumo.Duracao.TotalSeconds:F0} s: {resumo.Traducoes:N0} traduções, {resumo.Definicoes:N0} definições, " +
-        $"{resumo.Formas:N0} flexões, {resumo.ChavesFoneticas:N0} palavras com chave de pronúncia; " +
+        $"{resumo.Formas:N0} flexões, {resumo.ChavesFoneticas:N0} palavras com chave de pronúncia, " +
+        $"{resumo.PalavrasFrequencia:N0} palavras com frequência; " +
         $"{resumo.TamanhoBytes / 1024d / 1024d:F0} MB em {resultado.GetValue(optBanco)!.FullName}");
     return 0;
 }));

@@ -11,7 +11,8 @@ namespace Transcritor.Traducao;
 
 /// <summary>
 /// Tradução pt ↔ en pelo sentido, via Ollama.
-/// Frases de arquivo (<see cref="TraduzirFrasesAsync"/>): modelo <see cref="OpcoesTraducao.ModeloFrases"/>, com as vizinhas como contexto.
+/// Frases de arquivo (<see cref="TraduzirFrasesAsync"/>): modelo <see cref="OpcoesTraducao.ModeloFrases"/>, com as vizinhas como contexto
+/// e, com o dicionário, os sentidos das palavras raras (<see cref="DicaPalavrasRaras"/>).
 /// Frase avulsa (<see cref="TraduzirFraseAsync"/>, usada no tempo real): <see cref="OpcoesTraducao.ModeloFrasesTempoReal"/>, mais rápido.
 /// Palavras: modelo <see cref="OpcoesTraducao.ModeloPalavras"/> com a frase e a tradução dela, com cache; com o dicionário
 /// configurado, o modelo escolhe entre os sentidos do dicionário (<see cref="CandidatosDicionario"/>).
@@ -26,16 +27,21 @@ internal sealed class TradutorOllama(
 
     public string Identificador =>
         $"ollama:{_opcoes.ModeloFrases}:p{Prompts.Versao}:c{_opcoes.FrasesAntes}-{_opcoes.FrasesDepois}" +
-        (Glossario.Assinatura(_opcoes.Glossario) is { Length: > 0 } g ? $":g{g}" : string.Empty);
+        (Glossario.Assinatura(_opcoes.Glossario) is { Length: > 0 } g ? $":g{g}" : string.Empty) +
+        (UsaDicaRaras ? $":r{_opcoes.LimiarPalavraRara}" : string.Empty);
+
+    /// <summary>A tradução das frases do arquivo leva a dica das palavras raras (limiar ligado e dicionário com frequência).</summary>
+    private bool UsaDicaRaras => _opcoes.LimiarPalavraRara > 0 && fonteDicionario?.Dicionario is { TemFrequencia: true };
 
     public Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken) =>
-        TraduzirComModeloAsync(pedido, ModeloTempoReal, cancellationToken);
+        TraduzirComModeloAsync(pedido, ModeloTempoReal, dicaRaras: false, cancellationToken);
 
     /// <summary>Modelo da frase avulsa; vazio na configuração = mesmo modelo do arquivo.</summary>
     private string ModeloTempoReal =>
         string.IsNullOrWhiteSpace(_opcoes.ModeloFrasesTempoReal) ? _opcoes.ModeloFrases : _opcoes.ModeloFrasesTempoReal;
 
-    private async Task<string> TraduzirComModeloAsync(PedidoTraducaoFrase pedido, string modelo, CancellationToken cancellationToken)
+    private async Task<string> TraduzirComModeloAsync(
+        PedidoTraducaoFrase pedido, string modelo, bool dicaRaras, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pedido);
         if (string.IsNullOrWhiteSpace(pedido.Texto) || MesmoIdioma(pedido.Origem, pedido.Destino))
@@ -45,6 +51,13 @@ internal sealed class TradutorOllama(
 
         var termos = Glossario.Achar(_opcoes.Glossario, pedido.Texto, pedido.Origem);
         var dica = Glossario.Dica(termos);
+        if (dicaRaras && UsaDicaRaras)
+        {
+            // Medido só com o translategemma:12b nas frases do arquivo (docs/modelos.md); o tempo real fica sem.
+            dica += DicaPalavrasRaras.Texto(DicaPalavrasRaras.Achar(
+                fonteDicionario!.Dicionario!, pedido.Texto, pedido.Origem, pedido.Destino, _opcoes.LimiarPalavraRara));
+        }
+
         var traducao = await TraduzirUmaVezAsync(pedido, modelo, dica, cancellationToken).ConfigureAwait(false);
         if (termos.Count > 0 && !Glossario.Respeitado(traducao, termos))
         {
@@ -107,7 +120,7 @@ internal sealed class TradutorOllama(
                 destino,
                 frases.Skip(inicio).Take(i - inicio).ToList(),
                 frases.Skip(i + 1).Take(depois).ToList());
-            traducoes[i] = await TraduzirComModeloAsync(pedido, _opcoes.ModeloFrases, cancellationToken).ConfigureAwait(false);
+            traducoes[i] = await TraduzirComModeloAsync(pedido, _opcoes.ModeloFrases, dicaRaras: true, cancellationToken).ConfigureAwait(false);
             progresso?.Report((i + 1) * 100d / frases.Count);
         }
 

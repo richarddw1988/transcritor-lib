@@ -9,7 +9,8 @@
       3. Espera cada serviço responder.
       4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama.
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
-      Opcional (-ComDicionario): baixa o Wiktionary (kaikki.org, ~600 MB) e gera o dicionário local em dados/.
+      Opcional (-ComDicionario): baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o
+      dicionário local em dados/.
 
     Primeira vez: baixa ~48 GB (imagens + modelos) e leva de 20 a 60 minutos, conforme a internet.
 
@@ -44,7 +45,8 @@
     Modelo do Ollama para a correção da transcrição (Transcritor:Traducao:ModeloCorrecao).
 
 .PARAMETER ComDicionario
-    Também baixa os dumps do Wiktionary (kaikki.org, ~600 MB, CC BY-SA) para dados/ e gera dados/dicionario.db
+    Também baixa os dumps do Wiktionary (kaikki.org, ~600 MB, CC BY-SA) e as listas de frequência do FrequencyWords
+    (en_50k.txt e pt_br_50k.txt, ~0,6 MB cada, CC BY-SA) para dados/ e gera dados/dicionario.db
     (dicionário inglês ↔ português local, ~60 MB). Sem esta opção o script só informa se o dicionário existe.
 
 .EXAMPLE
@@ -282,16 +284,38 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
 Escrever-Etapa '6. Dicionário inglês-português (opcional)'
 $pastaDados = Join-Path $raiz 'dados'
 $banco = Join-Path $pastaDados 'dicionario.db'
-if (Test-Path $banco) { Escrever-Ok "Dicionário: $banco ($([math]::Round((Get-Item $banco).Length / 1MB)) MB)" }
-elseif (-not $ComDicionario) { Write-Host '  Não gerado (opcional). Para gerar: .\scripts\preparar-ambiente.ps1 -ComDicionario' }
-elseif ($SoConferir) { Escrever-Falha "Dicionário não encontrado em $banco" }
+$arquivosDicionario = @(
+    @{ Nome = 'kaikki-en.jsonl.gz'; Url = 'https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz' },
+    @{ Nome = 'kaikki-pt.jsonl.gz'; Url = 'https://kaikki.org/dictionary/Portuguese/kaikki.org-dictionary-Portuguese.jsonl.gz' },
+    # Listas de frequência (OpenSubtitles 2018, CC BY-SA 4.0): escolhem as palavras raras que ganham dica na tradução.
+    @{ Nome = 'en_50k.txt'; Url = 'https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_50k.txt' },
+    @{ Nome = 'pt_br_50k.txt'; Url = 'https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/pt_br/pt_br_50k.txt' }
+)
+$faltamListas = @('en_50k.txt', 'pt_br_50k.txt' | Where-Object { -not (Test-Path (Join-Path $pastaDados $_)) })
+
+# Banco gerado por versão anterior da lib (ex.: sem frequência) é recusado e a lib segue sem dicionário, em silêncio.
+$bancoValido = $false
+if (Test-Path $banco) {
+    # Via cmd: no Windows PowerShell, a saída de erro de um programa vira erro do script.
+    & cmd.exe /c "dotnet run --project `"$raiz\src\Transcritor.Cli`" -- dicionario procurar house --de en --para pt >nul 2>&1"
+    $bancoValido = $LASTEXITCODE -eq 0
+}
+
+if ($bancoValido -and $faltamListas.Count -eq 0) {
+    Escrever-Ok "Dicionário: $banco ($([math]::Round((Get-Item $banco).Length / 1MB)) MB), com listas de frequência"
+}
+elseif (-not $ComDicionario) {
+    if ($bancoValido) { Escrever-Aviso "Dicionário sem listas de frequência ($($faltamListas -join ', ')). Para completar: .\scripts\preparar-ambiente.ps1 -ComDicionario" }
+    elseif (Test-Path $banco) { Escrever-Aviso "Dicionário de versão anterior em $banco (a lib não usa). Para gerar de novo: .\scripts\preparar-ambiente.ps1 -ComDicionario" }
+    else { Write-Host '  Não gerado (opcional). Para gerar: .\scripts\preparar-ambiente.ps1 -ComDicionario' }
+}
+elseif ($SoConferir) {
+    if (-not $bancoValido) { Escrever-Falha "Dicionário ausente ou de versão anterior em $banco" }
+    if ($faltamListas.Count -gt 0) { Escrever-Falha "Listas de frequência ausentes em ${pastaDados}: $($faltamListas -join ', ')" }
+}
 else {
     New-Item -ItemType Directory -Force $pastaDados | Out-Null
-    $dumps = @(
-        @{ Nome = 'kaikki-en.jsonl.gz'; Url = 'https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz' },
-        @{ Nome = 'kaikki-pt.jsonl.gz'; Url = 'https://kaikki.org/dictionary/Portuguese/kaikki.org-dictionary-Portuguese.jsonl.gz' }
-    )
-    foreach ($d in $dumps) {
+    foreach ($d in $arquivosDicionario) {
         $destino = Join-Path $pastaDados $d.Nome
         if (Test-Path $destino) { Escrever-Ok "Já baixado: $($d.Nome)"; continue }
         Write-Host "  Baixando $($d.Url)..."
@@ -299,7 +323,7 @@ else {
         if ($LASTEXITCODE -eq 0) { Move-Item -Force "$destino.tmp" $destino; Escrever-Ok "Baixado: $($d.Nome)" }
         else { Escrever-Falha "Não consegui baixar $($d.Url)" }
     }
-    if ((Test-Path (Join-Path $pastaDados 'kaikki-en.jsonl.gz')) -and (Test-Path (Join-Path $pastaDados 'kaikki-pt.jsonl.gz'))) {
+    if (@($arquivosDicionario | Where-Object { -not (Test-Path (Join-Path $pastaDados $_.Nome)) }).Count -eq 0) {
         & dotnet run --project "$raiz\src\Transcritor.Cli" -- dicionario importar
         if ($LASTEXITCODE -eq 0) { Escrever-Ok "Dicionário gerado: $banco" }
         else { Escrever-Falha 'transcritor dicionario importar falhou (acima).' }

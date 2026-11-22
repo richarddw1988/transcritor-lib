@@ -110,7 +110,8 @@ GFDL), para dar à tradução os sentidos reais de cada palavra. Opcional; como 
 | Item | Medido em 2026-11-21 (dumps de 2026-10-30) |
 |---|---|
 | Download | `kaikki.org-dictionary-English.jsonl.gz` 534 MB (1.499.161 verbetes) + `kaikki.org-dictionary-Portuguese.jsonl.gz` 60 MB (447.028 verbetes) |
-| Importação | 27 s; gera `dados/dicionario.db` com 60 MB |
+| Importação | 27 s; gera `dados/dicionario.db` com 60 MB. Com as chaves de pronúncia e as listas de frequência (2026-11-22): 37 s, 61 MB |
+| Frequência | [FrequencyWords](https://github.com/hermitdave/FrequencyWords) 2018 (`en_50k.txt` e `pt_br_50k.txt`, OpenSubtitles, CC BY-SA 4.0, ~0,6 MB cada): 99.268 palavras com posição |
 | Conteúdo | 204.093 traduções (en → pt e as mesmas invertidas, pt → en, cada uma com o sentido em inglês), 106.867 definições curtas de palavras em português, 403.880 flexões ligadas à forma base |
 | Consulta | todas as 2.348 palavras do audiolivro de 17 min: média 0,32 ms, mediana 0,26 ms, p99 1,07 ms (banco aberto); a 1ª consulta, abrindo o arquivo, ~3 ms |
 | Cobertura | 97% das palavras do audiolivro com verbete (medido antes do ajuste do possessivo `'s`). Sem verbete: nomes próprios, contrações (`wasn't`, `you'd`) e palavras raras (`wistfully`, `beauteous`) |
@@ -190,7 +191,7 @@ expressões, com ou sem a tradução da frase". Medido em 2026-11-22, mesma máq
 - Às vezes a resposta é a frase inteira traduzida ("Eles cancelaram o casamento.", "This phone is very expensive"):
   conta como certa no gabarito, mas não é o formato esperado. Não tratado.
 
-### Dicionário na tradução de frases (testado, não adotado por ora)
+### Dicionário na tradução de frases (experimental, desligado por padrão)
 
 Ideia: dar ao `translategemma` os sentidos do dicionário das palavras da frase, no mesmo lugar do prompt em que
 entra a dica do glossário. Medido em 2026-11-22 com script fora da lib, sem contexto de frases vizinhas,
@@ -239,8 +240,31 @@ frase é tratada como nome e pula. O limiar de 10.000 foi escolhido antes de med
 - Nenhum nome traduzido ("James" ficou "James"), o problema que travou a 1ª rodada.
 - Nos conjuntos de palavras quase não há palavra rara, então eles medem só o dano (1 caso no limite); o ganho aparece
   em texto literário, onde a amostra é pequena (40 frases, sem gabarito).
-- Situação: ganho pequeno e real em vocabulário raro, sem dano relevante medido. Não implementado na lib: exigiria
-  baixar e importar a lista de frequência (passo novo de instalação). Decisão pendente com o dono.
+- Situação depois da 2ª rodada: ganho pequeno em vocabulário raro, sem dano relevante no script. Implementado na lib
+  (abaixo).
+
+**Na lib, com contexto** (opção `LimiarPalavraRara`, medida com 10000; dicionário gerado com as listas; medido em
+2026-11-22). Audiolivro inteiro (179 frases), `translategemma:12b` com as 2 frases vizinhas de cada lado, como o
+comando `arquivo` faz. Sem gabarito: cada frase que mudou foi lida e comparada com o original.
+
+| Item | Sem dica | Com dica |
+|---|---|---|
+| Tempo das 179 frases | 622 s | 602 s (variação normal) |
+| Frases com dica | — | 54 (66 palavras) |
+| Frases que mudaram | — | 43; as sem dica saíram idênticas nas duas rodadas |
+| Melhores (leitura) | — | ~10: *seesaw* "escorregador" → "gangorra", *gizzard* "bucho" → "moela", *porcupine* "ouriço" → "porco-espinho", *spoonfuls* "colheres de sopa" → "colheradas", *crouching* "curvado" → "agachado", *eyeballs of a lizard* "olhos de uma lagartixa" → "globos oculares de um lagarto", *bristly whiskers* "pelos finos" → "pelos pretos e grossos", *clutching* "segurando com força", *churning* "se agitando", *clump* "amontoado" (2) |
+| Piores (leitura) | — | ~7, duas mudando o sentido: "an ancient peach tree that never gave any peaches" virou "uma antiga macieira que nunca dava maçãs" (a dica era de *clump*, não de *peach*); "the ocean to paddle in" virou "o oceano para ele brincar com um remo". Também: "My dear old trout" perdeu o "velha"; *bony* "esquelética" → "tinha uma estrutura óssea evidente"; *jug* "jarro" → "recipiente"; *glared* "lançou um olhar furioso" → "olhou fixamente"; *piggy eyes* "semelhantes aos de um porco" → "amendoados" |
+| Neutras | — | o resto (troca de palavra ou de ordem sem ganho claro) |
+
+- A 1ª versão contava contrações como raras ("don't", "isn't" não estão na lista como uma palavra só): 67 frases com
+  dica e 48 mudadas. Corrigido (possessivo vale pela palavra, contração pula) antes da rodada da tabela.
+- Advérbios em -ly comuns de sentido óbvio (*enormously*, *comfortably*, *madly*) ficam fora das 10.000 e ganham dica
+  sem necessidade; não tratado.
+- Com o contexto das vizinhas a dica mexe mais na frase do que no script sem contexto (10 de 40 frases mudaram lá).
+- **Decisão:** fica na lib desligada por padrão (`LimiarPalavraRara = 0`), como experimental. Ganhos reais em
+  vocabulário raro, mas erros de sentido em partes da frase que a dica nem cita ("macieira") pesam mais num texto
+  para estudo. Para retomar: dica mais curta (só a 1ª tradução de cada palavra), limiar maior (só palavras muito
+  raras) ou conferir se a tradução com dica não trocou palavras que a sem dica tinha certas.
 
 ### Palavras de som parecido (chave de pronúncia)
 

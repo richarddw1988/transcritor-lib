@@ -14,7 +14,18 @@ namespace Transcritor.Dicionario;
 /// <param name="TamanhoBytes">Tamanho do arquivo gerado.</param>
 /// <param name="Duracao">Tempo da importação.</param>
 /// <param name="ChavesFoneticas">Palavras com chave de pronúncia (para achar palavras de som parecido).</param>
-public sealed record ResumoImportacao(long Traducoes, long Definicoes, long Formas, long TamanhoBytes, TimeSpan Duracao, long ChavesFoneticas = 0);
+/// <param name="PalavrasFrequencia">Palavras das listas de frequência (0 se não foram informadas).</param>
+public sealed record ResumoImportacao(
+    long Traducoes, long Definicoes, long Formas, long TamanhoBytes, TimeSpan Duracao, long ChavesFoneticas = 0, long PalavrasFrequencia = 0);
+
+/// <summary>
+/// Listas de frequência de palavras, uma por idioma: texto com uma palavra por linha, da mais comum para a menos comum,
+/// opcionalmente seguida de espaço e contagem (formato do FrequencyWords: <c>en_50k.txt</c>, <c>pt_br_50k.txt</c>).
+/// Servem para saber quais palavras são raras (<see cref="DicionarioSqlite.PosicaoFrequencia"/>).
+/// </summary>
+/// <param name="Ingles">Lista do inglês.</param>
+/// <param name="Portugues">Lista do português.</param>
+public sealed record ListasFrequencia(string Ingles, string Portugues);
 
 /// <summary>
 /// Gera o SQLite do dicionário a partir dos dumps JSONL do Wiktionary em inglês extraídos pelo wiktextract
@@ -24,12 +35,13 @@ public sealed record ResumoImportacao(long Traducoes, long Definicoes, long Form
 /// sentido de cada uma; viram en → pt e, invertidas, pt → en;</item>
 /// <item>verbetes em português (<c>kaikki.org-dictionary-Portuguese.jsonl[.gz]</c>): definições curtas em inglês;</item>
 /// <item>dos dois: flexões que apontam para a forma base (só as de formas base que têm verbete).</item>
+/// <item>opcional: posição de cada palavra numa lista de frequência (<see cref="ListasFrequencia"/>).</item>
 /// </list>
 /// </summary>
 public static class ImportadorWiktionary
 {
     /// <summary>Formato do banco; <see cref="DicionarioSqlite.Abrir"/> recusa outro.</summary>
-    public const int VersaoFormato = 3;
+    public const int VersaoFormato = 4;
 
     private const int TamanhoMaximoDefinicao = 300;
 
@@ -61,12 +73,14 @@ public static class ImportadorWiktionary
     /// <param name="jsonlIngles">Dump dos verbetes em inglês (.jsonl ou .jsonl.gz).</param>
     /// <param name="jsonlPortugues">Dump dos verbetes em português (.jsonl ou .jsonl.gz).</param>
     /// <param name="caminhoBanco">SQLite a gerar.</param>
+    /// <param name="frequencia">Listas de frequência; nulo = banco sem frequência (a dica de palavras raras fica desligada).</param>
     /// <param name="progresso">Recebe mensagens curtas de andamento.</param>
     /// <param name="cancellationToken">Cancela a importação (o arquivo de destino não é tocado).</param>
     public static async Task<ResumoImportacao> ImportarAsync(
         string jsonlIngles,
         string jsonlPortugues,
         string caminhoBanco,
+        ListasFrequencia? frequencia = null,
         IProgress<string>? progresso = null,
         CancellationToken cancellationToken = default)
     {
@@ -78,6 +92,14 @@ public static class ImportadorWiktionary
             }
         }
 
+        foreach (var arquivo in frequencia is null ? [] : new[] { frequencia.Ingles, frequencia.Portugues })
+        {
+            if (!File.Exists(arquivo))
+            {
+                throw new FileNotFoundException("Lista de frequência não encontrada (baixe do FrequencyWords; ver docs/manual.md).", arquivo);
+            }
+        }
+
         var relogio = Stopwatch.StartNew();
         var destino = Path.GetFullPath(caminhoBanco);
         Directory.CreateDirectory(Path.GetDirectoryName(destino)!);
@@ -85,7 +107,7 @@ public static class ImportadorWiktionary
         File.Delete(temporario);
 
         var conexaoTexto = new SqliteConnectionStringBuilder { DataSource = temporario, Pooling = false }.ToString();
-        long traducoes, definicoes, formas, foneticas;
+        long traducoes, definicoes, formas, foneticas, frequentes = 0;
         await using (var conexao = new SqliteConnection(conexaoTexto))
         {
             await conexao.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -104,6 +126,8 @@ public static class ImportadorWiktionary
                     tipo INTEGER NOT NULL);
                 CREATE TABLE forma (idioma TEXT NOT NULL, chave TEXT NOT NULL, lema TEXT NOT NULL,
                     PRIMARY KEY (idioma, chave, lema)) WITHOUT ROWID;
+                CREATE TABLE frequencia (idioma TEXT NOT NULL, chave TEXT NOT NULL, posicao INTEGER NOT NULL,
+                    PRIMARY KEY (idioma, chave)) WITHOUT ROWID;
                 """);
 
             using (var escritor = new Escritor(conexao))
@@ -127,6 +151,13 @@ public static class ImportadorWiktionary
             progresso?.Report("calculando chaves de pronúncia");
             foneticas = GerarFoneticas(conexao);
 
+            if (frequencia is not null)
+            {
+                progresso?.Report("lendo listas de frequência");
+                frequentes = await ImportarFrequenciaAsync(conexao, Idiomas.Ingles, frequencia.Ingles, cancellationToken).ConfigureAwait(false)
+                    + await ImportarFrequenciaAsync(conexao, Idiomas.Portugues, frequencia.Portugues, cancellationToken).ConfigureAwait(false);
+            }
+
             using var info = conexao.CreateCommand();
             info.CommandText = "INSERT INTO info (chave, valor) VALUES ($c, $v)";
             var pc = info.Parameters.Add("$c", SqliteType.Text);
@@ -138,6 +169,9 @@ public static class ImportadorWiktionary
                 ("fonte_ingles", Path.GetFileName(jsonlIngles)),
                 ("fonte_portugues", Path.GetFileName(jsonlPortugues)),
                 ("licenca", "Wiktionary via wiktextract/kaikki.org — CC BY-SA 4.0 e GFDL"),
+                ("fonte_frequencia", frequencia is null
+                    ? string.Empty
+                    : $"{Path.GetFileName(frequencia.Ingles)}, {Path.GetFileName(frequencia.Portugues)}"),
             })
             {
                 pc.Value = c;
@@ -147,7 +181,36 @@ public static class ImportadorWiktionary
         }
 
         File.Move(temporario, destino, overwrite: true);
-        return new ResumoImportacao(traducoes, definicoes, formas, new FileInfo(destino).Length, relogio.Elapsed, foneticas);
+        return new ResumoImportacao(traducoes, definicoes, formas, new FileInfo(destino).Length, relogio.Elapsed, foneticas, frequentes);
+    }
+
+    /// <summary>Grava a posição (1 = mais comum) de cada palavra da lista; repetida ("The" e "the") vale a 1ª vez e não conta.</summary>
+    private static async Task<long> ImportarFrequenciaAsync(
+        SqliteConnection conexao, string idioma, string arquivo, CancellationToken cancellationToken)
+    {
+        using var transacao = conexao.BeginTransaction();
+        using var cmd = conexao.CreateCommand();
+        cmd.Transaction = transacao;
+        cmd.CommandText = "INSERT OR IGNORE INTO frequencia (idioma, chave, posicao) VALUES ($i, $c, $p)";
+        cmd.Parameters.AddWithValue("$i", idioma);
+        var pc = cmd.Parameters.Add("$c", SqliteType.Text);
+        var pp = cmd.Parameters.Add("$p", SqliteType.Integer);
+        long gravadas = 0;
+        foreach (var linha in await File.ReadAllLinesAsync(arquivo, cancellationToken).ConfigureAwait(false))
+        {
+            var palavra = DicionarioSqlite.Chave(linha.Split(' ', '	')[0]);
+            if (palavra.Length == 0)
+            {
+                continue;
+            }
+
+            pc.Value = palavra;
+            pp.Value = gravadas + 1;
+            gravadas += cmd.ExecuteNonQuery();
+        }
+
+        transacao.Commit();
+        return gravadas;
     }
 
     private static async Task LerAsync(

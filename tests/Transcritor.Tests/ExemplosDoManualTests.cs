@@ -91,7 +91,8 @@ public class ExemplosDoManualTests
         }
 
         ResumoImportacao resumo = await ImportadorWiktionary.ImportarAsync(
-            @"dados\kaikki-en.jsonl.gz", @"dados\kaikki-pt.jsonl.gz", @"dados\dicionario.db", cancellationToken: ct);
+            @"dados\kaikki-en.jsonl.gz", @"dados\kaikki-pt.jsonl.gz", @"dados\dicionario.db",
+            new ListasFrequencia(@"dados\en_50k.txt", @"dados\pt_br_50k.txt"), cancellationToken: ct);
         Console.WriteLine(resumo.TamanhoBytes);
     }
 

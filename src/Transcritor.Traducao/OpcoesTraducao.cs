@@ -69,9 +69,19 @@ public sealed class OpcoesTraducao
     /// SQLite do dicionário inglês ↔ português (gerado por <c>transcritor dicionario importar</c>). Quando existe, a
     /// palavra que faz parte de uma expressão do dicionário ("gave" em "gave up") recebe os sentidos da expressão como
     /// opções numeradas e o modelo escolhe uma.
+    /// Se o dicionário foi gerado com as listas de frequência e <see cref="LimiarPalavraRara"/> está ligado, as frases do
+    /// arquivo também recebem os sentidos das palavras raras.
     /// Nulo ou arquivo ausente = tradução de palavra só com o modelo.
     /// </summary>
     public string? CaminhoDicionario { get; set; }
+
+    /// <summary>
+    /// Experimental, desligado por padrão (0). Na tradução das frases do arquivo, palavra fora das N mais frequentes da
+    /// lista de frequência é rara e vai com os sentidos do dicionário nas instruções do modelo (medido com 10000:
+    /// acerta vocabulário raro, mas às vezes muda o sentido de outra parte da frase; ver docs/modelos.md). Precisa do
+    /// dicionário gerado com as listas de frequência; a frase avulsa (tempo real) não usa.
+    /// </summary>
+    public int LimiarPalavraRara { get; set; }
 
     /// <summary>
     /// Termos com tradução fixa (nomes, títulos, termos técnicos), usados nas frases e na palavra solta.

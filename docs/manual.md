@@ -100,7 +100,7 @@ Opções do script:
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
 | `-ComCorrecao` | Também baixa o `gemma3:12b` (correção de palavras ouvidas errado, ~8 GB; o mesmo da análise) |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
-| `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~30 s). Ver 4.6 |
+| `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) e as listas de frequência (~1,3 MB) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~40 s). Gera de novo o dicionário de versão anterior. Ver 4.6 |
 
 4. Rode os testes (não precisam dos serviços):
    ```powershell
@@ -189,10 +189,13 @@ Toca o arquivo para o WhisperLiveKit no ritmo real (`--velocidade 2` = dobro). S
 mesmo áudio.
 
 ### 4.6 Dicionário inglês ↔ português (opcional)
-Dicionário local gerado do Wiktionary (extração do kaikki.org, licença CC BY-SA 4.0 / GFDL). Não usa GPU nem
-serviços. A pasta `dados/` não vai para o Git.
+Dicionário local gerado do Wiktionary (extração do kaikki.org, licença CC BY-SA 4.0 / GFDL), com a posição de cada
+palavra em listas de frequência ([FrequencyWords](https://github.com/hermitdave/FrequencyWords), contagens de
+legendas do OpenSubtitles 2018, CC BY-SA 4.0), que dizem quais palavras são raras. Não usa GPU nem serviços. A pasta
+`dados/` não vai para o Git.
 
-1. Baixe os dois dumps (~600 MB) e gere o SQLite — ou rode `.\scripts\preparar-ambiente.ps1 -ComDicionario`, que faz isso:
+1. Baixe os dois dumps (~600 MB) e as duas listas (~0,6 MB cada) e gere o SQLite — ou rode
+   `.\scripts\preparar-ambiente.ps1 -ComDicionario`, que faz isso:
    ```powershell
    New-Item -ItemType Directory -Force dados
    ```
@@ -203,10 +206,18 @@ serviços. A pasta `dados/` não vai para o Git.
    curl.exe -L -o dados\kaikki-pt.jsonl.gz https://kaikki.org/dictionary/Portuguese/kaikki.org-dictionary-Portuguese.jsonl.gz
    ```
    ```powershell
+   curl.exe -L -o dados\en_50k.txt https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_50k.txt
+   ```
+   ```powershell
+   curl.exe -L -o dados\pt_br_50k.txt https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/pt_br/pt_br_50k.txt
+   ```
+   ```powershell
    dotnet run --project src/Transcritor.Cli -- dicionario importar
    ```
-   `--ingles`, `--portugues` e `--banco` trocam os caminhos (padrões: `dados\kaikki-en.jsonl.gz`,
-   `dados\kaikki-pt.jsonl.gz` e `dados\dicionario.db`).
+   `--ingles`, `--portugues`, `--frequencia-ingles`, `--frequencia-portugues` e `--banco` trocam os caminhos
+   (padrões: `dados\kaikki-en.jsonl.gz`, `dados\kaikki-pt.jsonl.gz`, `dados\en_50k.txt`, `dados\pt_br_50k.txt` e
+   `dados\dicionario.db`). Sem as listas de frequência a importação funciona, avisa e a dica de palavras raras
+   (abaixo) não pode ser ligada.
 2. Consulte:
    ```powershell
    dotnet run --project src/Transcritor.Cli -- dicionario procurar gave --de en --para pt
@@ -224,7 +235,8 @@ serviços. A pasta `dados/` não vai para o Git.
    (biblioteca MetaphonePtBr, MIT).
 
 Dicionário gerado por uma versão anterior da lib é recusado com a mensagem de gerar de novo: rode
-`transcritor dicionario importar` (os dumps baixados continuam valendo).
+`transcritor dicionario importar` (os dumps baixados continuam valendo). A lib, ao achar um dicionário de outra
+versão pela opção `CaminhoDicionario`, segue sem ele; o `preparar-ambiente.ps1` avisa nesse caso.
 
 O que tem e quanto custa: [modelos.md](modelos.md#dicionário-local-wiktionary).
 
@@ -234,6 +246,13 @@ palavra faz parte de uma expressão dele ("gave" em "gave up", "running" em "run
 sentidos da expressão como opções numeradas, marcando os que aparecem na tradução da frase (a passada em
 `--traducao-frase` ou, sem ela, a que a lib fez), e escolhe um. Palavra fora de expressão vai só com a frase e a
 tradução dela: as opções da palavra sozinha faziam o modelo escolher sentidos raros de palavras comuns.
+
+Experimental, desligado por padrão: com as listas de frequência e a opção `LimiarPalavraRara` (seção 6) ligada, a
+tradução das frases do arquivo (comando `arquivo` e `TraduzirFrasesAsync`) também usa o dicionário: as palavras da
+frase fora das N mais frequentes vão com as traduções do dicionário nas instruções do modelo ("porcupine":
+porco-espinho, ouriço…). Nomes e contrações ficam de fora. A frase avulsa (comando `traduzir`, tempo real) não usa.
+Medido com 10.000 num audiolivro: acerta vocabulário raro, mas às vezes muda outra parte da frase ("peach tree" →
+"macieira"); ver [modelos.md](modelos.md#dicionário-na-tradução-de-frases-experimental-desligado-por-padrão).
 
 ### 4.7 Medir a tradução de palavra
 ```powershell
@@ -375,7 +394,10 @@ foreach (var v in sentidos)
 - `Tipo`: `Traducao` (tradução direta, com o `Sentido` a que se refere) ou `Definicao` (palavra em português
   explicada em inglês, ex.: "pêssego" → "peach (fruit)"). As traduções vêm antes das definições.
 - Arquivo ausente ou de outra versão: `FileNotFoundException`, com o comando para gerar.
-- Para gerar pelo código: `ImportadorWiktionary.ImportarAsync(jsonlIngles, jsonlPortugues, caminhoBanco)`.
+- Para gerar pelo código: `ImportadorWiktionary.ImportarAsync(jsonlIngles, jsonlPortugues, caminhoBanco,
+  new ListasFrequencia(@"dados\en_50k.txt", @"dados\pt_br_50k.txt"))`; sem o 4º argumento o banco fica sem frequência.
+- Frequência: `dicionario.PosicaoFrequencia("nibbled", "en")` devolve a posição na lista (1 = a mais comum), a melhor
+  entre a palavra e a forma base, ou nulo se não está na lista; `dicionario.TemFrequencia` diz se o banco tem as listas.
 - Palavras de som parecido: `dicionario.ProcurarParecidas("weather", "en")` devolve `Parecida(Termo, DistanciaPronuncia,
   DistanciaEscrita, Sentidos)` — ex.: `feather`, `whether`, `water`…; a própria palavra não entra.
 
@@ -440,6 +462,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloFrasesTempoReal` | `translategemma:4b` | Frases no tempo real e comando `traduzir` (vazio = `ModeloFrases`) |
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
 | `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta que faz parte de uma expressão do dicionário recebe os sentidos da expressão como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
+| `LimiarPalavraRara` | `0` (desligado) | **Experimental.** Nas frases do arquivo, palavra fora das N mais frequentes (ex.: `10000`) vai com as traduções do dicionário nas instruções do modelo. Precisa do dicionário gerado com as listas de frequência (4.6). Ver 4.6 antes de ligar |
 | `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
