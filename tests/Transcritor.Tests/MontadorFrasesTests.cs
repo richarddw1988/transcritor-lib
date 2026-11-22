@@ -74,6 +74,35 @@ public class MontadorFrasesTests
     }
 
     [Fact]
+    public void Titulo_com_pausa_antes_do_numero_fica_junto_e_sozinho()
+    {
+        // Audiolivro: "Chapter" [2 s] "Three It was at this point..." (sem ponto depois de "Three").
+        var p = Palavras(0, "the", "end.").Concat(Palavras(3, "Chapter")).Concat(Palavras(5.5, "Three", "It", "was", "late."))
+            .ToList();
+
+        Assert.Equal(["the end.", "Chapter Three", "It was late."], Textos(Bruta(p)));
+    }
+
+    [Theory]
+    [InlineData("Chapter 2 It was late.", "Chapter 2")]
+    [InlineData("Capítulo três Era tarde.", "Capítulo três")]
+    [InlineData("Part IV It was late.", "Part IV")]
+    [InlineData("Chapter Twenty-One It was late.", "Chapter Twenty-One")]
+    public void Titulo_sem_pontuacao_fecha_antes_da_maiuscula(string texto, string titulo)
+    {
+        var frases = Textos(Bruta(Palavras(0, texto.Split(' '))));
+
+        Assert.Equal(titulo, frases[0]);
+        Assert.Equal(2, frases.Count);
+    }
+
+    [Theory]
+    [InlineData("Chapter three of the book was long.")]
+    [InlineData("It was part one of the plan.")]
+    public void Titulo_seguido_de_minuscula_ou_sem_maiuscula_nao_corta(string texto) =>
+        Assert.Single(Textos(Bruta(Palavras(0, texto.Split(' ')))));
+
+    [Fact]
     public void Sentenca_longa_e_dividida_na_ultima_virgula_que_cabe()
     {
         // 150 palavras de 0,3 s = 45 s, com uma vírgula aos ~15 s e outra aos ~27 s.

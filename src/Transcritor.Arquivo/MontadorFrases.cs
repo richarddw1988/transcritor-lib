@@ -10,6 +10,8 @@ namespace Transcritor.Arquivo;
 /// <item>Termina em pontuação final (. ? ! …), exceto depois de abreviações (Mr., Mrs., St., Sr., Dra. ...),
 /// iniciais (J.) e quando a próxima palavra começa com minúscula.</item>
 /// <item>Termina também numa pausa longa (<see cref="PausaQueFechaFrase"/>), para fala sem pontuação.</item>
+/// <item>Título de capítulo ("Chapter Three", "Capítulo 2") fica junto e sozinho numa frase, mesmo quando o narrador
+/// pausa entre a palavra e o número ou o Whisper não pontua o fim do título.</item>
 /// <item>Sentença mais longa que <see cref="DuracaoMaxima"/> é dividida na última vírgula (ou ; :), para caber na tela.</item>
 /// </list>
 /// Sem tempo por palavra, cai para os segmentos do motor.
@@ -17,7 +19,7 @@ namespace Transcritor.Arquivo;
 internal static class MontadorFrases
 {
     /// <summary>Muda quando a regra de montagem muda; entra na chave do cache.</summary>
-    public const int Versao = 3;
+    public const int Versao = 4;
 
     public static readonly TimeSpan PausaQueFechaFrase = TimeSpan.FromSeconds(1.5);
     public static readonly TimeSpan DuracaoMaxima = TimeSpan.FromSeconds(30);
@@ -36,6 +38,23 @@ internal static class MontadorFrases
         "e.g", "i.e",
         // português
         "sra", "srta", "dra", "profa", "av", "sto", "sta", "nº", "pág", "exmo", "exma", "ilmo", "ilma", "v.exa",
+    };
+
+    /// <summary>Palavras (minúsculas) que abrem um título numerado.</summary>
+    private static readonly HashSet<string> PalavrasTitulo = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "chapter", "part", "book", "volume", "capítulo", "capitulo", "parte", "livro",
+    };
+
+    /// <summary>Números por extenso (minúsculos) aceitos depois da palavra do título.</summary>
+    private static readonly HashSet<string> NumerosPorExtenso = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+        "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty",
+        "sixty", "seventy", "eighty", "ninety", "hundred",
+        "um", "dois", "três", "tres", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze",
+        "catorze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove", "vinte", "trinta", "quarenta",
+        "cinquenta", "sessenta", "setenta", "oitenta", "noventa", "cem",
     };
 
     public static IReadOnlyList<Frase> Montar(TranscricaoBruta bruta)
@@ -62,6 +81,17 @@ internal static class MontadorFrases
             var fecha = proxima is null
                 || TerminaSentenca(palavra.Texto, proxima.Texto)
                 || proxima.Inicio - palavra.Fim >= PausaQueFechaFrase.TotalSeconds;
+
+            // "Chapter" [pausa] "Three It was...": o número fica com o título, e o título fecha a frase.
+            if (proxima is not null && atual.Count == 1 && EPalavraTitulo(palavra.Texto) && ENumero(proxima.Texto))
+            {
+                fecha = false;
+            }
+            else if (proxima is not null && atual.Count == 2 && EPalavraTitulo(atual[0].Texto) && ENumero(palavra.Texto)
+                && !ComecaMinuscula(proxima.Texto))
+            {
+                fecha = true;
+            }
             if (fecha)
             {
                 frases.AddRange(DividirSeLonga(atual));
@@ -99,6 +129,36 @@ internal static class MontadorFrases
         // "e.g. something", "3 p.m. today": a sentença continua.
         var inicioProximo = proximo?.TrimStart('"', '\'', '(', '“', '‘', '«', '¿', '¡');
         return string.IsNullOrEmpty(inicioProximo) || !char.IsLower(inicioProximo[0]);
+    }
+
+    private static bool ComecaMinuscula(string texto)
+    {
+        var t = texto.TrimStart('"', '\'', '(', '“', '‘', '«');
+        return t.Length > 0 && char.IsLower(t[0]);
+    }
+
+    /// <summary>"Chapter", "Capítulo"..., com maiúscula (não "part of the plan").</summary>
+    private static bool EPalavraTitulo(string texto)
+    {
+        var t = texto.TrimEnd('.', ':', ',');
+        return t.Length > 0 && char.IsUpper(t[0]) && PalavrasTitulo.Contains(t);
+    }
+
+    /// <summary>"3", "III", "Three", "Twenty-One", "Três" (com ou sem pontuação no fim).</summary>
+    internal static bool ENumero(string texto)
+    {
+        var t = texto.TrimEnd(FechamentoIgnorado).TrimEnd('.', ',', ':', ';', '!', '?');
+        if (t.Length == 0)
+        {
+            return false;
+        }
+
+        if (t.All(char.IsDigit) || t.All(c => "IVXLC".Contains(c, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return t.Split('-').All(NumerosPorExtenso.Contains);
     }
 
     private static IEnumerable<Frase> DividirSeLonga(List<Palavra> palavras)
