@@ -94,10 +94,13 @@ public class ExemplosDoManualTests
             Console.WriteLine($"{v.Termo} ({v.Classe}): {v.Traducao} [{v.Sentido}] {v.Lema} {v.Tipo}");
         }
 
+        IReadOnlyList<string> homofonos = dicionario.Homofonos("cela", "pt");
+        Console.WriteLine($"{dicionario.TemHomofonos} {string.Join(", ", homofonos)} {dicionario.PosicaoFrequencia("nibbled", "en")}");
+
         ResumoImportacao resumo = await ImportadorWiktionary.ImportarAsync(
             @"dados\kaikki-en.jsonl.gz", @"dados\kaikki-pt.jsonl.gz", @"dados\dicionario.db",
             new ListasFrequencia(@"dados\en_50k.txt", @"dados\pt_br_50k.txt"), cancellationToken: ct);
-        Console.WriteLine(resumo.TamanhoBytes);
+        Console.WriteLine($"{resumo.TamanhoBytes} {resumo.Homofonos}");
     }
 
     // Seção 5.5.
@@ -108,7 +111,7 @@ public class ExemplosDoManualTests
             new PedidoCorrecao("The night rode through the forest.".Split(' '), "en", Anteriores: [], Seguintes: []), ct);
         foreach (var t in trocas)
         {
-            Console.WriteLine($"{t.Indice}: {t.Ouvida} → {t.Corrigida}");
+            Console.WriteLine($"{t.Indice}: {t.Ouvida} → {t.Corrigida} {t.Homofono}");
         }
 
         var palavra = new Palavra("knight", 0.3, 0.6, Confianca: 0.51, Ouvida: "night");

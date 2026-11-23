@@ -501,7 +501,8 @@ public sealed class TranscritorArquivo(
                 var aceitas = 0;
                 foreach (var c in propostas[i])
                 {
-                    if (_opcoes.ConferirCorrecaoNoAudio)
+                    // Homófono soa igual: reouvir não confirma nem recusa a troca.
+                    if (_opcoes.ConferirCorrecaoNoAudio && !c.Homofono)
                     {
                         // O áudio só é convertido de novo se alguma frase tiver troca para conferir.
                         if (!wavPronto)

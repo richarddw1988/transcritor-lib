@@ -531,7 +531,7 @@ cmdImportar.SetAction(async (resultado, ct) => await Executar(async () =>
     Console.WriteLine(
         $"Pronto em {resumo.Duracao.TotalSeconds:F0} s: {resumo.Traducoes:N0} traduções, {resumo.Definicoes:N0} definições, " +
         $"{resumo.Formas:N0} flexões, {resumo.ChavesFoneticas:N0} palavras com chave de pronúncia, " +
-        $"{resumo.PalavrasFrequencia:N0} palavras com frequência; " +
+        $"{resumo.PalavrasFrequencia:N0} palavras com frequência, {resumo.Homofonos:N0} pares de homófonos; " +
         $"{resumo.TamanhoBytes / 1024d / 1024d:F0} MB em {resultado.GetValue(optBanco)!.FullName}");
     return 0;
 }));
@@ -632,11 +632,14 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
             continue;
         }
 
-        using var sp = CriarServicos(o =>
-        {
-            o.Idioma = idioma;
-            o.GravarJsonAoLado = false;
-        });
+        // A correção usa o mesmo dicionário das parecidas mostradas (--banco), não o do appsettings.json.
+        using var sp = CriarServicos(
+            o =>
+            {
+                o.Idioma = idioma;
+                o.GravarJsonAoLado = false;
+            },
+            t => t.CaminhoDicionario = banco.Exists ? banco.FullName : null);
         var r = await sp.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(
             wav, idioma == Idiomas.Ingles ? Saida.Ingles : Saida.Portugues, null, ct);
         var reconhecidas = r.Frases.SelectMany(f => f.Palavras).ToList();

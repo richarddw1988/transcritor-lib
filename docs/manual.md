@@ -229,7 +229,9 @@ legendas do OpenSubtitles 2018, CC BY-SA 4.0), que dizem quais palavras são rar
    `--ingles`, `--portugues`, `--frequencia-ingles`, `--frequencia-portugues` e `--banco` trocam os caminhos
    (padrões: `dados\kaikki-en.jsonl.gz`, `dados\kaikki-pt.jsonl.gz`, `dados\en_50k.txt`, `dados\pt_br_50k.txt` e
    `dados\dicionario.db`). Sem as listas de frequência a importação funciona, avisa e a dica de palavras raras
-   (abaixo) não pode ser ligada.
+   (abaixo) não pode ser ligada. A importação também guarda os homófonos que o Wiktionary lista ("cela" ↔ "sela",
+   "bare" ↔ "bear"), usados pela correção (seção 5.5); dicionário gerado antes de 2026-11-23 não tem essa lista e
+   continua funcionando sem ela; para ter, rode o `dicionario importar` de novo (~40 s).
 2. Consulte:
    ```powershell
    dotnet run --project src/Transcritor.Cli -- dicionario procurar gave --de en --para pt
@@ -440,6 +442,8 @@ foreach (var v in sentidos)
   entre a palavra e a forma base, ou nulo se não está na lista; `dicionario.TemFrequencia` diz se o banco tem as listas.
 - Palavras de som parecido: `dicionario.ProcurarParecidas("weather", "en")` devolve `Parecida(Termo, DistanciaPronuncia,
   DistanciaEscrita, Sentidos)` — ex.: `feather`, `whether`, `water`…; a própria palavra não entra.
+- Homófonos (soam igual, segundo o Wiktionary): `dicionario.Homofonos("cela", "pt")` devolve `["sela"]`;
+  `dicionario.TemHomofonos` diz se o banco tem a lista (os gerados antes de 2026-11-23 não têm).
 
 ### 5.5 Correção da transcrição
 O arquivo usa sozinho quando `CorrigirTranscricao = true`. Para corrigir uma frase avulsa (ex.: do tempo real):
@@ -462,6 +466,12 @@ foreach (var t in trocas)
   modelo que compara a frase com e sem a troca e só a aceita se a frase sem ela não fizer sentido.
 - Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
+- Homófonos (`CorrigirHomofonos`, **experimental, desligada**): depois da correção, cada palavra que tem homófono no
+  dicionário ("cela" ↔ "sela", "conserto" ↔ "concerto") vira uma pergunta ao `ModeloHomofonos`: a frase com uma
+  lacuna no lugar dela e as grafias que soam igual. Se ele escolher outra, a troca ainda passa pela 2ª opinião
+  (a frase ouvida é o padrão) e sai marcada (`Correcao.Homofono`); no arquivo, ela não é conferida no áudio, porque o
+  som é o mesmo. Medido: não corrigiu nenhum homófono da fala do usuário e trocou 2 palavras certas no audiolivro
+  (ver `docs/modelos.md`).
 - `CorrigirAsync` funciona mesmo com `CorrigirTranscricao = false`; `Ativo` só diz se o arquivo deve usar.
 
 ### 5.6 Erros
@@ -510,6 +520,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
+| `CorrigirHomofonos` | `false` | **Experimental.** Na correção, cada palavra com homófono no dicionário ("cela" ↔ "sela") vira uma pergunta ao `ModeloHomofonos`, mesmo com confiança alta. Precisa do dicionário gerado desde 2026-11-23. Ver 5.5 antes de ligar |
+| `ModeloHomofonos` | `gemma3:12b` | Modelo que escolhe entre homófonos. O mesmo da correção evita o Ollama trocar de modelo a cada pergunta |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |
 | `ModeloAnalise` | `gemma3:12b` | Modelo da análise |

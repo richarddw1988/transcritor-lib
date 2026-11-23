@@ -219,7 +219,7 @@ public class CorretorOllamaTests
 }
 
 /// <summary>Corretor falso: troca as palavras do dicionário dado e guarda os pedidos.</summary>
-internal sealed class FakeCorretor(Dictionary<string, string> trocas, bool ativo = true) : ICorretorTranscricao
+internal sealed class FakeCorretor(Dictionary<string, string> trocas, bool ativo = true, bool homofono = false) : ICorretorTranscricao
 {
     public List<PedidoCorrecao> Pedidos { get; } = [];
 
@@ -231,7 +231,7 @@ internal sealed class FakeCorretor(Dictionary<string, string> trocas, bool ativo
     {
         Pedidos.Add(pedido);
         IReadOnlyList<Correcao> resultado = pedido.Palavras
-            .Select((p, i) => trocas.TryGetValue(p, out var nova) ? new Correcao(i, p, nova) : null)
+            .Select((p, i) => trocas.TryGetValue(p, out var nova) ? new Correcao(i, p, nova, homofono) : null)
             .OfType<Correcao>()
             .ToList();
         return Task.FromResult(resultado);
@@ -329,6 +329,18 @@ public sealed class TranscritorArquivoCorrecaoTests : IDisposable
 
         Assert.Equal("The night rode.", r.Frases[0].Texto);
         Assert.All(r.Frases.SelectMany(f => f.Palavras), p => Assert.Null(p.Ouvida));
+    }
+
+    [Fact]
+    public async Task Troca_de_homofono_nao_passa_pela_conferencia_no_audio()
+    {
+        // O som é o mesmo: reouvir não diria nada. A troca vale sem chamar o Whisper de novo.
+        var (transcritor, motor) = CriarComAudio(new FakeCorretor(new() { ["night"] = "knight" }, homofono: true), Bruta);
+
+        var r = await transcritor.ProcessarAsync(_pasta.Arquivo("a.mp3", "x"), Saida.Ingles);
+
+        Assert.Equal("The knight rode.", r.Frases[0].Texto);
+        Assert.Single(motor.TamanhosWav);
     }
 
     [Fact]

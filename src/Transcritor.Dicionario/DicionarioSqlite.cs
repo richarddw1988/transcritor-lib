@@ -15,6 +15,7 @@ public sealed class DicionarioSqlite : IDisposable
     {
         _conexao = conexao;
         _temFrequencia = new Lazy<bool>(LerTemFrequencia);
+        _temHomofonos = new Lazy<bool>(LerTemHomofonos);
     }
 
     /// <summary>Caminho do arquivo aberto.</summary>
@@ -228,6 +229,54 @@ public sealed class DicionarioSqlite : IDisposable
         cmd.Parameters.AddWithValue("$i", i);
         cmd.Parameters.AddWithValue("$c", chave);
         return cmd.ExecuteScalar() is long p ? (int)p : null;
+    }
+
+    private readonly Lazy<bool> _temHomofonos;
+
+    /// <summary>
+    /// O banco tem a lista de homófonos do Wiktionary. Bancos gerados antes dela (2026-11-23) não têm: funcionam igual,
+    /// só sem homófonos; para ter, gere de novo com <c>transcritor dicionario importar</c>.
+    /// </summary>
+    public bool TemHomofonos => _temHomofonos.Value;
+
+    /// <summary>
+    /// Palavras que soam igual a esta, segundo o Wiktionary ("cela" → "sela"; "bare" → "bear"); vazio se não há ou se o
+    /// banco não tem a lista. Só a palavra como está, sem flexões.
+    /// </summary>
+    /// <param name="palavra">Palavra solta.</param>
+    /// <param name="idioma">Idioma da palavra: pt ou en.</param>
+    public IReadOnlyList<string> Homofonos(string palavra, string idioma)
+    {
+        ArgumentNullException.ThrowIfNull(palavra);
+        var chave = Chave(palavra);
+        if (chave.Length == 0 || !TemHomofonos)
+        {
+            return [];
+        }
+
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        cmd.CommandText = "SELECT homofono FROM homofono WHERE idioma = $i AND chave = $c ORDER BY homofono";
+        cmd.Parameters.AddWithValue("$i", Idiomas.Normalizar(idioma));
+        cmd.Parameters.AddWithValue("$c", chave);
+        var lista = new List<string>();
+        using var leitor = cmd.ExecuteReader();
+        while (leitor.Read())
+        {
+            lista.Add(leitor.GetString(0));
+        }
+
+        return lista;
+    }
+
+    private bool LerTemHomofonos()
+    {
+        using var conexao = new SqliteConnection(_conexao);
+        conexao.Open();
+        using var cmd = conexao.CreateCommand();
+        cmd.CommandText = "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'homofono')";
+        return cmd.ExecuteScalar() is long n && n != 0;
     }
 
     private bool LerTemFrequencia()

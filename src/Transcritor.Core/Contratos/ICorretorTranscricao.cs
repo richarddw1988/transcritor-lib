@@ -20,7 +20,11 @@ public sealed record PedidoCorrecao(
 /// <param name="Indice">Posição da palavra em <see cref="PedidoCorrecao.Palavras"/>.</param>
 /// <param name="Ouvida">Palavra como foi reconhecida.</param>
 /// <param name="Corrigida">Palavra corrigida, com a mesma pontuação colada.</param>
-public sealed record Correcao(int Indice, string Ouvida, string Corrigida);
+/// <param name="Homofono">
+/// Troca entre palavras que soam igual ("cela" → "sela"), decidida só pelo sentido. Ouvir o áudio de novo não ajuda a
+/// conferir essa troca, porque o som é o mesmo.
+/// </param>
+public sealed record Correcao(int Indice, string Ouvida, string Corrigida, bool Homofono = false);
 
 /// <summary>
 /// Corrige palavras que o reconhecimento de fala ouviu errado ("night" no lugar de "knight", "cela" no lugar de

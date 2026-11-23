@@ -15,8 +15,16 @@ namespace Transcritor.Dicionario;
 /// <param name="Duracao">Tempo da importação.</param>
 /// <param name="ChavesFoneticas">Palavras com chave de pronúncia (para achar palavras de som parecido).</param>
 /// <param name="PalavrasFrequencia">Palavras das listas de frequência (0 se não foram informadas).</param>
+/// <param name="Homofonos">Pares de homófonos do Wiktionary ("cela" ↔ "sela"), cada sentido contado.</param>
 public sealed record ResumoImportacao(
-    long Traducoes, long Definicoes, long Formas, long TamanhoBytes, TimeSpan Duracao, long ChavesFoneticas = 0, long PalavrasFrequencia = 0);
+    long Traducoes,
+    long Definicoes,
+    long Formas,
+    long TamanhoBytes,
+    TimeSpan Duracao,
+    long ChavesFoneticas = 0,
+    long PalavrasFrequencia = 0,
+    long Homofonos = 0);
 
 /// <summary>
 /// Listas de frequência de palavras, uma por idioma: texto com uma palavra por linha, da mais comum para a menos comum,
@@ -107,7 +115,7 @@ public static class ImportadorWiktionary
         File.Delete(temporario);
 
         var conexaoTexto = new SqliteConnectionStringBuilder { DataSource = temporario, Pooling = false }.ToString();
-        long traducoes, definicoes, formas, foneticas, frequentes = 0;
+        long traducoes, definicoes, formas, foneticas, homofonos, frequentes = 0;
         await using (var conexao = new SqliteConnection(conexaoTexto))
         {
             await conexao.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -128,6 +136,8 @@ public static class ImportadorWiktionary
                     PRIMARY KEY (idioma, chave, lema)) WITHOUT ROWID;
                 CREATE TABLE frequencia (idioma TEXT NOT NULL, chave TEXT NOT NULL, posicao INTEGER NOT NULL,
                     PRIMARY KEY (idioma, chave)) WITHOUT ROWID;
+                CREATE TABLE homofono (idioma TEXT NOT NULL, chave TEXT NOT NULL, homofono TEXT NOT NULL,
+                    PRIMARY KEY (idioma, chave, homofono)) WITHOUT ROWID;
                 """);
 
             using (var escritor = new Escritor(conexao))
@@ -137,6 +147,7 @@ public static class ImportadorWiktionary
                 escritor.Concluir();
                 traducoes = escritor.Traducoes;
                 definicoes = escritor.Definicoes;
+                homofonos = escritor.Homofonos;
             }
 
             progresso?.Report("criando índices");
@@ -181,7 +192,7 @@ public static class ImportadorWiktionary
         }
 
         File.Move(temporario, destino, overwrite: true);
-        return new ResumoImportacao(traducoes, definicoes, formas, new FileInfo(destino).Length, relogio.Elapsed, foneticas, frequentes);
+        return new ResumoImportacao(traducoes, definicoes, formas, new FileInfo(destino).Length, relogio.Elapsed, foneticas, frequentes, homofonos);
     }
 
     /// <summary>Grava a posição (1 = mais comum) de cada palavra da lista; repetida ("The" e "the") vale a 1ª vez e não conta.</summary>
@@ -233,7 +244,8 @@ public static class ImportadorWiktionary
             if (!linha.Contains("\"Portuguese\"", StringComparison.Ordinal)
                 && !linha.Contains("\"code\": \"pt\"", StringComparison.Ordinal)
                 && !linha.Contains("\"form_of\"", StringComparison.Ordinal)
-                && !linha.Contains("\"lang_code\": \"pt\"", StringComparison.Ordinal))
+                && !linha.Contains("\"lang_code\": \"pt\"", StringComparison.Ordinal)
+                && !linha.Contains("\"homophone\"", StringComparison.Ordinal))
             {
                 continue;
             }
@@ -337,6 +349,7 @@ public static class ImportadorWiktionary
         private readonly SqliteTransaction _transacao;
         private readonly SqliteCommand _verbete;
         private readonly SqliteCommand _forma;
+        private readonly SqliteCommand _homofono;
         private readonly HashSet<string> _vistos = new(StringComparer.Ordinal);
 
         public Escritor(SqliteConnection conexao)
@@ -360,11 +373,22 @@ public static class ImportadorWiktionary
             {
                 _forma.Parameters.Add(p, SqliteType.Text);
             }
+
+            _homofono = conexao.CreateCommand();
+            _homofono.Transaction = _transacao;
+            _homofono.CommandText = "INSERT OR IGNORE INTO homofono (idioma, chave, homofono) VALUES ($i, $c, $h)";
+            foreach (var p in new[] { "$i", "$c", "$h" })
+            {
+                _homofono.Parameters.Add(p, SqliteType.Text);
+            }
         }
 
         public long Traducoes { get; private set; }
 
         public long Definicoes { get; private set; }
+
+        /// <summary>Pares de homófonos gravados (cada par conta nos dois sentidos).</summary>
+        public long Homofonos { get; private set; }
 
         public void ProcessarIngles(JsonElement verbete)
         {
@@ -401,6 +425,7 @@ public static class ImportadorWiktionary
             }
 
             Formas(Idiomas.Ingles, palavra, verbete);
+            GravarHomofonos(Idiomas.Ingles, palavra, verbete);
         }
 
         public void ProcessarPortugues(JsonElement verbete)
@@ -439,6 +464,7 @@ public static class ImportadorWiktionary
             }
 
             Formas(Idiomas.Portugues, palavra, verbete);
+            GravarHomofonos(Idiomas.Portugues, palavra, verbete);
         }
 
         public void Concluir() => _transacao.Commit();
@@ -447,8 +473,60 @@ public static class ImportadorWiktionary
         {
             _verbete.Dispose();
             _forma.Dispose();
+            _homofono.Dispose();
             _transacao.Dispose();
         }
+
+        /// <summary>
+        /// Homófonos do verbete ("sounds": [{"homophone": "sela"}]), gravados nos dois sentidos. Fica de fora o que tem
+        /// ressalva entre parênteses (fusões de som de alguns sotaques, uso regional), exceto "(Brazil)" no português;
+        /// também nome próprio (maiúscula), expressão e o que não é palavra.
+        /// </summary>
+        private void GravarHomofonos(string idioma, string palavra, JsonElement verbete)
+        {
+            var chave = DicionarioSqlite.Chave(palavra);
+            if (!PalavraSolta(palavra) || chave.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var som in Lista(verbete, "sounds"))
+            {
+                if (Texto(som, "homophone") is not { } bruto)
+                {
+                    continue;
+                }
+
+                var texto = bruto.Trim();
+                if (idioma == Idiomas.Portugues && texto.StartsWith("(Brazil)", StringComparison.Ordinal))
+                {
+                    texto = texto["(Brazil)".Length..].Trim();
+                }
+
+                if (texto.Contains('(', StringComparison.Ordinal) || !PalavraSolta(texto))
+                {
+                    continue;
+                }
+
+                var outra = DicionarioSqlite.Chave(texto);
+                if (outra.Length == 0 || outra == chave)
+                {
+                    continue;
+                }
+
+                foreach (var (de, para) in new[] { (chave, outra), (outra, chave) })
+                {
+                    _homofono.Parameters["$i"].Value = idioma;
+                    _homofono.Parameters["$c"].Value = de;
+                    _homofono.Parameters["$h"].Value = para;
+                    Homofonos += _homofono.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>Uma palavra só, só de letras (hífen e apóstrofo valem), começando com minúscula.</summary>
+        private static bool PalavraSolta(string texto) =>
+            texto.Length > 0 && char.IsLower(texto[0]) && texto.All(c => char.IsLetter(c) || c is '-' or '\'');
 
         private static bool EhFlexao(JsonElement sentido) =>
             Lista(sentido, "form_of").Any() || Lista(sentido, "alt_of").Any();

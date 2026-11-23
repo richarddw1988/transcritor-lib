@@ -47,6 +47,21 @@ public sealed class OpcoesTraducao
     public double LimiteConfiancaCorrecao { get; set; } = 0.95;
 
     /// <summary>
+    /// Depois da correção, cada palavra que tem homófono no dicionário ("cela" ↔ "sela", "bare" ↔ "bear") vira uma
+    /// pergunta ao <see cref="ModeloHomofonos"/>: a frase com uma lacuna no lugar dela e as grafias que soam igual; vale
+    /// a que o sentido pede, mesmo que o reconhecimento estivesse seguro. Precisa do dicionário gerado com a lista de
+    /// homófonos (desde 2026-11-23). Experimental, desligada: com os modelos locais medidos, não corrigiu nenhum
+    /// homófono da fala do usuário e trocou 2 palavras certas no audiolivro (docs/modelos.md).
+    /// </summary>
+    public bool CorrigirHomofonos { get; set; }
+
+    /// <summary>
+    /// Modelo que escolhe entre homófonos (uma chamada curta por palavra com homófono). O mesmo da correção evita o
+    /// Ollama trocar de modelo a cada pergunta.
+    /// </summary>
+    public string ModeloHomofonos { get; set; } = "gemma3:12b";
+
+    /// <summary>
     /// Cada troca proposta vai a uma segunda chamada ao modelo, que compara a frase com e sem ela; a troca só vale se a
     /// frase sem ela não fizer sentido. Desligada por padrão porque no arquivo a troca já é conferida no áudio
     /// (<c>OpcoesArquivo.ConferirCorrecaoNoAudio</c>), que mediu melhor; ligue ao corrigir frase avulsa, sem áudio.

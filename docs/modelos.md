@@ -415,6 +415,27 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
   dicionário, mesmo com confiança alta. Tempo: 25,1 s por frase, contra 5,3 s na 1ª rodada; o `avaliar-fala`
   processa cada gravação como um arquivo, e a causa provável é a carga do Whisper e do `gemma3:12b` a cada arquivo
   com o `DescarregarModelosEntreEtapas` (não conferido).
+- **Homófonos (2026-11-23, `CorrigirHomofonos`, experimental, desligada):** o dicionário agora guarda os homófonos que o
+  Wiktionary lista (700 pares no português, 6.502 no inglês, contando os dois sentidos; "cela" ↔ "sela", "conserto" ↔
+  "concerto", "their" ↔ "there"). Tentativas, medidas nas 49 frases do usuário e no audiolivro (`gemma3:12b` na
+  correção, `DescarregarModelosEntreEtapas=false`):
+
+  | Versão | Homófonos certos na fala (cela, conserto, bear) | Trocas indevidas no audiolivro | Tempo da correção no audiolivro |
+  |---|---|---|---|
+  | Palavra com homófono vai à correção principal, com a lista no pedido | 0 — direto no Ollama, o modelo manteve "cela", trocou o "conserto" certo e virou os dois "bear" em "bare" | não medido | não medido |
+  | Pergunta por palavra, com lacuna no lugar dela, `gemma3:4b` | não medido | **49** ("four years" → "for", "your" → "you're", "right" → "rite", "there" → "their") | 2.334 s (o Ollama alternava 4b e 12b a cada pergunta) |
+  | **Atual:** lacuna com o `gemma3:12b`, só grafias da lista de frequência, troca confirmada pela 2ª opinião | **0** — "sela" foi escolhida, mas a 2ª opinião recusou | **2** ("Aunt" → "Ant", "there" → "they're") | 291 s |
+
+  - Isoladas, as lacunas até acertam: em 10 casos (5 do audiolivro, 2 da fala), `gemma3:12b` 9/10, `gemma3:4b`
+    8/10, `translategemma:12b` 9/10. Mas no audiolivro há centenas de palavras com homófono, quase todas certas;
+    errar 1 em 10 vira dezenas de estragos. A 2ª opinião corta o estrago, e junto os acertos.
+  - Quando a mesma palavra aparece duas vezes na frase ("a cela … a cela do cavalo"), o modelo copia a outra. Num
+    conjunto de 15 casos difíceis, o `gemma3:12b` errou 3 tanto com a palavra marcada quanto com a lacuna no lugar
+    dela; o `gemma3:4b` foi de 3 para 2 erros.
+  - A lista do Wiktionary traz grafias de brincadeira ou de dialeto escrito ("drynx", "peepul", "purrfect"); a lib
+    só usa as que estão na lista de frequência.
+  - Por isso fica desligada. Para voltar ao assunto: um modelo maior (que não cabe com o Whisper nos 12 GB) ou um
+    jeito de saber quão seguro o modelo está na escolha.
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
   mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.
