@@ -563,7 +563,8 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       | Audiolivro, 179 frases (texto certo), com o gemma | 0 trocas, 41 s | 0 trocas, 26 s |
       | 49 gravações, `avaliar-fala --corrigir` | WER 6,3% → 5,5%, 5 certas, 0 erradas | o mesmo, 10,1 s por frase |
 
-      O processamento completo do audiolivro com as opções padrão não foi refeito (não medido). O custo do BERT por
+      Audiolivro de 17 min processado com as opções padrão (`arquivo`, transcrição do cache, WhisperLiveKit no ar): a
+      mesma única troca ("marvellous" → "marvelous"), em 112,4 s contra 149,5 s antes. O custo do BERT por
       palavra quase dobra para palavras de vários tokens (lote de 2n−1 em vez de n); nos exemplos em português, só o
       BERT foi de 70 s para 86 s.
     - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
