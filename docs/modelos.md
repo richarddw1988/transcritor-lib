@@ -531,7 +531,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       | 49 gravações do usuário | WER 6,2% | **6,0%** ("bear pawns" → "bare pawns") |
       | Audiolivro de 17 min (texto certo) | 0 trocas, 18 s | **0 trocas**, 41 s |
       | 6.745 exemplos do Wiktionary em português | 7 trocas | 14: das 7 a mais, 3 acertam a norma ("para traz" → "trás", "o porque" → "porquê"), 2 erram ("pra trás" → "traz" em fala coloquial, "passar cheque" → "xeque") e 2 são duvidosas |
-      | 1.500 exemplos do Wiktionary em inglês | 29 trocas | 33: as 4 a mais erram em poesia ou texto estilizado ("rode" → "rowed", "fair" → "fir", "heart" → "hart") e trocam "grey" → "gray" |
+      | 1.500 exemplos do Wiktionary em inglês | 29 trocas (quase todas erradas; resolvido abaixo, em "Duas notas") | 33: as 4 a mais erram em poesia ou texto estilizado ("rode" → "rowed", "fair" → "fir", "heart" → "hart") e trocam "grey" → "gray" |
 
       Continuam errados nos dois: "conserto" repetido na mesma frase, "seção" → "sessão", "for years" → "four".
       Os exemplos do Wiktionary não são todos texto certo pela norma atual (ortografia antiga, fala transcrita), por
@@ -542,6 +542,27 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       5,6%; a nova é "bear" → "bare"); audiolivro: a mesma única troca ("marvellous" → "marvelous"), 149,5 s de correção
       (100,6 s antes, mas com o WhisperLiveKit parado; não comparável direto). Risco aceito: em texto coloquial ou
       literário ainda troca a mais às vezes ("pra trás" → "traz").
+    - **Duas notas, vale a menor (2026-11-23, em uso):** quase todas as 29 trocas dos exemplos em inglês acima eram
+      erradas e vinham do BERT sozinho, com ≥ 0,99: "love" → "luv", "what" → "watt", "need" → "knead", "through" →
+      "thru". Causa: na nota, cada token é mascarado sozinho, então uma palavra rara de vários pedaços tem cada pedaço
+      adivinhado vendo os outros ("lu" + "##v") e ganha nota alta. A correção publicada (PLL-word-l2r, Kauf e Ivanova,
+      2023) mascara também os tokens seguintes da mesma palavra, mas sozinha erra para o outro lado ("you're" → "your",
+      "nought" → "not"; 17 trocas nos exemplos em inglês) e perdeu 2 dos 6 casos certos em português. A lib calcula as
+      duas notas no mesmo lote e usa, para cada grafia, a menor das duas probabilidades: só tem certeza quando as duas
+      concordam. Medido com `avaliar-homofonos` e `avaliar-fala --corrigir`, opções padrão:
+
+      | Texto | Antes | Duas notas |
+      |---|---|---|
+      | 12 casos em português com a grafia errada (só BERT / com o gemma) | 6 / 10 certas | 4 / **10** certas, 0 erradas |
+      | 8 casos em inglês com a grafia errada (só BERT / com o gemma) | 5 / 7 certas | 5 / **7** certas, 0 erradas |
+      | 6.745 exemplos do Wiktionary em português, com o gemma | 14 trocas, 172 s | **12**, 140 s (saíram "tença" → "tensa" e um "passar cheque" → "xeque") |
+      | 1.500 exemplos do Wiktionary em inglês, com o gemma | 33 trocas, 31 min | **6**, 5,2 min (sobram "grey" → "gray", "tics" → "ticks", "shott" → "shot" e 3 com colchetes do próprio Wiktionary, como "[Martin") |
+      | Audiolivro, 179 frases (texto certo), com o gemma | 0 trocas, 41 s | 0 trocas, 26 s |
+      | 49 gravações, `avaliar-fala --corrigir` | WER 6,3% → 5,5%, 5 certas, 0 erradas | o mesmo, 10,1 s por frase |
+
+      O processamento completo do audiolivro com as opções padrão não foi refeito (não medido). O custo do BERT por
+      palavra quase dobra para palavras de vários tokens (lote de 2n−1 em vez de n); nos exemplos em português, só o
+      BERT foi de 70 s para 86 s.
     - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
       logits para o PyTorch: 3e-5), rodando pelo ONNX Runtime 1.32 na CPU e tokenizados pelo `Microsoft.ML.Tokenizers`
       (mesmos tokens do Python; probabilidades iguais às do protótipo). Medido com a correção ligada

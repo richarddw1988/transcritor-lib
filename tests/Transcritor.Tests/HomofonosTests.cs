@@ -126,7 +126,7 @@ public sealed class HomofonosTests : IDisposable
         var (frase, indice, grafias) = Assert.Single(bert.Pedidos);
         Assert.Equal(("A cela do cavalo estava rasgada.", 1), (frase, indice));
         Assert.Equal(["cela", "sela"], grafias);
-        Assert.Contains("-h4:0.99", corretor.Identificador, StringComparison.Ordinal);
+        Assert.Contains("-h5:0.99", corretor.Identificador, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -162,7 +162,7 @@ public sealed class HomofonosTests : IDisposable
         var corretor = Corretor(new Escolhe("sela", 0.999), banco, modelo: false);
 
         Assert.True(corretor.Ativo);
-        Assert.Equal("so-h4:0.99", corretor.Identificador);
+        Assert.Equal("so-h5:0.99", corretor.Identificador);
         Assert.Equal(new Correcao(1, "cela", "sela", Homofono: true), Assert.Single(await corretor.CorrigirAsync(duvidosa, CancellationToken.None)));
         await corretor.VerificarAsync(CancellationToken.None); // sem modelo de conversa, não confere o Ollama
         Assert.False(Corretor(new Escolhe("sela", 0.999, disponivel: false), banco, modelo: false).Ativo);

@@ -62,7 +62,7 @@ internal sealed class CorretorOllama(
     private bool TemBert(string idioma) => escolhedor is not null && escolhedor.Disponivel(idioma);
 
     /// <summary>Mudar a pergunta dos homófonos exige subir (entra na chave do cache).</summary>
-    private const int VersaoHomofonos = 4; // 4: outras ocorrências da palavra viram lacuna (2026-11-23)
+    private const int VersaoHomofonos = 5; // 5: tokens seguintes da palavra também mascarados (PLL-word-l2r, 2026-11-23)
 
     /// <summary>Homófonos ligados e o dicionário tem a lista.</summary>
     private bool UsaHomofonos => _opcoes.CorrigirHomofonos && escolhedor is not null && fonte.Dicionario is { TemHomofonos: true };

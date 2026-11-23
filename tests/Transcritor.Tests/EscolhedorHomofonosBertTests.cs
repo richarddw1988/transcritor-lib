@@ -32,9 +32,10 @@ public sealed class EscolhedorHomofonosBertTests : IDisposable
     [FactComBert]
     public void Mesmas_probabilidades_do_prototipo_em_python()
     {
-        // Valores do protótipo (PyTorch, docs/modelos.md): a 2ª "cela" é "sela"; a 1ª fica.
+        // A 2ª "cela" é "sela"; a 1ª fica. Com a menor das duas notas (2026-11-23) a "sela" caiu de 0,997 (protótipo em
+        // PyTorch) para 0,989: vai ao modelo de conversa em vez de trocar direto.
         const string Cela = "A cela da prisão era pequena e a cela do cavalo estava rasgada.";
-        Assert.Equal(0.997, Probabilidade(Cela, 8, "sela", ["cela", "sela"], "pt"), 2);
+        Assert.Equal(0.989, Probabilidade(Cela, 8, "sela", ["cela", "sela"], "pt"), 2);
         Assert.Equal(0.957, Probabilidade(Cela, 1, "cela", ["cela", "sela"], "pt"), 2);
         Assert.Equal(0.9996, Probabilidade("There house is bigger than ours.", 0, "their", ["there", "their"], "en"), 3);
         Assert.Equal(0.9994, Probabilidade("The night rode his horse through the forest.", 1, "knight", ["night", "knight", "nite"], "en"), 3);
@@ -43,14 +44,15 @@ public sealed class EscolhedorHomofonosBertTests : IDisposable
     [FactComBert]
     public void Outra_ocorrencia_da_palavra_vira_lacuna_e_nao_e_copiada()
     {
-        // Sem a lacuna, o "concerto de música" à vista segura o 1º "concerto": "conserto" fica com 0,75, abaixo do limite.
+        // Sem a lacuna, o "concerto de música" à vista segura o 1º "concerto": "conserto" fica com 0,29; com ela, 0,66
+        // (vai ao modelo de conversa, que escolhe "conserto").
         const string Frase = "O concerto do carro ficou mais caro do que o concerto de música.";
         const string Cela = "A cela da prisão era pequena e a cela do cavalo estava rasgada.";
 
-        Assert.Equal(0.751, Probabilidade(Frase, 1, "conserto", ["concerto", "conserto"], "pt"), 0.005);
-        Assert.Equal(0.992, Probabilidade(Frase, 1, "conserto", ["concerto", "conserto"], "pt", lacuna: true), 2);
-        // Valores do protótipo com a lacuna: a 2ª "cela" continua "sela"; a 1ª fica, por pouco.
-        Assert.Equal(0.997, Probabilidade(Cela, 8, "sela", ["cela", "sela"], "pt", lacuna: true), 2);
+        Assert.Equal(0.286, Probabilidade(Frase, 1, "conserto", ["concerto", "conserto"], "pt"), 0.005);
+        Assert.Equal(0.659, Probabilidade(Frase, 1, "conserto", ["concerto", "conserto"], "pt", lacuna: true), 0.005);
+        // Com a lacuna: a 2ª "cela" continua "sela"; a 1ª fica, por pouco.
+        Assert.Equal(0.991, Probabilidade(Cela, 8, "sela", ["cela", "sela"], "pt", lacuna: true), 3);
         Assert.Equal(0.525, Probabilidade(Cela, 1, "cela", ["cela", "sela"], "pt", lacuna: true), 0.005);
     }
 
