@@ -477,7 +477,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
   | Variante | Trocas certas | Trocas erradas | WER | Audiolivro |
   |---|---|---|---|---|
   | `gemma3:12b` propõe, sem conferência | 4 | 1 ("leave" → "live") | 6,3% → 5,8% | 1 troca ("marvellous" → "marvelous", só grafia) |
-  | BERT no lugar do modelo: compara a ouvida com as parecidas do dicionário, limite 0,5 / 0,9 / 0,99 | 4 / 1 / 1 | 4 / 3 / 1 ("invaded" → "envied", "corns" → "cairns", "barrel" → "beryl") | — | não medido |
+  | BERT no lugar do modelo: compara a ouvida com as parecidas do dicionário, limite 0,5 / 0,9 / 0,99 | 3 / 0 / 0 | 4 / 3 / 1 ("invaded" → "envied", "corns" → "cairns", "barrel" → "beryl") | — | não medido |
   | **`gemma3:12b` propõe e o BERT confere (`ConferirCorrecaoComBert`), limite 0,5** | **4** | **0** | **6,3% → 5,6%** | a mesma 1 troca; 101 s |
   | Idem, limite 0,7 | 3 | 0 | 6,3% → 5,8% | não medido |
 
