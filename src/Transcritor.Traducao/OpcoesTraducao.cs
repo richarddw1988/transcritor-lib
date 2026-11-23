@@ -32,10 +32,11 @@ public sealed class OpcoesTraducao
 
     /// <summary>
     /// Liga a correção de palavras ouvidas errado no processamento de arquivos (antes de traduzir): o modelo troca uma
-    /// palavra por outra de som parecido quando a frase não faz sentido ("night" → "knight"). Experimental e desligada
-    /// por padrão: no teste ainda trocou palavras certas (docs/modelos.md).
+    /// palavra por outra de som parecido quando a frase não faz sentido ("night" → "knight"). Ligada por padrão desde
+    /// 2026-11-23, com cada troca conferida pelo BERT (<see cref="ConferirCorrecaoComBert"/>) e no áudio: nas 49 frases
+    /// medidas, 4 trocas certas e 0 erradas (docs/modelos.md). Precisa do <see cref="ModeloCorrecao"/> no Ollama.
     /// </summary>
-    public bool CorrigirTranscricao { get; set; }
+    public bool CorrigirTranscricao { get; set; } = true;
 
     /// <summary>Modelo da correção de palavras ouvidas errado.</summary>
     public string ModeloCorrecao { get; set; } = "gemma3:12b";

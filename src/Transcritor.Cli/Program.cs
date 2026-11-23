@@ -34,14 +34,14 @@ var optSaida = new Option<Saida>("--saida")
 
 var optSentido = new Option<bool>("--sentido") { Description = "Também gera blocos (expressões) e o que quis dizer em cada frase (lento: ~13 s/frase com gemma3:12b)." };
 
-var optCorrigirArquivo = new Option<bool>("--corrigir")
+var optSemCorrecao = new Option<bool>("--sem-correcao")
 {
-    Description = "Experimental: corrige palavras ouvidas errado antes de traduzir (troca por outra de som parecido; ~3,5 s por frase duvidosa).",
+    Description = "Não passa pela correção de palavras ouvidas errado pelo modelo (ligada por padrão; ~3,5 s por frase duvidosa). Os homófonos continuam.",
 };
 
 var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um ou mais arquivos e grava o JSON de cada um com frases e palavras.")
 {
-    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo,
+    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optSemCorrecao,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
@@ -51,7 +51,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
     var idioma = resultado.GetValue(optIdioma);
     var json = resultado.GetValue(optJson);
     var sentido = resultado.GetValue(optSentido);
-    var corrigirArquivo = resultado.GetValue(optCorrigirArquivo);
+    var semCorrecao = resultado.GetValue(optSemCorrecao);
 
     using var sp = CriarServicos(
         o =>
@@ -62,7 +62,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
         t =>
         {
             if (sentido) t.AnalisarSentido = true;
-            if (corrigirArquivo) t.CorrigirTranscricao = true;
+            if (semCorrecao) t.CorrigirTranscricao = false;
         });
 
     return await Executar(async () =>
@@ -655,8 +655,9 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
             continue;
         }
 
-        // A correção usa o mesmo dicionário das parecidas mostradas (--banco), não o do appsettings.json. Com --corrigir,
-        // esta passada é a transcrição crua (sem homófonos), para cada troca ser contada uma vez, na passada da correção.
+        // A correção usa o mesmo dicionário das parecidas mostradas (--banco), não o do appsettings.json. Esta passada não
+        // tem a correção pelo modelo (mede a transcrição); com --corrigir, nem os homófonos, para cada troca ser contada
+        // uma vez, na passada da correção.
         using var sp = CriarServicos(
             o =>
             {
@@ -666,6 +667,7 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
             t =>
             {
                 t.CaminhoDicionario = banco.Exists ? banco.FullName : null;
+                t.CorrigirTranscricao = false;
                 t.CorrigirHomofonos &= !corrigir;
             });
         var r = await sp.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(

@@ -26,7 +26,7 @@ Sumário:
 | Som do sistema em tempo real | O mesmo, com o que está tocando no computador | WhisperLiveKit + Ollama |
 | Tradução | Português ↔ inglês pelo sentido: frase com as vizinhas como contexto; palavra solta com a frase | Ollama |
 | Homófonos (com o dicionário e os modelos BERT) | Troca a grafia de palavras que soam igual pela que o sentido pede ("a cela do cavalo" → "a sela do cavalo"), antes de traduzir | BERT na CPU + dicionário |
-| Correção da transcrição (opcional, experimental) | Troca palavras que o reconhecimento ouviu errado por outra de som parecido, pelo sentido da frase ("night" → "knight"), antes de traduzir | Ollama + dicionário |
+| Correção da transcrição (ligada por padrão) | Troca palavras que o reconhecimento ouviu errado por outra de som parecido, pelo sentido da frase ("night" → "knight"), antes de traduzir | Ollama + dicionário |
 | Dicionário local (opcional) | Sentidos reais de uma palavra ou expressão, inglês ↔ português, com a forma base das flexões ("gave" → "give") | SQLite gerado do Wiktionary |
 
 Nos três modos você escolhe a saída: `Portugues`, `Ingles` ou `Ambos`. O texto sai sempre no idioma falado; a
@@ -44,7 +44,7 @@ Precisa de Windows 10/11 com GPU NVIDIA (12 GB recomendado; ver [modelos.md](mod
 1. **Driver NVIDIA** 576 ou mais novo (pelo NVIDIA App ou nvidia.com). Confira com `nvidia-smi`.
 2. **Docker Desktop** com backend WSL2: <https://www.docker.com/products/docker-desktop/>.
    - Em *Settings › Resources › Advanced › Disk image location*, deixe o disco do Docker numa unidade com
-     **50 GB livres** ou mais (a 1ª preparação baixa ~48 GB).
+     **60 GB livres** ou mais (a 1ª preparação baixa ~56 GB; ~48 GB com `-SemCorrecao`).
 3. **Memória da VM do WSL**: se existir `%USERPROFILE%\.wslconfig` com `memory` abaixo de 10 GB, aumente (abaixo,
    12 GB + 4 GB de swap) e rode `wsl --shutdown`; com 4 GB o Ollama trava ao trocar de modelo.
    ```ini
@@ -103,7 +103,7 @@ Opções do script:
 | `-SoConferir` | Só confere; não constrói, não sobe, não baixa |
 | `-SemTempoReal` | Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB); arquivo e tradução continuam |
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
-| `-ComCorrecao` | Também baixa o `gemma3:12b` (correção de palavras ouvidas errado, ~8 GB; o mesmo da análise) |
+| `-SemCorrecao` | Não baixa o `gemma3:12b` da correção de palavras ouvidas errado (~8 GB; o mesmo da análise) e confere os serviços sem ela. Ponha `CorrigirTranscricao = false` no `appsettings.json` (seção 6) |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
 | `-ComHomofonos` | Gera `dados/bert` (~1 GB): baixa os BERT do huggingface.co e converte para ONNX num contêiner `python:3.12-slim` (`scripts/exportar-bert.py`; ~1,3 GB de download e ~2,5 min na 1ª vez; não precisa de Python no Windows). Usados pela correção da transcrição (5.5). Junto com `-ComDicionario`, que traz a lista de homófonos |
 | `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) e as listas de frequência (~1,3 MB) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~40 s). Gera de novo o dicionário de versão anterior. Ver 4.6 |
@@ -146,13 +146,15 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 - `--sentido` também gera os blocos (expressões) e o "o que quis dizer" de cada frase. É lento (~10–13 s por frase)
   e precisa do `gemma3:12b` (`preparar-ambiente.ps1 -ComAnaliseDeSentido`); com 12 GB de GPU, pare o tempo real antes
   (`docker stop whisperlivekit`).
-- `--corrigir` corrige palavras ouvidas errado antes de traduzir (`CorrigirTranscricao`, seção 6). **Experimental:** no
-  teste, corrigiu 3 das 17 palavras erradas da fala ao microfone sem errar nenhuma, e no audiolivro só mudou uma grafia
-  ("marvellous" → "marvelous"); ver `docs/modelos.md`. Só frases com alguma palavra de confiança abaixo de 0,95 vão ao
-  modelo, e cada troca proposta é conferida no áudio (a frase é transcrita de novo); no audiolivro de 17 min a correção
-  levou ~3 min. A palavra trocada guarda a original em `ouvida` no JSON.
+- A correção de palavras ouvidas errado roda por padrão antes de traduzir (`CorrigirTranscricao`, seção 6): nas 49
+  frases gravadas pelo usuário fez 4 trocas certas e nenhuma errada (WER 6,3% → 5,6%), e no audiolivro só mudou uma
+  grafia ("marvellous" → "marvelous"); ver `docs/modelos.md`. Só frases com alguma palavra de confiança abaixo de 0,95
+  vão ao modelo, e cada troca proposta é conferida pelo BERT e no áudio (a frase é transcrita de novo); no audiolivro de
+  17 min a correção levou ~100 s. A palavra trocada guarda a original em `ouvida` no JSON. `--sem-correcao` pula a
+  correção pelo modelo (os homófonos continuam).
 
-Tempo de referência (RTX 3060): 6 min de áudio em inglês → ~8 min com a tradução 12b (7 min só da tradução);
+Tempo de referência (RTX 3060): 6 min de áudio em inglês → ~8 min com a tradução 12b (7 min só da tradução), antes de
+a correção ser ligada por padrão (ela soma ~100 s por 17 min de audiolivro);
 ~16 min com `--sentido`. Só na 1ª vez; depois vem do cache.
 
 Os exemplos de código da seção 5 estão também em `tests/Transcritor.Tests/ExemplosDoManualTests.cs`, que precisa
@@ -310,7 +312,8 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
    palavra, com a confiança da palavra ouvida e em que posição a palavra certa aparece entre as 15 parecidas do
    dicionário (`dicionario parecidas`). No fim: WER (taxa de erro por palavra), quantas palavras erradas ficaram abaixo
    de `--limite-confianca` (padrão 0,5) e quantas certas também ficaram (alarmes falsos). `--frases`, `--pasta` e
-   `--banco` trocam os caminhos.
+   `--banco` trocam os caminhos. Esta medida não passa pela correção pelo modelo, mesmo com ela ligada (ver o passo 3);
+   os homófonos, sim.
    - O Whisper escreve números como dígitos ("sete" → "7"), o que conta como troca: evite números nas frases.
 3. Meça a correção de palavras ouvidas errado (`ModeloCorrecao`, com o dicionário):
    ```powershell
@@ -397,7 +400,7 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 - `sentido` e `blocos` só com `AnalisarSentido = true`; `palavraInicial/palavraFinal` são índices em `palavras`.
 - `confianca` (0 a 1) é a probabilidade que o Whisper deu à palavra; baixa indica provável erro de reconhecimento.
   Não aparece quando o motor não informa, nem em JSON gravado antes deste campo existir (`Palavra.Confianca` nulo).
-- `ouvida` só aparece com `CorrigirTranscricao = true`, na palavra que a correção trocou: `texto` traz a corrigida
+- `ouvida` só aparece na palavra que a correção trocou (pelo modelo ou pelos homófonos, seção 5.5): `texto` traz a corrigida
   e `ouvida` a que o Whisper escreveu (`{ "texto": "knight", "ouvida": "night", … }`). O `texto` da frase já vem corrigido.
 - Formato detalhado: [etapa-2.md](etapa-2.md) (regra da saída) e [etapa-4.md](etapa-4.md) (blocos).
 - Entre as etapas, o modelo de cada serviço sai da GPU antes de a próxima carregar o seu (`DescarregarModelosEntreEtapas`,
@@ -456,8 +459,9 @@ foreach (var v in sentidos)
   `dicionario.TemHomofonos` diz se o banco tem a lista (os gerados antes de 2026-11-23 não têm).
 
 ### 5.5 Correção da transcrição
-O arquivo usa sozinho quando alguma parte está ligada: a correção pelo modelo (`CorrigirTranscricao = true`,
-experimental) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o dicionário e os modelos BERT). Para corrigir uma
+O arquivo usa sozinho quando alguma parte está ligada: a correção pelo modelo (`CorrigirTranscricao`, ligada por
+padrão desde 2026-11-23; precisa do `ModeloCorrecao` no Ollama) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o
+dicionário e os modelos BERT). Para corrigir uma
 frase avulsa (ex.: do tempo real):
 ```csharp
 var corretor = sp.GetRequiredService<ICorretorTranscricao>();
@@ -476,7 +480,8 @@ foreach (var t in trocas)
   com confiança perto de zero.
 - `CorrigirAsync` sozinho não tem o áudio: para frase avulsa, ligue `ConfirmarCorrecaoComModelo`, uma 2ª chamada ao
   modelo que compara a frase com e sem a troca e só a aceita se a frase sem ela não fizer sentido.
-- Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
+- Medido nas 49 frases do usuário: 4 trocas certas e 0 erradas, com a conferência pelo BERT e no áudio; sem elas, o
+  modelo sozinho troca palavras certas (ver `docs/modelos.md`). Ainda corrige poucas das palavras erradas.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
 - Com os modelos BERT (`PastaModelosHomofonos`), cada troca proposta pelo modelo também passa pelo BERT
   (`ConferirCorrecaoComBert`, ligada): só vale se ele der à palavra nova pelo menos `LimiteParecida` (0,5) contra a
@@ -489,8 +494,8 @@ foreach (var t in trocas)
   (0,99), mesmo que o reconhecimento estivesse seguro; palavra com maiúscula no meio da frase (nome) fica de fora. A
   troca sai marcada (`Correcao.Homofono`) e, no arquivo, não é conferida no áudio, porque o som é o mesmo. Medido:
   "cela" → "sela" na fala do usuário e nenhuma troca indevida no audiolivro (ver `docs/modelos.md`).
-- `CorrigirAsync` faz as partes ligadas: com `CorrigirTranscricao = false`, só os homófonos (até 2026-11-23 o modelo
-  rodava mesmo desligado; para frase avulsa, ligue a opção). `Ativo` diz se alguma parte está ligada.
+- `CorrigirAsync` faz as partes ligadas: com `CorrigirTranscricao = false`, só os homófonos. `Ativo` diz se alguma
+  parte está ligada.
 
 ### 5.6 Erros
 Todos herdam de `TranscritorException`:
@@ -535,7 +540,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
 | `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta que faz parte de uma expressão do dicionário recebe os sentidos da expressão como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
 | `LimiarPalavraRara` | `0` (desligado) | **Experimental.** Nas frases do arquivo, palavra fora das N mais frequentes (ex.: `10000`) vai com as traduções do dicionário nas instruções do modelo. Precisa do dicionário gerado com as listas de frequência (4.6). Ver 4.6 antes de ligar |
-| `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Experimental; os homófonos não dependem dela |
+| `CorrigirTranscricao` | `true` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Precisa do `ModeloCorrecao` no Ollama (`preparar-ambiente.ps1` baixa; sem ele, `false`). Os homófonos não dependem dela |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
 | `CorrigirHomofonos` | `true` | Cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta e mesmo com `CorrigirTranscricao` desligada (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |

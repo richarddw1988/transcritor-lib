@@ -4,7 +4,7 @@ Lib .NET 10 de **transcrição e tradução de fala, tudo local e de graça**, n
 Os modelos de IA rodam em contêineres Docker (Speaches, WhisperLiveKit, Ollama); a lib só faz as chamadas.
 
 - **Arquivo**: transcreve áudio ou vídeo e gera um JSON com frases e palavras (início e fim de cada uma), tradução
-  português ↔ inglês pelo sentido e, opcionalmente, as expressões e "o que a pessoa quis dizer".
+  português ↔ inglês pelo sentido, correção de palavras ouvidas errado ("cela" → "sela") e, opcionalmente, as expressões e "o que a pessoa quis dizer".
 - **Microfone e som do sistema em tempo real**: eventos `Provisorio` e `Confirmado`, com tradução.
 - **Dicionário inglês ↔ português local** (opcional): sentidos reais de palavras e expressões, gerado do Wiktionary
   em SQLite (~60 MB, consulta em menos de 1 ms), com listas de frequência de palavras. Com ele, a tradução de palavra
@@ -40,7 +40,7 @@ cd transcritor-lib
 .\scripts\preparar-ambiente.ps1
 ```
 O script confere tudo, constrói a imagem do WhisperLiveKit, sobe os serviços, baixa os modelos e termina com
-**Ambiente pronto** (1ª vez: ~48 GB e 20–60 min). Depois:
+**Ambiente pronto** (1ª vez: ~56 GB e 20–60 min). Depois:
 
 ```powershell
 dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida Ambos
@@ -55,7 +55,7 @@ dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt
 |---|---|---|---|
 | Speaches | 8000 | Transcrição de arquivo com tempo por palavra | `Systran/faster-whisper-large-v3` |
 | WhisperLiveKit | 8001 | Transcrição em tempo real (WebSocket) | `large-v3-turbo` |
-| Ollama | 11434 | Tradução, análise e correção | `translategemma:12b` (arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra), `gemma3:12b` (análise e correção da transcrição, opcionais) |
+| Ollama | 11434 | Tradução, análise e correção | `translategemma:12b` (arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra), `gemma3:12b` (correção da transcrição, ligada por padrão; e análise, opcional) |
 
 O Speaches roda numa imagem própria, a 0.8.3 oficial com uma linha corrigida ([docker/speaches](docker/speaches/Dockerfile)),
 para a lib poder tirar o Whisper da GPU entre as etapas; o `preparar-ambiente.ps1` constrói essa imagem. No

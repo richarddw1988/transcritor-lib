@@ -59,12 +59,12 @@ internal sealed class CorretorOllama(
     /// <summary>Homófonos ligados e o dicionário tem a lista.</summary>
     private bool UsaHomofonos => _opcoes.CorrigirHomofonos && escolhedor is not null && fonte.Dicionario is { TemHomofonos: true };
 
-    /// <summary>Correção pelo modelo de conversa (<see cref="OpcoesTraducao.CorrigirTranscricao"/>, experimental).</summary>
+    /// <summary>Correção pelo modelo de conversa (<see cref="OpcoesTraducao.CorrigirTranscricao"/>).</summary>
     private bool UsaModelo => _opcoes.CorrigirTranscricao && !string.IsNullOrWhiteSpace(_opcoes.ModeloCorrecao);
 
     /// <summary>
     /// Ligada se a correção pelo modelo estiver ligada ou se os homófonos puderem rodar (lista no dicionário e BERT de
-    /// algum idioma): os homófonos não dependem da correção experimental.
+    /// algum idioma): os homófonos não dependem da correção pelo modelo.
     /// </summary>
     public bool Ativo => UsaModelo || (UsaHomofonos && (escolhedor!.Disponivel(Idiomas.Ingles) || escolhedor.Disponivel(Idiomas.Portugues)));
 

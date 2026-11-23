@@ -14,7 +14,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
-| Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,6% (4 certas, 0 erradas, com os homófonos); no audiolivro de 17 min só uma grafia trocada (ver abaixo) |
+| Correção de palavras ouvidas errado, **ligada por padrão** (`--sem-correcao` no Cli pula) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,6% (4 certas, 0 erradas, com os homófonos); no audiolivro de 17 min só uma grafia trocada (ver abaixo) |
 | Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção experimental | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
@@ -166,7 +166,7 @@ palavra por palavra — a análise é pelo contexto:
 | `gemma3:4b` | palavra solta | certo com a tradução da frase como pista ("banco" → bench/bank); erra expressões idiomáticas ("call" → "ligar") | **em uso** | [etapa-2.md](etapa-2.md) |
 | `gemma3:4b` | análise de sentido | 6,4 s/frase, mas tipos sem sentido e 7/66 traduções de bloco erradas | não usado | [etapa-4.md](etapa-4.md) |
 | `gemma3:4b` | correção da transcrição | mesmo WER que o 12b na fala do usuário (8,0% → 7,1%), mas repetiu palavra ("quite quite") | não usado | abaixo |
-| `gemma3:12b` | correção da transcrição | ver [Correção de palavras ouvidas errado](#correção-de-palavras-ouvidas-errado-experimental) | **em uso (opcional, experimental)** | abaixo |
+| `gemma3:12b` | correção da transcrição | ver [Correção de palavras ouvidas errado](#correção-de-palavras-ouvidas-errado) | **em uso (ligada por padrão desde 2026-11-23)** | abaixo |
 | `gemma3:12b` | análise de sentido | 72/72 blocos e traduções certos no teste; expressões com nota | **em uso (opcional)** | [etapa-4.md](etapa-4.md) |
 
 ## Glossário do usuário (tradução fixa de termos)
@@ -408,9 +408,10 @@ Os erros, por tipo:
 - **Palavra pequena ou flexão:** "can't" → "can", "he" → "they", "a" → "the", "rained" → "raining", "it" → "it's",
   "ao" → "no", "à" → "a".
 
-### Correção de palavras ouvidas errado (experimental)
+### Correção de palavras ouvidas errado
 
-`ICorretorTranscricao` (opção `CorrigirTranscricao`, desligada): o modelo recebe a frase, as vizinhas e as palavras de
+`ICorretorTranscricao` (opção `CorrigirTranscricao`, ligada por padrão desde 2026-11-23; ver a decisão no fim desta
+seção): o modelo recebe a frase, as vizinhas e as palavras de
 som parecido do dicionário, e devolve a frase corrigida; a lib só aceita a troca de uma palavra por outra de som
 parecido. Medido em 2026-11-21 com o `gemma3:12b` na fala do usuário (20 frases, `avaliar-fala --corrigir`) e no
 audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dano):
@@ -485,7 +486,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       de RAM por idioma carregado**; não usa GPU. Duas rodadas, 21–23 s cada. Os dois idiomas juntos: não medido
       (cada modelo só carrega na primeira frase do seu idioma).
     - Por isso `CorrigirHomofonos` passou a ligada e, desde 2026-11-23, roda mesmo com a correção pelo modelo
-      desligada (a correção em si continua experimental e desligada). Com as opções padrão, só os homófonos:
+      desligada. Só os homófonos (antes de a correção pelo modelo ser ligada por padrão):
 
       | Conjunto | Sem homófonos | Com os homófonos |
       |---|---|---|
@@ -503,12 +504,20 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
   | Idem, limite 0,7 | 3 | 0 | 6,3% → 5,8% | não medido |
 
   - Sozinho, o BERT puxa para palavras raras que encaixam na frase; como conferência do modelo, só barra o que não
-    faz sentido. Ficou ligada, com limite 0,5. A correção em si continua desligada por padrão (`CorrigirTranscricao`).
+    faz sentido. Ficou ligada, com limite 0,5.
+  - **Decisão (2026-11-23): `CorrigirTranscricao` passou a ligada por padrão.** Com a conferência pelo BERT e no
+    áudio, a correção não errou nenhuma troca nas 49 frases (4 certas) e no audiolivro só mudou uma grafia
+    ("marvellous" → "marvelous"), em 101 s para 17 min. Continua corrigindo poucas das palavras erradas (ver abaixo);
+    o ganho é pequeno, mas sem estrago medido. Custa o `gemma3:12b` no Ollama (8,2 GB, baixado pelo
+    `preparar-ambiente.ps1`; `-SemCorrecao` não baixa) e ~3,5 s por frase duvidosa. Conferido depois da troca: o
+    `arquivo` com as opções padrão numa gravação nova passou pela correção (chave do cache
+    `corr.ollama_gemma3_12b_r4-cb_0.5-h3_0.99`).
   - As contagens das variantes "BERT no lugar do modelo" vêm de uma rodada em que o "antes" já incluía os homófonos
     (cada uma contou "cela" → "sela" como errada, sem efeito); a tabela já desconta isso.
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
-  mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.
+  mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso ficou desligada até 2026-11-23, quando a
+  conferência pelo BERT zerou as trocas erradas (decisão acima).
 - A 2ª chamada também recusou "aunt's" → "aunts", que estava certa: o modelo prefere manter a frase ouvida.
 - O limite de confiança corta 2/3 das frases (mais rápido), mas também corta acertos com confiança alta
   ("conserto" → "concerto" veio com 0,99) e, ao mandar parecidas só das palavras duvidosas, parece empurrar o modelo

@@ -8,14 +8,14 @@
       2. Constrói as imagens do Speaches (a oficial 0.8.3 com uma correção) e do WhisperLiveKit (não há imagem
          publicada) e sobe os serviços do docker-compose.yml.
       3. Espera cada serviço responder.
-      4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama.
+      4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução e da correção no Ollama.
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
       Opcional (-ComDicionario): baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o
       dicionário local em dados/.
       Opcional (-ComHomofonos): converte para ONNX, dentro de um contêiner Docker, os dois BERT da escolha de homófonos
       da correção (dados/bert, ~1 GB; não precisa de Python nesta máquina).
 
-    Primeira vez: baixa ~48 GB (imagens + modelos) e leva de 20 a 60 minutos, conforme a internet.
+    Primeira vez: baixa ~56 GB (imagens + modelos; ~48 GB com -SemCorrecao) e leva de 20 a 60 minutos, conforme a internet.
 
 .PARAMETER SoConferir
     Só confere pré-requisitos e serviços; não constrói, não sobe e não baixa nada.
@@ -41,8 +41,9 @@
 .PARAMETER ModeloAnalise
     Modelo do Ollama para a análise de sentido (Transcritor:Traducao:ModeloAnalise).
 
-.PARAMETER ComCorrecao
-    Também baixa o modelo da correção de palavras ouvidas errado (Transcritor:Traducao:CorrigirTranscricao; ~8 GB).
+.PARAMETER SemCorrecao
+    Não baixa o modelo da correção de palavras ouvidas errado (Transcritor:Traducao:CorrigirTranscricao, ligada por
+    padrão; ~8 GB) e confere os serviços com ela desligada. Ponha CorrigirTranscricao = false no appsettings.json.
 
 .PARAMETER ModeloCorrecao
     Modelo do Ollama para a correção da transcrição (Transcritor:Traducao:ModeloCorrecao).
@@ -75,7 +76,7 @@ param(
     [string] $ModeloPalavras = 'gemma3:4b',
     [switch] $ComAnaliseDeSentido,
     [string] $ModeloAnalise = 'gemma3:12b',
-    [switch] $ComCorrecao,
+    [switch] $SemCorrecao,
     [string] $ModeloCorrecao = 'gemma3:12b',
     [switch] $ComDicionario,
     [switch] $ComHomofonos,
@@ -272,7 +273,7 @@ if ($ollamaNoAr) {
     $instalados = (Obter-Json "$OllamaUrl/api/tags").models.name
     $modelosOllama = @($ModeloFrases, $ModeloFrasesTempoReal, $ModeloPalavras)
     if ($ComAnaliseDeSentido) { $modelosOllama += $ModeloAnalise }
-    if ($ComCorrecao) { $modelosOllama += $ModeloCorrecao }
+    if (-not $SemCorrecao) { $modelosOllama += $ModeloCorrecao }
     foreach ($modelo in $modelosOllama | Select-Object -Unique) {
         $nome = if ($modelo.Contains(':')) { $modelo } else { "${modelo}:latest" }
         if ($instalados -contains $nome) { Escrever-Ok "Ollama: $modelo" }
@@ -301,7 +302,9 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
             $env:TRANSCRITOR_Transcritor__Traducao__AnalisarSentido = 'true'
             $env:TRANSCRITOR_Transcritor__Traducao__ModeloAnalise = $ModeloAnalise
         }
-        if ($ComCorrecao) {
+        if ($SemCorrecao) {
+            $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'false'
+        } else {
             $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'true'
             $env:TRANSCRITOR_Transcritor__Traducao__ModeloCorrecao = $ModeloCorrecao
         }
