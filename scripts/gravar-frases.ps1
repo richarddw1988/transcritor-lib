@@ -43,7 +43,8 @@ New-Item -ItemType Directory -Force $Pasta | Out-Null
 & dotnet build "$raiz\src\Transcritor.Cli" -nologo -v q | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'O Cli não compilou (dotnet build src/Transcritor.Cli).' }
 
-$lista = @(Get-Content -Raw -Encoding UTF8 $Frases | ConvertFrom-Json)
+# No Windows PowerShell 5.1, o ConvertFrom-Json devolve o array como um item só; o ForEach-Object o desfaz.
+$lista = @(Get-Content -Raw -Encoding UTF8 $Frases | ConvertFrom-Json | ForEach-Object { $_ })
 if ($Somente.Count -gt 0) {
     $desconhecidos = @($Somente | Where-Object { $_ -notin $lista.id })
     if ($desconhecidos.Count -gt 0) { throw "Ids que não estão em ${Frases}: $($desconhecidos -join ', ')" }
