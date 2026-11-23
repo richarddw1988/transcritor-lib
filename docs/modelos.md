@@ -1,6 +1,6 @@
 # Especificação: modelos de IA usados e testados
 
-Última atualização: 2026-11-22. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
+Última atualização: 2026-11-23. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
 configuração ou uma medição mudar (ver [CLAUDE.md](../CLAUDE.md)).
 
 Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum dado sai da máquina.
@@ -78,8 +78,29 @@ Medido em 2026-11-22 nas 20 gravações do usuário (`dados/gravacoes`, 12 em in
 - Só pt/en: se o Whisper detectar outro idioma, fica como veio. Motor sem confiança por palavra: não confere.
 - O tempo real (WhisperLiveKit, `--language auto`) não tem essa conferência. Medido em 2026-11-22 com `simular` nas
   mesmas 20 gravações (`large-v3-turbo`, `simulstreaming`): o idioma saiu certo em **20/20**, inclusive nas 5 em que o
-  arquivo errava (en02, en03, en06, en07 e en08 saíram em inglês, com os erros de reconhecimento do sotaque). Sem erro
-  medido, a conferência não foi feita no tempo real; se a fala começar no idioma errado, use `--idioma`.
+  arquivo errava (en02, en03, en06, en07 e en08 saíram em inglês, com os erros de reconhecimento do sotaque).
+
+**2ª rodada, 49 gravações** (2026-11-23; as 20 acima + 29 novas: frases curtas ou cheias de palavras do outro idioma,
+som parecido, palavras raras e quatro falas de 20–25 s; `docs/avaliacao/frases-para-gravar.json`):
+
+| Regra (arquivo, `large-v3`) | Idioma certo | Erros |
+|---|---|---|
+| Só a detecção do Whisper | 35/49 | 14 gravações em inglês detectadas como "pt" (en02, 03, 06, 07, 08, 14, 19, 21, 24, 26–30) |
+| **Conferência pela confiança média por palavra (adotada)** | **48/49** | en22 |
+| Confiança média × cobertura de tempo das palavras | 48/49 | en22 |
+| Média do log da confiança | 46/49 | en06, en15, en22 |
+| `avg_logprob` dos segmentos | 46/49 | en06, en10, en11 |
+| Mediana da confiança | 45/49 | en07, en10, en12, en26 |
+| Menor confiança da frase | 41/49 | 8 |
+
+- **Erro da conferência (en22):** a detecção tinha acertado o inglês ("We live near the station, but we leave early",
+  confiança média 0,837, com "live" 0,54 e "leave" 0,64). Forçado em português, o Whisper traduziu com confiança alta
+  ("Nós vivemos perto da estação, mas vivemos cedo", 0,867) e a tradução ganhou. É o ponto fraco da regra: uma tradução
+  fluente pode sair mais confiante que a fala certa com sotaque. Nenhuma das outras regras acertou as 49; exigir que a
+  confiança e o `avg_logprob` concordem para trocar também fica em 48/49 (erra en06 em vez de en22).
+- **Tempo real nas 29 novas:** errou 2. A en13 ("I need a real idea for the final project") saiu traduzida para o
+  **espanhol** ("necesito un verdadero idea…") e a en19 ("I think the thing on the table is mine") para o português.
+  No total, 47/49. O tempo real não tem conferência: com sotaque, use `--idioma`.
 
 ### Confiança por palavra (campo `confianca` do JSON)
 
@@ -351,6 +372,24 @@ medidas com `transcritor avaliar-fala` em 2026-11-21:
   "Gravando: pode falar" e o script mostra o pico.
 - Amostra pequena (uma pessoa, 20 frases, um microfone); serve para orientar, não para comparar modelos.
 
+**2ª rodada, 49 frases** (2026-11-23, 567 palavras; as 20 acima + 29 novas, gravadas até o Enter):
+
+| Item | Valor |
+|---|---|
+| WER | 6,3% — 28 trocas, 0 faltas, 8 sobras |
+| Confiança < 0,5 como detector | 6 das 36 palavras erradas; 11 alarmes falsos |
+| Palavra certa entre as 15 parecidas | 10 das 28 trocas |
+
+Os erros, por tipo:
+- **Som igual ou quase, só o sentido decide** (o Whisper fica seguro, 0,6–1,0): "sela" → "cela" (1,00), "concerto" →
+  "conserto" (0,99), "sessão" → "exceção", "bare" → "bear", "quite" → "quiet", "aunts" → "aunt's", "stone" →
+  "stone's", "crushed" → "crashed", "leave" → "live" (no tempo real).
+- **Pronúncia** (o som saiu diferente): "bought" → "both", "cheap" → "sheet", "shop" → "chop", "invited" → "invaded",
+  "bad" → "head", "waded" → "wandered", "acorns" → "corns", "shoveled" → "shoved", "wheelbarrow" → "barrel", "huge" →
+  "whose". Das 4 frases de palavras raras (en27–en30), 3 saíram com erro no arquivo e as 4 no tempo real ("heron" → "Aaron").
+- **Palavra pequena ou flexão:** "can't" → "can", "he" → "they", "a" → "the", "rained" → "raining", "it" → "it's",
+  "ao" → "no", "à" → "a".
+
 ### Correção de palavras ouvidas errado (experimental)
 
 `ICorretorTranscricao` (opção `CorrigirTranscricao`, desligada): o modelo recebe a frase, as vizinhas e as palavras de
@@ -369,6 +408,13 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 | 2ª chamada + conferência no áudio | 7,1% (2 certas, 0 erradas) | 1 troca ("marvellous" → "marvelous", só grafia) | 5,2 s/frase (todas as 20, pelo pipeline); audiolivro 340 s |
 | **Atual**: sem a 2ª chamada, só a conferência no áudio (frase reouvida com a versão trocada como `prompt`, palavra nova com confiança ≥ 0,2) | **6,6% (3 certas, 0 erradas)** | **1 troca** ("marvellous" → "marvelous", só grafia) | 5,3 s/frase (todas as 20, pelo pipeline); audiolivro 181 s |
 
+- **2ª rodada, 49 frases (2026-11-23):** WER 6,3% → 6,0%; 3 trocas certas ("aunt's" → "aunts", "chop" → "shop",
+  "quiet" → "quite") e 1 errada ("leave" → "live", que estava certa). Os homófonos seguros ("cela", "conserto",
+  "bear", "exceção") **não chegam ao modelo**: só vai a palavra com confiança abaixo de `LimiteConfiancaCorrecao`, e o
+  Whisper dá 0,75–1,00 a elas. Para pegá-las, a escolha das palavras teria de incluir as que têm homófono no
+  dicionário, mesmo com confiança alta. Tempo: 25,1 s por frase, contra 5,3 s na 1ª rodada; o `avaliar-fala`
+  processa cada gravação como um arquivo, e a causa provável é a carga do Whisper e do `gemma3:12b` a cada arquivo
+  com o `DescarregarModelosEntreEtapas` (não conferido).
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
   mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.
