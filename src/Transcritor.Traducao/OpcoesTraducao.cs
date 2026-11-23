@@ -47,19 +47,21 @@ public sealed class OpcoesTraducao
     public double LimiteConfiancaCorrecao { get; set; } = 0.95;
 
     /// <summary>
-    /// Depois da correção, cada palavra que tem homófono no dicionário ("cela" ↔ "sela", "bare" ↔ "bear") vira uma
-    /// pergunta ao <see cref="ModeloHomofonos"/>: a frase com uma lacuna no lugar dela e as grafias que soam igual; vale
-    /// a que o sentido pede, mesmo que o reconhecimento estivesse seguro. Precisa do dicionário gerado com a lista de
-    /// homófonos (desde 2026-11-23). Experimental, desligada: com os modelos locais medidos, não corrigiu nenhum
-    /// homófono da fala do usuário e trocou 2 palavras certas no audiolivro (docs/modelos.md).
+    /// Na correção, cada palavra que tem homófono no dicionário ("cela" ↔ "sela", "bare" ↔ "bear") passa por um BERT
+    /// (modelo de lacuna) que dá a probabilidade de cada grafia pelo sentido da frase; troca se outra grafia passar de
+    /// <see cref="LimiteHomofono"/>, mesmo que o reconhecimento estivesse seguro. Precisa do dicionário gerado com a
+    /// lista de homófonos (desde 2026-11-23) e dos modelos em <see cref="PastaModelosHomofonos"/>; sem eles, não faz nada.
     /// </summary>
-    public bool CorrigirHomofonos { get; set; }
+    public bool CorrigirHomofonos { get; set; } = true;
 
     /// <summary>
-    /// Modelo que escolhe entre homófonos (uma chamada curta por palavra com homófono). O mesmo da correção evita o
-    /// Ollama trocar de modelo a cada pergunta.
+    /// Pasta dos BERT convertidos para ONNX (<c>&lt;pasta&gt;/en</c> e <c>&lt;pasta&gt;/pt</c>, cada uma com model.onnx e
+    /// vocab.txt; gerados por <c>scripts/preparar-ambiente.ps1 -ComHomofonos</c>). Nulo = sem escolha de homófonos.
     /// </summary>
-    public string ModeloHomofonos { get; set; } = "gemma3:12b";
+    public string? PastaModelosHomofonos { get; set; }
+
+    /// <summary>Probabilidade mínima da outra grafia para trocar o homófono (abaixo de 0,99 entraram trocas erradas).</summary>
+    public double LimiteHomofono { get; set; } = 0.99;
 
     /// <summary>
     /// Cada troca proposta vai a uma segunda chamada ao modelo, que compara a frase com e sem ela; a troca só vale se a

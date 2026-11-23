@@ -581,9 +581,32 @@ cmdParecidas.SetAction(async (resultado, ct) => await Executar(() =>
     return Task.FromResult(parecidas.Count > 0 ? 0 : 3);
 }));
 
+var argHomofono = new Argument<string>("palavra") { Description = "Palavra (ex.: cela)." };
+var cmdHomofonos = new Command("homofonos", "Palavras que soam igual a esta, segundo o Wiktionary (usadas na correção de homófonos).")
+{
+    argHomofono, optIdiomaDic, optBanco,
+};
+cmdHomofonos.SetAction(async (resultado, ct) => await Executar(() =>
+{
+    using var dicionario = DicionarioSqlite.Abrir(resultado.GetValue(optBanco)!.FullName);
+    if (!dicionario.TemHomofonos)
+    {
+        Console.Error.WriteLine("Este dicionário foi gerado sem a lista de homófonos. Gere de novo: transcritor dicionario importar");
+        return Task.FromResult(4);
+    }
+
+    var homofonos = dicionario.Homofonos(resultado.GetValue(argHomofono)!, resultado.GetValue(optIdiomaDic)!);
+    foreach (var h in homofonos)
+    {
+        Console.WriteLine(h);
+    }
+
+    return Task.FromResult(homofonos.Count > 0 ? 0 : 3);
+}));
+
 var cmdDicionario = new Command("dicionario", "Dicionário inglês ↔ português local (Wiktionary em SQLite).")
 {
-    cmdImportar, cmdProcurar, cmdParecidas,
+    cmdImportar, cmdProcurar, cmdParecidas, cmdHomofonos,
 };
 
 // ---- avaliar-fala ----------------------------------------------------------

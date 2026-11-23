@@ -12,6 +12,8 @@
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
       Opcional (-ComDicionario): baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o
       dicionário local em dados/.
+      Opcional (-ComHomofonos): converte para ONNX, dentro de um contêiner Docker, os dois BERT da escolha de homófonos
+      da correção (dados/bert, ~1 GB; não precisa de Python nesta máquina).
 
     Primeira vez: baixa ~48 GB (imagens + modelos) e leva de 20 a 60 minutos, conforme a internet.
 
@@ -50,6 +52,12 @@
     (en_50k.txt e pt_br_50k.txt, ~0,6 MB cada, CC BY-SA) para dados/ e gera dados/dicionario.db
     (dicionário inglês ↔ português local, ~60 MB). Sem esta opção o script só informa se o dicionário existe.
 
+.PARAMETER ComHomofonos
+    Também gera dados/bert (~1 GB): baixa google-bert/bert-base-cased e neuralmind/bert-base-portuguese-cased do
+    huggingface.co e converte para ONNX dentro de um contêiner python:3.12-slim (scripts/exportar-bert.py; baixa ~1,3 GB
+    na 1ª vez, entre imagem, PyTorch e modelos). Usados pela correção da transcrição (CorrigirHomofonos); precisam do
+    dicionário com a lista de homófonos (-ComDicionario).
+
 .EXAMPLE
     .\scripts\preparar-ambiente.ps1
 .EXAMPLE
@@ -70,6 +78,7 @@ param(
     [switch] $ComCorrecao,
     [string] $ModeloCorrecao = 'gemma3:12b',
     [switch] $ComDicionario,
+    [switch] $ComHomofonos,
     [string] $SpeachesUrl = 'http://localhost:8000',
     [string] $OllamaUrl = 'http://localhost:11434',
     [string] $WhisperLiveKitUrl = 'http://localhost:8001'
@@ -317,14 +326,21 @@ $faltamListas = @('en_50k.txt', 'pt_br_50k.txt' | Where-Object { -not (Test-Path
 
 # Banco gerado por versão anterior da lib (ex.: sem frequência) é recusado e a lib segue sem dicionário, em silêncio.
 $bancoValido = $false
+$temHomofonos = $false
 if (Test-Path $banco) {
     # Via cmd: no Windows PowerShell, a saída de erro de um programa vira erro do script.
     & cmd.exe /c "dotnet run --project `"$raiz\src\Transcritor.Cli`" -- dicionario procurar house --de en --para pt >nul 2>&1"
     $bancoValido = $LASTEXITCODE -eq 0
+    # Gerado antes de 2026-11-23: funciona, mas sem a lista de homófonos (a correção de homófonos fica parada).
+    & cmd.exe /c "dotnet run --project `"$raiz\src\Transcritor.Cli`" --no-build -- dicionario homofonos cela --idioma pt >nul 2>&1"
+    $temHomofonos = $LASTEXITCODE -eq 0
 }
 
-if ($bancoValido -and $faltamListas.Count -eq 0) {
-    Escrever-Ok "Dicionário: $banco ($([math]::Round((Get-Item $banco).Length / 1MB)) MB), com listas de frequência"
+if ($bancoValido -and $faltamListas.Count -eq 0 -and $temHomofonos) {
+    Escrever-Ok "Dicionário: $banco ($([math]::Round((Get-Item $banco).Length / 1MB)) MB), com listas de frequência e homófonos"
+}
+elseif ($bancoValido -and $faltamListas.Count -eq 0 -and -not $ComDicionario) {
+    Escrever-Aviso "Dicionário sem a lista de homófonos (gerado antes de 2026-11-23). Para completar: .\scripts\preparar-ambiente.ps1 -ComDicionario"
 }
 elseif (-not $ComDicionario) {
     if ($bancoValido) { Escrever-Aviso "Dicionário sem listas de frequência ($($faltamListas -join ', ')). Para completar: .\scripts\preparar-ambiente.ps1 -ComDicionario" }
@@ -333,6 +349,7 @@ elseif (-not $ComDicionario) {
 }
 elseif ($SoConferir) {
     if (-not $bancoValido) { Escrever-Falha "Dicionário ausente ou de versão anterior em $banco" }
+    elseif (-not $temHomofonos) { Escrever-Falha "Dicionário sem a lista de homófonos em $banco" }
     if ($faltamListas.Count -gt 0) { Escrever-Falha "Listas de frequência ausentes em ${pastaDados}: $($faltamListas -join ', ')" }
 }
 else {
@@ -350,6 +367,34 @@ else {
         if ($LASTEXITCODE -eq 0) { Escrever-Ok "Dicionário gerado: $banco" }
         else { Escrever-Falha 'transcritor dicionario importar falhou (acima).' }
     }
+}
+
+# ---------------------------------------------------------------------------
+# Modelos BERT da escolha de homófonos (opcional): convertidos para ONNX dentro de um contêiner, sem Python aqui.
+Escrever-Etapa '7. Escolha de homófonos na correção (opcional)'
+$pastaBert = Join-Path $pastaDados 'bert'
+$faltamBert = @('en', 'pt' | Where-Object {
+        -not (Test-Path (Join-Path $pastaBert "$_\model.onnx")) -or -not (Test-Path (Join-Path $pastaBert "$_\vocab.txt")) })
+if ($faltamBert.Count -eq 0) {
+    Escrever-Ok "Modelos BERT em $pastaBert (en, pt)"
+}
+elseif (-not $ComHomofonos) {
+    Write-Host '  Não gerados (opcional; usados pela correção da transcrição). Para gerar: .\scripts\preparar-ambiente.ps1 -ComHomofonos'
+}
+elseif ($SoConferir) {
+    Escrever-Falha "Modelos BERT ausentes em ${pastaBert}: $($faltamBert -join ', ')"
+}
+else {
+    New-Item -ItemType Directory -Force $pastaBert | Out-Null
+    Write-Host '  Convertendo os BERT para ONNX num contêiner python:3.12-slim (1ª vez: baixa ~1,3 GB, leva alguns minutos)...'
+    # O volume transcritor-hf-bert guarda os modelos baixados: rodar de novo não baixa outra vez.
+    $comando = 'pip install --no-cache-dir -q --root-user-action=ignore torch --index-url https://download.pytorch.org/whl/cpu' +
+        ' && pip install --no-cache-dir -q --root-user-action=ignore transformers onnx onnxscript onnxruntime' +
+        ' && python /scripts/exportar-bert.py /saida'
+    & docker run --rm -v "${pastaBert}:/saida" -v "$raiz\scripts:/scripts:ro" -v 'transcritor-hf-bert:/root/.cache/huggingface' `
+        python:3.12-slim sh -c $comando
+    if ($LASTEXITCODE -eq 0) { Escrever-Ok "Modelos BERT gerados em $pastaBert" }
+    else { Escrever-Falha 'A conversão dos BERT falhou (veja o log acima).' }
 }
 
 # ---------------------------------------------------------------------------

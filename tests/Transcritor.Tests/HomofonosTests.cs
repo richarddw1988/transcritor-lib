@@ -74,7 +74,9 @@ public sealed class HomofonosTests : IDisposable
         Assert.Empty(dicionario.Homofonos("cela", "pt"));
     }
 
-    private static CorretorOllama Corretor(FakeHttpHandler handler, string banco, bool homofonos = true)
+    private static readonly FakeHttpHandler SemOllama = new((_, _) => throw new InvalidOperationException("não deveria chamar o Ollama"));
+
+    private static CorretorOllama Corretor(IEscolhedorHomofonos? escolhedor, string banco, bool homofonos = true, FakeHttpHandler? handler = null)
     {
         var opcoes = Options.Create(new OpcoesTraducao
         {
@@ -83,68 +85,82 @@ public sealed class HomofonosTests : IDisposable
             CaminhoDicionario = banco,
             CorrigirHomofonos = homofonos,
         });
-        var http = new HttpClient(handler) { BaseAddress = new Uri("http://ollama.test:11434/") };
-        return new CorretorOllama(new ClienteOllama(http, opcoes), opcoes, new FonteDicionario(opcoes));
+        var http = new HttpClient(handler ?? SemOllama) { BaseAddress = new Uri("http://ollama.test:11434/") };
+        return new CorretorOllama(new ClienteOllama(http, opcoes), opcoes, new FonteDicionario(opcoes), escolhedor);
     }
 
-    /// <summary>Responde a pergunta do homófono com <paramref name="palavra"/> e a 2ª opinião com <paramref name="confirma"/>.</summary>
-    private static FakeHttpHandler Escolhe(string palavra, int confirma = 2) => new((_, corpo) =>
-        FakeHttpHandler.Json(JsonSerializer.Serialize(new
+    /// <summary>Escolhedor falso: dá <paramref name="probabilidade"/> à <paramref name="grafia"/> e o resto às outras.</summary>
+    private sealed class Escolhe(string grafia, double probabilidade, bool disponivel = true) : IEscolhedorHomofonos
+    {
+        public List<(string Frase, int Indice, string[] Grafias)> Pedidos { get; } = [];
+
+        public bool Disponivel(string idioma) => disponivel;
+
+        public IReadOnlyList<GrafiaProvavel> Avaliar(IReadOnlyList<string> palavras, int indice, IReadOnlyList<string> grafias, string idioma)
         {
-            message = new
-            {
-                role = "assistant",
-                content = corpo.Contains("opcao2", StringComparison.Ordinal) ? $"{{\"escolha\": {confirma}}}" : $"{{\"palavra\": \"{palavra}\"}}",
-            },
-            done = true,
-        })));
+            Pedidos.Add((string.Join(' ', palavras), indice, grafias.ToArray()));
+            var outras = grafias.Where(g => g != grafia).ToList();
+            return [new(grafia, probabilidade), .. outras.Select(g => new GrafiaProvavel(g, (1 - probabilidade) / outras.Count))];
+        }
+    }
 
     /// <summary>"A cela do cavalo estava rasgada." com o reconhecimento seguro em todas as palavras.</summary>
     private static readonly PedidoCorrecao Confiante = new(
         "A cela do cavalo estava rasgada.".Split(' '), "pt", [], [], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
 
     [Fact]
-    public async Task Homofono_seguro_vira_pergunta_com_lacuna_e_a_troca_sai_marcada()
+    public async Task Homofono_seguro_vai_ao_bert_e_a_troca_certa_sai_marcada()
     {
         var (banco, _) = await ImportarAsync();
-        var handler = Escolhe("sela");
-        var corretor = Corretor(handler, banco);
+        var bert = new Escolhe("sela", 0.997);
+        var corretor = Corretor(bert, banco);
 
         var trocas = await corretor.CorrigirAsync(Confiante, CancellationToken.None);
 
-        // Todas as palavras seguras: a correção principal nem é chamada; vão a pergunta do homófono e a 2ª opinião.
+        // Todas as palavras seguras: o Ollama nem é chamado; só o BERT, com a ouvida e os homófonos.
         Assert.Equal(new Correcao(1, "cela", "sela", Homofono: true), Assert.Single(trocas));
-        Assert.Equal(2, handler.Recebidas.Count);
-        using var pedido = JsonDocument.Parse(handler.Recebidas[0].Corpo);
-        Assert.Equal("gemma3:12b", pedido.RootElement.GetProperty("model").GetString());
-        var usuario = pedido.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
-        Assert.Contains("\"frase\":\"A ___ do cavalo estava rasgada.\"", usuario, StringComparison.Ordinal);
-        Assert.Contains("\"opcoes\":[\"cela\",\"sela\"]", usuario, StringComparison.Ordinal);
-        Assert.Contains("-h2:gemma3:12b", corretor.Identificador, StringComparison.Ordinal);
+        var (frase, indice, grafias) = Assert.Single(bert.Pedidos);
+        Assert.Equal(("A cela do cavalo estava rasgada.", 1), (frase, indice));
+        Assert.Equal(["cela", "sela"], grafias);
+        Assert.Contains("-h3:0.99", corretor.Identificador, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("cela", 0.999)] // o BERT prefere a ouvida
+    [InlineData("sela", 0.98)]  // prefere outra, mas abaixo do limite (0,99)
+    public async Task Sem_certeza_alta_o_homofono_fica(string grafia, double probabilidade)
+    {
+        var (banco, _) = await ImportarAsync();
+
+        Assert.Empty(await Corretor(new Escolhe(grafia, probabilidade), banco).CorrigirAsync(Confiante, CancellationToken.None));
     }
 
     [Fact]
-    public async Task Homofono_que_o_modelo_mantem_nao_e_trocado_e_a_pontuacao_fica()
+    public async Task Pontuacao_fica_e_nome_no_meio_da_frase_nao_passa_pelo_bert()
     {
         var (banco, _) = await ImportarAsync();
-        var pedido = new PedidoCorrecao("Ficou na cela.".Split(' '), "pt", [], [], [1.0, 1.0, 1.0]);
+        var bert = new Escolhe("sela", 0.999);
+        var pedido = new PedidoCorrecao("Cela ficou na cela.".Split(' '), "pt", [], [], [1.0, 1.0, 1.0, 1.0]);
+        var nome = new PedidoCorrecao("Falou com Cela ontem.".Split(' '), "pt", [], [], [1.0, 1.0, 1.0, 1.0]);
 
-        Assert.Empty(await Corretor(Escolhe("cela"), banco).CorrigirAsync(pedido, CancellationToken.None));
-        Assert.Empty(await Corretor(Escolhe("sela", confirma: 1), banco).CorrigirAsync(pedido, CancellationToken.None));
-        Assert.Equal(
-            new Correcao(2, "cela.", "sela.", Homofono: true),
-            Assert.Single(await Corretor(Escolhe("sela"), banco).CorrigirAsync(pedido, CancellationToken.None)));
+        var trocas = await Corretor(bert, banco).CorrigirAsync(pedido, CancellationToken.None);
+
+        Assert.Equal([new Correcao(0, "Cela", "Sela", Homofono: true), new Correcao(3, "cela.", "sela.", Homofono: true)], trocas);
+        Assert.Empty(await Corretor(bert, banco).CorrigirAsync(nome, CancellationToken.None));
     }
 
     [Fact]
     public async Task Desligado_ou_sem_dicionario_o_homofono_seguro_nao_vai_ao_modelo()
     {
         var (banco, _) = await ImportarAsync();
-        var handler = new FakeHttpHandler((_, _) => throw new InvalidOperationException("não deveria chamar"));
+        var bert = new Escolhe("sela", 0.999);
 
-        Assert.Empty(await Corretor(handler, banco, homofonos: false).CorrigirAsync(Confiante, CancellationToken.None));
-        Assert.Empty(await Corretor(handler, Path.Combine(_pasta.Caminho, "nao.db")).CorrigirAsync(Confiante, CancellationToken.None));
-        Assert.Empty(handler.Recebidas);
-        Assert.DoesNotContain("-h", Corretor(handler, banco, homofonos: false).Identificador, StringComparison.Ordinal);
+        Assert.Empty(await Corretor(bert, banco, homofonos: false).CorrigirAsync(Confiante, CancellationToken.None));
+        Assert.Empty(await Corretor(bert, Path.Combine(_pasta.Caminho, "nao.db")).CorrigirAsync(Confiante, CancellationToken.None));
+        Assert.Empty(await Corretor(null, banco).CorrigirAsync(Confiante, CancellationToken.None));
+        Assert.Empty(await Corretor(new Escolhe("sela", 0.999, disponivel: false), banco).CorrigirAsync(Confiante, CancellationToken.None));
+        Assert.Empty(bert.Pedidos);
+        Assert.DoesNotContain("-h", Corretor(bert, banco, homofonos: false).Identificador, StringComparison.Ordinal);
+        Assert.DoesNotContain("-h", Corretor(null, banco).Identificador, StringComparison.Ordinal);
     }
 }

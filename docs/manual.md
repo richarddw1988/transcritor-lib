@@ -89,7 +89,9 @@ O script é idempotente (pode rodar quantas vezes quiser, só faz o que falta):
 3. espera cada serviço responder, confere se os contêineres enxergam a GPU e se o Speaches no ar é a imagem do
    projeto (aviso, se não for: a lib não consegue tirar o Whisper da GPU entre as etapas);
 4. baixa os modelos que faltam (Whisper no Speaches; translategemma 12b e 4b e gemma3 4b no Ollama);
-5. compila a solução e roda `transcritor servicos`.
+5. compila a solução e roda `transcritor servicos`;
+6. (com `-ComDicionario`) baixa o Wiktionary e as listas de frequência e gera o dicionário;
+7. (com `-ComHomofonos`) converte para ONNX, num contêiner, os dois BERT da escolha de homófonos (`dados/bert`).
 
 No fim deve aparecer **Ambiente pronto**. Na 1ª vez leva de 20 a 60 min, conforme a internet.
 
@@ -102,6 +104,7 @@ Opções do script:
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
 | `-ComCorrecao` | Também baixa o `gemma3:12b` (correção de palavras ouvidas errado, ~8 GB; o mesmo da análise) |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
+| `-ComHomofonos` | Gera `dados/bert` (~1 GB): baixa os BERT do huggingface.co e converte para ONNX num contêiner `python:3.12-slim` (`scripts/exportar-bert.py`; ~1,3 GB de download e ~2,5 min na 1ª vez; não precisa de Python no Windows). Usados pela correção da transcrição (5.5). Junto com `-ComDicionario`, que traz a lista de homófonos |
 | `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) e as listas de frequência (~1,3 MB) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~40 s). Gera de novo o dicionário de versão anterior. Ver 4.6 |
 
 4. Rode os testes (não precisam dos serviços):
@@ -247,6 +250,11 @@ legendas do OpenSubtitles 2018, CC BY-SA 4.0), que dizem quais palavras são rar
    soma das distâncias de pronúncia e de escrita e, no empate, pelas mais comuns. `--maximo` muda quantas aparecem
    (padrão 10). Pronúncia: Double Metaphone no inglês (biblioteca Phonix, Apache 2.0) e Metaphone pt-BR no português
    (biblioteca MetaphonePtBr, MIT).
+4. Homófonos (palavras que soam igual, segundo o Wiktionary):
+   ```powershell
+   dotnet run --project src/Transcritor.Cli -- dicionario homofonos cela --idioma pt
+   ```
+   Mostra `sela`. Dicionário gerado antes de 2026-11-23 não tem a lista: o comando avisa e sai com código 4.
 
 Dicionário gerado por uma versão anterior da lib é recusado com a mensagem de gerar de novo: rode
 `transcritor dicionario importar` (os dumps baixados continuam valendo). A lib, ao achar um dicionário de outra
@@ -466,12 +474,13 @@ foreach (var t in trocas)
   modelo que compara a frase com e sem a troca e só a aceita se a frase sem ela não fizer sentido.
 - Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
-- Homófonos (`CorrigirHomofonos`, **experimental, desligada**): depois da correção, cada palavra que tem homófono no
-  dicionário ("cela" ↔ "sela", "conserto" ↔ "concerto") vira uma pergunta ao `ModeloHomofonos`: a frase com uma
-  lacuna no lugar dela e as grafias que soam igual. Se ele escolher outra, a troca ainda passa pela 2ª opinião
-  (a frase ouvida é o padrão) e sai marcada (`Correcao.Homofono`); no arquivo, ela não é conferida no áudio, porque o
-  som é o mesmo. Medido: não corrigiu nenhum homófono da fala do usuário e trocou 2 palavras certas no audiolivro
-  (ver `docs/modelos.md`).
+- Homófonos (`CorrigirHomofonos`, ligada; precisa do dicionário com a lista de homófonos e dos modelos de
+  `PastaModelosHomofonos`, senão não faz nada): depois da correção, cada palavra que tem homófono no dicionário
+  ("cela" ↔ "sela", "conserto" ↔ "concerto") passa por um BERT (modelo de lacuna, na CPU, sem Ollama nem GPU), que dá
+  a probabilidade de cada grafia pelo sentido da frase. Troca só se outra grafia tiver pelo menos `LimiteHomofono`
+  (0,99), mesmo que o reconhecimento estivesse seguro; palavra com maiúscula no meio da frase (nome) fica de fora. A
+  troca sai marcada (`Correcao.Homofono`) e, no arquivo, não é conferida no áudio, porque o som é o mesmo. Medido:
+  "cela" → "sela" na fala do usuário e nenhuma troca indevida no audiolivro (ver `docs/modelos.md`).
 - `CorrigirAsync` funciona mesmo com `CorrigirTranscricao = false`; `Ativo` só diz se o arquivo deve usar.
 
 ### 5.6 Erros
@@ -520,8 +529,9 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
-| `CorrigirHomofonos` | `false` | **Experimental.** Na correção, cada palavra com homófono no dicionário ("cela" ↔ "sela") vira uma pergunta ao `ModeloHomofonos`, mesmo com confiança alta. Precisa do dicionário gerado desde 2026-11-23. Ver 5.5 antes de ligar |
-| `ModeloHomofonos` | `gemma3:12b` | Modelo que escolhe entre homófonos. O mesmo da correção evita o Ollama trocar de modelo a cada pergunta |
+| `CorrigirHomofonos` | `true` | Na correção, cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
+| `PastaModelosHomofonos` | nulo (no Cli: `dados/bert`) | Pasta dos BERT em ONNX (`en/` e `pt/`, cada uma com `model.onnx` e `vocab.txt`), gerados por `preparar-ambiente.ps1 -ComHomofonos` |
+| `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |
 | `ModeloAnalise` | `gemma3:12b` | Modelo da análise |

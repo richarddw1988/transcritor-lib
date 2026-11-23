@@ -37,6 +37,8 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IAnalisadorSentido>(sp => sp.GetRequiredService<Analise.AnalisadorOllama>());
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<Analise.AnalisadorOllama>());
 
+        services.TryAddSingleton<Correcoes.EscolhedorHomofonosBert>();
+        services.TryAddSingleton<Correcoes.IEscolhedorHomofonos>(sp => sp.GetRequiredService<Correcoes.EscolhedorHomofonosBert>());
         services.TryAddTransient<Correcoes.CorretorOllama>();
         services.TryAddTransient<ICorretorTranscricao>(sp => sp.GetRequiredService<Correcoes.CorretorOllama>());
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<Correcoes.CorretorOllama>());

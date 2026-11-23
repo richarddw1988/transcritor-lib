@@ -15,6 +15,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
 | Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | cada troca conferida no áudio pelo Whisper; na fala do usuário WER 8,0% → 6,6% (3 certas, 0 erradas); no audiolivro de 17 min só uma grafia trocada, ~3 min (ver abaixo) |
+| Escolha de homófonos na correção ("cela" ↔ "sela"), junto com a correção | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada | fala do usuário: "cela" → "sela", WER 6,0% → 5,8% junto com a correção; audiolivro: 0 trocas indevidas, +23 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -415,7 +416,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
   dicionário, mesmo com confiança alta. Tempo: 25,1 s por frase, contra 5,3 s na 1ª rodada; o `avaliar-fala`
   processa cada gravação como um arquivo, e a causa provável é a carga do Whisper e do `gemma3:12b` a cada arquivo
   com o `DescarregarModelosEntreEtapas` (não conferido).
-- **Homófonos (2026-11-23, `CorrigirHomofonos`, experimental, desligada):** o dicionário agora guarda os homófonos que o
+- **Homófonos (2026-11-23, `CorrigirHomofonos`):** o dicionário agora guarda os homófonos que o
   Wiktionary lista (700 pares no português, 6.502 no inglês, contando os dois sentidos; "cela" ↔ "sela", "conserto" ↔
   "concerto", "their" ↔ "there"). Tentativas, medidas nas 49 frases do usuário e no audiolivro (`gemma3:12b` na
   correção, `DescarregarModelosEntreEtapas=false`):
@@ -434,8 +435,8 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
     dela; o `gemma3:4b` foi de 3 para 2 erros.
   - A lista do Wiktionary traz grafias de brincadeira ou de dialeto escrito ("drynx", "peepul", "purrfect"); a lib
     só usa as que estão na lista de frequência.
-  - Por isso fica desligada. Para voltar ao assunto: um modelo maior (que não cabe com o Whisper nos 12 GB) ou um
-    jeito de saber quão seguro o modelo está na escolha.
+  - Com os modelos de conversa (gemma3), a escolha não tem como dizer quão segura está, e não houve limite que
+    consertasse sem estragar. O BERT, abaixo, resolve isso: dá uma probabilidade para cada grafia.
   - **Teste com BERT (modelo de lacuna), 2026-11-23, protótipo em Python, fora da lib:** `google-bert/bert-base-cased`
     (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), ~0,4 GB cada, na CPU. Nota de cada grafia =
     pseudo-log-verossimilhança dos tokens da palavra (cada um mascarado por vez, o resto da frase à vista);
@@ -449,7 +450,20 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
     - Abaixo de 0,99 entram trocas erradas: "mirror" → "myrrh" (0,968), "pool" → "pall" (0,975), "need" → "knead" (0,912).
     - Tempo: 231 palavras em 43 s na CPU (~0,19 s cada), sem GPU.
-    - Ainda não está na lib: precisaria rodar o BERT no .NET (ONNX Runtime) ou num serviço à parte.
+    - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
+      logits para o PyTorch: 3e-5), rodando pelo ONNX Runtime 1.32 na CPU e tokenizados pelo `Microsoft.ML.Tokenizers`
+      (mesmos tokens do Python; probabilidades iguais às do protótipo). Medido com a correção ligada
+      (`DescarregarModelosEntreEtapas=false`):
+
+      | Conjunto | Sem homófonos | Com o BERT (limite 0,99) |
+      |---|---|---|
+      | 49 frases do usuário | WER 6,3% → 6,0% (3 certas, 1 errada) | **6,3% → 5,8%** (4 certas, 1 errada; a nova é "cela" → "sela") |
+      | Audiolivro de 17 min | 1 troca ("marvellous" → "marvelous") | a mesma 1 troca; **0 de homófono** |
+      | Tempo da correção no audiolivro | 99 s | 122 s |
+
+      O `avaliar-fala` ficou 2,2 s/frase mais lento (5,4 contra 3,2 s), porque abre os serviços (e o BERT) de novo
+      para cada gravação; num arquivo, o modelo carrega uma vez. Memória: não medida.
+    - Por isso `CorrigirHomofonos` passou a ligada (a correção em si continua desligada por padrão).
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
   mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.
