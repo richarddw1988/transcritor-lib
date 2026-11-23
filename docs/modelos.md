@@ -168,6 +168,9 @@ palavra por palavra — a análise é pelo contexto:
 | `gemma3:4b` | correção da transcrição | mesmo WER que o 12b na fala do usuário (8,0% → 7,1%), mas repetiu palavra ("quite quite") | não usado | abaixo |
 | `gemma3:12b` | correção da transcrição | ver [Correção de palavras ouvidas errado](#correção-de-palavras-ouvidas-errado) | **em uso (ligada por padrão desde 2026-11-23)** | abaixo |
 | `gemma3:12b` | análise de sentido | 72/72 blocos e traduções certos no teste; expressões com nota | **em uso (opcional)** | [etapa-4.md](etapa-4.md) |
+| `google-bert/bert-base-cased` | homófonos e conferência da correção (inglês) | 0 trocas indevidas no audiolivro; barrou "leave" → "live" | **em uso** | abaixo |
+| `neuralmind/bert-base-portuguese-cased` (BERTimbau base) | homófonos e conferência da correção (português) | "cela" → "sela"; erra "concerto"; 6 trocas indevidas em 320 palavras de exemplos do Wiktionary | **em uso** | abaixo |
+| `neuralmind/bert-large-portuguese-cased` (BERTimbau large) | homófonos (português) | também erra "concerto", perde "sessão" → "seção" no limite; 4 trocas indevidas; 2,7× mais lento | não usado | abaixo |
 
 ## Glossário do usuário (tradução fixa de termos)
 
@@ -468,6 +471,19 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
     - Abaixo de 0,99 entram trocas erradas: "mirror" → "myrrh" (0,968), "pool" → "pall" (0,975), "need" → "knead" (0,912).
     - Tempo: 231 palavras em 43 s na CPU (~0,19 s cada), sem GPU.
+    - **BERTimbau large (`neuralmind/bert-large-portuguese-cased`), 2026-11-23, mesmo protótipo:** testado para
+      acertar "o conserto de música". **Não adotado:** não acerta e não melhora o resto.
+
+      | Conjunto (português, limite 0,99) | Base (em uso) | Large |
+      |---|---|---|
+      | 7 casos difíceis | 6/7; erra "concerto" (0,066) | 6/7 pela grafia preferida, mas **5/7 com o limite**: erra "concerto" com mais certeza (0,035) e deixa "sessão de esportes" (prefere "seção", mas com 0,943) |
+      | Frases em português das 49 gravações | "cela" → "sela" (0,997) | "cela" → "sela" (1,0); nada mais |
+      | Trocas indevidas em 300 frases de exemplo do Wiktionary em português (320 palavras com homófono, todas escritas certo) | 6 ("cheque" → "xeque", "loot" → "lute", "suar" → "soar", "tença" → "tensa", "sena" → "cena") | 4 (as mesmas, menos "loot" e um dos "cheque") |
+      | Tempo dessas 320 palavras na CPU | 55 s | 150 s (2,7×) |
+
+      O large tem ~3× os parâmetros (RAM e tamanho na lib: não medidos). As trocas indevidas dos dois vêm quase todas
+      de texto fora do padrão (gíria, ortografia antiga, palavra estrangeira); com o limite 0,99, ficam em 1–2% das
+      palavras com homófono nesses exemplos, contra 0 no audiolivro em inglês.
     - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
       logits para o PyTorch: 3e-5), rodando pelo ONNX Runtime 1.32 na CPU e tokenizados pelo `Microsoft.ML.Tokenizers`
       (mesmos tokens do Python; probabilidades iguais às do protótipo). Medido com a correção ligada
