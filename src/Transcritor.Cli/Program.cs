@@ -355,20 +355,32 @@ cmdSimular.SetAction(async (resultado, ct) =>
 });
 
 var optFonte = new Option<Fonte>("--fonte") { Description = "Microfone ou SomDoSistema.", DefaultValueFactory = _ => Fonte.Microfone };
-var optSegundos = new Option<int>("--segundos") { Description = "Duração da gravação.", DefaultValueFactory = _ => 5 };
+var optSegundos = new Option<int>("--segundos") { Description = "Duração da gravação (com --ate-enter, o máximo).", DefaultValueFactory = _ => 5 };
+var optAteEnter = new Option<bool>("--ate-enter") { Description = "Grava até apertar Enter (no máximo --segundos)." };
 var optWav = new Option<FileInfo?>("--wav") { Description = "Salva o áudio capturado (16 kHz mono) neste WAV." };
 var cmdCaptura = new Command("captura", "Grava alguns segundos da fonte e mostra o nível por segundo (testa a captura sem o WhisperLiveKit).")
 {
-    optFonte, optSegundos, optWav,
+    optFonte, optSegundos, optWav, optAteEnter,
 };
 cmdCaptura.SetAction(async (resultado, ct) => await Executar(async () =>
 {
     var fonteEscolhida = resultado.GetValue(optFonte);
     var segundos = resultado.GetValue(optSegundos);
+    var ateEnter = resultado.GetValue(optAteEnter);
     await using var fonte = new FonteAudioWasapi(fonteEscolhida);
-    Console.WriteLine($"{fonteEscolhida}: {fonte.NomeDispositivo()} — gravando {segundos} s...");
+    Console.WriteLine($"{fonteEscolhida}: {fonte.NomeDispositivo()} — gravando {(ateEnter ? $"até o Enter (máximo {segundos} s)" : $"{segundos} s")}...");
 
     using var limite = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    if (ateEnter)
+    {
+        // Enter antes do aviso "pode falar" também para: quem aperta cedo demais grava de novo.
+        _ = Task.Run(() =>
+        {
+            Console.ReadLine();
+            limite.Cancel();
+        });
+    }
+
     using var pcm = new MemoryStream();
     var segundoAtual = 0;
     var pico = 0;
@@ -378,7 +390,7 @@ cmdCaptura.SetAction(async (resultado, ct) => await Executar(async () =>
         {
             // O dispositivo leva um tempo para abrir: o prazo só conta a partir do primeiro áudio.
             limite.CancelAfter(TimeSpan.FromSeconds(segundos));
-            Console.WriteLine("  >>> Gravando: pode falar.");
+            Console.WriteLine(ateEnter ? "  >>> Gravando: pode falar (Enter quando terminar)." : "  >>> Gravando: pode falar.");
         }
 
         pcm.Write(bloco.Span);

@@ -171,6 +171,7 @@ melhor pista do sentido; sem ela a lib traduz a frase antes.
    ```
    Os segundos contam a partir do aviso "Gravando: pode falar" (o dispositivo leva um instante para abrir;
    falar antes corta o começo). Pico abaixo de ~10%: aproxime-se do microfone ou suba o volume de gravação no Windows.
+   Com `--ate-enter`, grava até você apertar Enter (no máximo `--segundos`); `--wav arquivo.wav` salva o áudio.
 2. Microfone:
    ```powershell
    dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt --contexto "Dona Chica, Luis Barcellos"
@@ -278,8 +279,9 @@ Há três conjuntos: `palavras-ambiguas.json` (32 casos, em que as regras do dic
 nada olhando os erros de um conjunto que você vai usar para decidir.
 
 ### 4.8 Medir o reconhecimento da sua fala
-1. Grave as frases de `docs/avaliacao/frases-para-gravar.json` pelo microfone (mostra cada frase, Enter grava; salva
-   em `dados/gravacoes/<id>.wav`, fora do Git; frases já gravadas são puladas, `-Regravar` refaz):
+1. Grave as frases de `docs/avaliacao/frases-para-gravar.json` pelo microfone: mostra cada frase, Enter começa,
+   fale no seu ritmo e aperte Enter de novo quando terminar (não há tempo fixo). Salva em `dados/gravacoes/<id>.wav`,
+   fora do Git. Frases já gravadas são puladas; `-Regravar` refaz todas e `-Somente en31,en32` grava só estas.
    São 49 frases: as 20 primeiras (en01–en12, pt01–pt08) e, desde 2026-11-22, mais 29 em grupos: inglês e
    português curtos ou cheios de palavras do outro idioma (onde a detecção de idioma erra), palavras de som parecido
    (correção), palavras raras (dica do dicionário) e quatro falas mais longas (en31, en32, pt16, pt17). Só as gravadas
@@ -287,6 +289,8 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
    ```powershell
    .\scripts\gravar-frases.ps1
    ```
+   Até 2026-11-22 o script gravava por um tempo fixo (0,45 s por palavra + 3 s) e cortava as frases longas: a en31
+   foi cortada assim (regrave com `-Somente en31,en32`).
 2. Meça:
    ```powershell
    dotnet run --project src/Transcritor.Cli -- avaliar-fala
