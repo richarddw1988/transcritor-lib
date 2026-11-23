@@ -403,7 +403,7 @@ else {
         ' && pip install --no-cache-dir -q --root-user-action=ignore transformers onnx onnxscript onnxruntime' +
         ' && python /scripts/exportar-bert.py /saida'
     Rodar-Programa {
-        docker run --rm -v "${pastaBert}:/saida" -v "$raiz\scripts:/scripts:ro" -v 'transcritor-hf-bert:/root/.cache/huggingface' `
+        docker run --rm -e PIP_DISABLE_PIP_VERSION_CHECK=1 -v "${pastaBert}:/saida" -v "$raiz\scripts:/scripts:ro" -v 'transcritor-hf-bert:/root/.cache/huggingface' `
             python:3.12-slim sh -c $comando
     }
     if ($LASTEXITCODE -eq 0) { Escrever-Ok "Modelos BERT gerados em $pastaBert" }

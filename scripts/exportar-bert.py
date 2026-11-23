@@ -11,14 +11,33 @@ PyTorch numa frase de teste. Modelos: google-bert/bert-base-cased (inglês) e ne
 import os
 import shutil
 import sys
+import warnings
 
-import torch
-from huggingface_hub import hf_hub_download
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+# Sem barras de progresso nem o pedido de token do Hugging Face (o download anônimo basta).
+os.environ.setdefault('HF_HUB_DISABLE_PROGRESS_BARS', '1')
+os.environ.setdefault('HF_HUB_VERBOSITY', 'error')
+os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')
+
+import torch  # noqa: E402
+from huggingface_hub import hf_hub_download  # noqa: E402
+from transformers import AutoModelForMaskedLM, AutoTokenizer  # noqa: E402
+from transformers.utils import logging as logging_transformers  # noqa: E402
+
+# Avisos da exportação que não se aplicam aqui: o exportador antigo (TorchScript) é o que sai certo para este modelo,
+# e os avisos de que o traço pode não generalizar são conferidos abaixo com frases de outro tamanho e com preenchimento.
+# O "LOAD REPORT" (pesos do pooler e da previsão da próxima frase sem uso na lacuna) também é esperado.
+logging_transformers.set_verbosity_error()
+logging_transformers.disable_progress_bar()
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+warnings.filterwarnings('ignore', message='Converting a tensor to a Python boolean')
+warnings.filterwarnings('ignore', message='Exporting aten::index operator')
+warnings.filterwarnings('ignore', message='.*unauthenticated requests to the HF Hub')
 
 MODELOS = {
-    'en': ('google-bert/bert-base-cased', 'The knight rode through the forest at night.'),
-    'pt': ('neuralmind/bert-base-portuguese-cased', 'A sela do cavalo estava rasgada.'),
+    'en': ('google-bert/bert-base-cased', 'The knight rode through the forest at night.',
+           'She did not know whether the weather would change before the long journey home.'),
+    'pt': ('neuralmind/bert-base-portuguese-cased', 'A sela do cavalo estava rasgada.',
+           'O conserto do relógio ficou pronto antes do concerto de piano da escola.'),
 }
 
 
@@ -33,7 +52,7 @@ class SoLogits(torch.nn.Module):
         return self.modelo(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids).logits
 
 
-def exportar(idioma, nome, frase, saida):
+def exportar(idioma, nome, frase, frase_longa, saida):
     pasta = os.path.join(saida, idioma)
     os.makedirs(pasta, exist_ok=True)
     tok = AutoTokenizer.from_pretrained(nome)
@@ -56,12 +75,15 @@ def exportar(idioma, nome, frase, saida):
     # vocab.txt do próprio repositório do modelo (WordPiece, com maiúsculas e acentos).
     shutil.copyfile(hf_hub_download(nome, 'vocab.txt'), os.path.join(pasta, 'vocab.txt'))
 
+    # Conferência com entradas diferentes das do traço: uma frase mais longa e a curta preenchida até o tamanho dela.
     import onnxruntime as ort
     sessao = ort.InferenceSession(destino, providers=['CPUExecutionProvider'])
-    onnx_logits = sessao.run(None, {k: v.numpy() for k, v in ent.items()})[0]
+    teste = tok([frase_longa, frase], padding=True, return_tensors='pt')
+    onnx_logits = sessao.run(None, {k: v.numpy() for k, v in teste.items()})[0]
     with torch.no_grad():
-        torch_logits = modelo.eval()(*args).numpy()
-    dif = abs(onnx_logits - torch_logits).max()
+        torch_logits = modelo.eval()(teste['input_ids'], teste['attention_mask'], teste['token_type_ids']).numpy()
+    reais = teste['attention_mask'].numpy().astype(bool)
+    dif = abs(onnx_logits - torch_logits)[reais].max()
     print(f'{idioma}: {destino} ({os.path.getsize(destino) / 1e6:.0f} MB); diferença máxima ONNX x PyTorch: {dif:.2e}')
     if dif > 1e-2:
         sys.exit(f'{idioma}: o ONNX não bate com o PyTorch')
@@ -71,8 +93,8 @@ def main():
     if len(sys.argv) != 2:
         sys.exit('Uso: python exportar-bert.py <pasta de saída>')
     saida = sys.argv[1]
-    for idioma, (nome, frase) in MODELOS.items():
-        exportar(idioma, nome, frase, saida)
+    for idioma, (nome, frase, frase_longa) in MODELOS.items():
+        exportar(idioma, nome, frase, frase_longa, saida)
 
 
 if __name__ == '__main__':
