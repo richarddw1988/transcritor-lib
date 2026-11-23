@@ -577,7 +577,10 @@ Glossário — exemplo no `appsettings.json`:
 | `TrechosContexto` | `2` | Trechos anteriores usados como contexto da tradução |
 
 O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, `--model`); depois de mudar,
-`docker compose up -d whisperlivekit`.
+`docker compose up -d whisperlivekit`. Ali também ficam, como variáveis do serviço, os idiomas entre os quais a
+detecção escolhe (`TRANSCRITOR_IDIOMAS`, padrão `pt,en`; o WhisperLiveKit original escolhia entre 99) e quanto de fala
+ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o arquivo
+`docker/whisperlivekit/align_att_base.py`, montado por cima do original da v0.2.27.
 
 ## 7. Cache
 
@@ -621,7 +624,8 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 | Porta 8000, 8001 ou 11434 já em uso | Outro programa (ex.: um Ollama instalado no Windows) | Feche o outro programa ou mude a porta no `docker-compose.yml` e no `appsettings.json` |
 | Frase repetida várias vezes no JSON, com início = fim | Alucinação do Whisper na transcrição longa | Já tratado com `RepararTrechosSuspeitos=true` (padrão); se sobrar, apague o cache do arquivo e rode de novo |
 | Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` trava o Speaches 0.8 original | `docker restart speaches`; use a imagem do projeto (`docker compose build speaches`; `docker compose up -d speaches`) |
-| Tempo real começa em inglês na fala em português | Detecção automática puxa para o inglês | `--idioma pt` |
+| Tempo real começa em inglês na fala em português (ou o contrário) | Detecção automática, decidida nos 2 primeiros segundos de fala | `--idioma pt` |
+| Tempo real em outro idioma (ex.: espanhol) | WhisperLiveKit sem o arquivo corrigido montado | `docker compose up -d whisperlivekit` (o `docker-compose.yml` monta `docker/whisperlivekit/align_att_base.py`) |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |

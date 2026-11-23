@@ -21,7 +21,8 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 
 Imagens Docker: `transcritor/speaches:0.8.3-descarregar` (Speaches 0.8.3, `ghcr.io/speaches-ai/speaches:0.8.3-cuda-12.6.3`,
 com o `DELETE /api/ps` corrigido; ver [docker/speaches/Dockerfile](../docker/speaches/Dockerfile)), `ollama/ollama:latest`,
-`transcritor/whisperlivekit:0.2.27` (construída do repositório oficial, tag `v0.2.27`, CUDA 12.9).
+`transcritor/whisperlivekit:0.2.27` (construída do repositório oficial, tag `v0.2.27`, CUDA 12.9, com o arquivo da
+detecção de idioma corrigido montado por cima; ver [docker/whisperlivekit](../docker/whisperlivekit/align_att_base.py)).
 
 ### Reparo de trechos na transcrição de arquivo
 
@@ -102,6 +103,22 @@ som parecido, palavras raras e quatro falas de 20–25 s; `docs/avaliacao/frases
 - **Tempo real nas 29 novas:** errou 2. A en13 ("I need a real idea for the final project") saiu traduzida para o
   **espanhol** ("necesito un verdadero idea…") e a en19 ("I think the thing on the table is mine") para o português.
   No total, 47/49. O tempo real não tem conferência: com sotaque, use `--idioma`.
+- **Tempo real só entre pt e en (2026-11-23):** o WhisperLiveKit detecta o idioma uma vez por sessão, depois de 2 s de
+  fala, entre os 99 idiomas do Whisper. Um arquivo corrigido (`docker/whisperlivekit/align_att_base.py`, montado pelo
+  `docker-compose.yml`) faz a escolha só entre os de `TRANSCRITOR_IDIOMAS` (`pt,en`) e deixa a espera configurável
+  (`TRANSCRITOR_SEGUNDOS_DETECCAO`). Medido nas 49 gravações com `simular`:
+
+  | Espera antes de detectar | Idioma certo | Erros | 1ª frase confirmada (mediana) |
+  |---|---|---|---|
+  | 2 s, entre 99 idiomas (original) | 47/49 | en13 em espanhol, en19 em português | não medido |
+  | **2 s, só pt e en (adotado)** | **48/49** | en19 em português | 8,3 s |
+  | 3 s, só pt e en | 48/49 | en19 | 9,1 s |
+  | 4 s, só pt e en | 47/49 | en05, en07 em português | 9,5 s |
+
+  - Esperar mais não ajudou: com 3 s, o mesmo acerto e a 1ª frase ~0,8 s depois; com 4 s, dois erros novos.
+  - A en19 ("I think the thing on the table is mine") continua saindo em português; para ela, só `--idioma en`.
+  - A linha "Detected language" que o arquivo grava com as probabilidades de pt e en não aparece no log do contêiner
+    (o nível do log desse módulo fica acima de INFO); a correção em si funciona (a en13 saiu em inglês nas 3 rodadas).
 
 ### Confiança por palavra (campo `confianca` do JSON)
 

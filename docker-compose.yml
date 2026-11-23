@@ -66,8 +66,14 @@ services:
     # --pcm-input: aceita PCM s16le 16 kHz mono (o que o Transcritor.Captura entrega).
     # large-v3-turbo: mesmo atraso do medium e da família large-v3 (melhor em português); ver docs/pesquisa-asr.md.
     command: ["--model", "large-v3-turbo", "--language", "auto", "--backend-policy", "simulstreaming", "--pcm-input"]
+    environment:
+      # Detecção de idioma corrigida (docker/whisperlivekit/align_att_base.py, montado abaixo): escolhe só entre
+      # português e inglês (o original escolhia entre 99 idiomas e chegou a pôr a fala em espanhol).
+      TRANSCRITOR_IDIOMAS: "pt,en"
+      TRANSCRITOR_SEGUNDOS_DETECCAO: "2.0"
     volumes:
       - hf-cache-wlk:/root/.cache/huggingface/hub
+      - ./docker/whisperlivekit/align_att_base.py:/app/.venv/lib/python3.12/site-packages/whisperlivekit/simul_whisper/align_att_base.py:ro
     deploy:
       resources:
         reservations:
