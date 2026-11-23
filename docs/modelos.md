@@ -625,7 +625,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 | GPU | NVIDIA RTX 3060 12 GB | NVIDIA com 12 GB para tudo junto; 8 GB sem a análise de sentido e sem os modelos 12b |
 | Driver NVIDIA | 621.24 | 576 ou mais novo (CUDA 12.9 da imagem do WhisperLiveKit) |
 | Docker Desktop | engine 29.9.3, backend WSL2 (WSL 3.0.5) | backend WSL2 com GPU |
-| Memória da VM do WSL | 12 GB + 4 GB de swap (`.wslconfig`) | 10 GB ou mais (com 4 GB o Ollama trava ao trocar de modelo) |
+| Memória da VM do WSL | 16 GB + 4 GB de swap (`.wslconfig`; até 2026-11-22, 12 GB) | 10 GB ou mais (com 4 GB o Ollama trava ao trocar de modelo); 16 GB numa máquina de 32 GB |
 | RAM do programa que usa a lib (fora do WSL) | ~0,7 GB de pico com o BERT dos homófonos (um idioma) | +0,65 GB por idioma do BERT carregado; sem os homófonos, poucas dezenas de MB |
 | Disco para o Docker | ~75 GB usados | 50 GB livres na 1ª preparação (pode ficar em outro disco) |
 | .NET SDK | 10.0.400 | 10.0 |
@@ -637,6 +637,17 @@ Os serviços dividem a mesma GPU. Medido em 2026-11-21:
 - tempo real (WhisperLiveKit turbo) + `translategemma:4b` + Speaches ocioso: ~5–9 GB;
 - arquivo com análise de sentido: `translategemma:12b` e `gemma3:12b` (~8 GB cada) são usados um depois do outro;
   rode com o WhisperLiveKit parado (`docker stop whisperlivekit`) se a GPU tiver 12 GB.
+
+Medido em 2026-11-23, 1.500 frases do `avaliar-homofonos --com-modelo` (31 min) com o `gemma3:12b` e o WhisperLiveKit
+no ar, VM do WSL com 12 GB:
+- GPU: 11,7–12,0 de 12,3 GB (o `gemma3:12b` inteiro na GPU, 7,5 GB);
+- RAM do contêiner do Ollama: 8,5–9,3 GB, quase tudo cache do arquivo do modelo (o Ollama lê o modelo por mmap);
+  WhisperLiveKit ~0,6 GB, Speaches ~0,3 GB. No fim, 2 GB disponíveis na VM e 1,6 GB de swap em uso;
+- carregando o modelo sem mmap (`use_mmap: false`) o Ollama fica com 4,8 GB, mas a carga passa de 6,5 s para 21,8 s;
+  não adotado, porque a lib descarrega e recarrega os modelos entre as etapas.
+
+Nessa medição não travou, mas uma vez, num processamento longo nas mesmas condições, o Docker Desktop perdeu a VM
+("no route to host") sem aviso nos logs; a causa não foi confirmada. Desde então a VM tem 16 GB (`.wslconfig`).
 
 O Ollama descarrega um modelo depois de 10 min sem uso (`KeepAlive`), e o Speaches depois de 5 min (`WHISPER__TTL` no
 `docker-compose.yml`; até 2026-11-22 o arquivo usava `STT_MODEL_TTL`, nome que a v0.8 ignora, e valia o padrão de 300 s

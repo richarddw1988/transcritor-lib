@@ -189,7 +189,7 @@ if (Test-Path $wslconfig) {
     $linhaMemoria = Select-String -Path $wslconfig -Pattern '^\s*memory\s*=\s*(\d+)\s*GB' | Select-Object -First 1
     if ($linhaMemoria -and [int]$linhaMemoria.Matches[0].Groups[1].Value -lt 10) {
         Escrever-Aviso ("$wslconfig limita a VM do Docker a $($linhaMemoria.Matches[0].Groups[1].Value) GB. Com os três serviços, o Ollama " +
-            'trava ao trocar de modelo; use memory=12GB e swap=4GB e rode "wsl --shutdown".')
+            'trava ao trocar de modelo; use memory=16GB (12GB com menos de 32 GB de RAM) e swap=4GB e rode "wsl --shutdown".')
     } else { Escrever-Ok 'Memória da VM do WSL' }
 } else { Escrever-Ok 'Memória da VM do WSL (padrão: metade da RAM)' }
 

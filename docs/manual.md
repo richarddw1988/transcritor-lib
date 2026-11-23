@@ -46,10 +46,12 @@ Precisa de Windows 10/11 com GPU NVIDIA (12 GB recomendado; ver [modelos.md](mod
    - Em *Settings › Resources › Advanced › Disk image location*, deixe o disco do Docker numa unidade com
      **60 GB livres** ou mais (a 1ª preparação baixa ~58 GB; ~48 GB com `-SemCorrecao -SemDicionario -SemHomofonos`).
 3. **Memória da VM do WSL**: se existir `%USERPROFILE%\.wslconfig` com `memory` abaixo de 10 GB, aumente (abaixo,
-   12 GB + 4 GB de swap) e rode `wsl --shutdown`; com 4 GB o Ollama trava ao trocar de modelo.
+   16 GB + 4 GB de swap, para máquina com 32 GB de RAM; com menos, 12 GB) e rode `wsl --shutdown`; com 4 GB o Ollama
+   trava ao trocar de modelo. Com 12 GB a VM fica no limite quando o `gemma3:12b` e o WhisperLiveKit estão no ar
+   (ver [modelos.md](modelos.md#uso-de-vram)).
    ```ini
    [wsl2]
-   memory=12GB
+   memory=16GB
    swap=4GB
    ```
 4. **.NET SDK 10**, **ffmpeg** e **Git**:
@@ -644,7 +646,8 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 |---|---|---|
 | `[FALHA] … não respondeu em http://localhost:…` | Docker Desktop fechado ou contêiner parado | Abra o Docker Desktop; `docker compose up -d` |
 | `ModeloNaoInstaladoException` | Modelo não baixado | Rode o comando da mensagem ou `.\scripts\preparar-ambiente.ps1` |
-| Chamadas ao Ollama travam por minutos ao trocar de modelo | VM do WSL com pouca memória | `.wslconfig` com `memory=12GB` e `swap=4GB`; `wsl --shutdown` |
+| Chamadas ao Ollama travam por minutos ao trocar de modelo | VM do WSL com pouca memória | `.wslconfig` com `memory=16GB` (12GB com menos de 32 GB de RAM) e `swap=4GB`; `wsl --shutdown` |
+| Docker Desktop para de responder ("no route to host") num processamento longo com o WhisperLiveKit no ar | Provável: VM do WSL no limite de memória (não confirmado; aconteceu uma vez com 12 GB) | `memory=16GB` no `.wslconfig`, ou pare o WhisperLiveKit (`docker stop whisperlivekit`) durante o arquivo; reinicie o Docker Desktop |
 | Build do WhisperLiveKit falha ou disco cheio | Disco do Docker sem espaço (a imagem tem 22 GB) | Mova o disco do Docker (Settings › Resources › Advanced) |
 | Script diz que o contêiner não enxerga a GPU | Driver antigo ou Docker sem backend WSL2 | Atualize o driver (576+); `docker run --rm --gpus all ubuntu nvidia-smi` deve funcionar |
 | Porta 8000, 8001 ou 11434 já em uso | Outro programa (ex.: um Ollama instalado no Windows) | Feche o outro programa ou mude a porta no `docker-compose.yml` e no `appsettings.json` |
