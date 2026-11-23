@@ -66,12 +66,14 @@ public sealed class OpcoesTraducao
     public double LimiteHomofono { get; set; } = 0.99;
 
     /// <summary>
-    /// Experimental. Homófono em que o BERT dá à outra grafia pelo menos <see cref="LimiteHomofonoComModelo"/>, mas não
-    /// chega a <see cref="LimiteHomofono"/>, vai ao <see cref="ModeloCorrecao"/>: ele vê a frase com cada grafia e diz qual
-    /// está escrita certo, duas vezes, com as opções em ordem trocada. Só troca se escolher a outra grafia nas duas
-    /// (o modelo de lacuna não sabe que se diz "concerto de música"; o de conversa sabe).
+    /// Homófono em que o BERT dá à outra grafia pelo menos <see cref="LimiteHomofonoComModelo"/>, mas não chega a
+    /// <see cref="LimiteHomofono"/>, vai ao <see cref="ModeloCorrecao"/>: ele vê a frase com cada grafia e diz qual está
+    /// escrita certo, duas vezes, com as opções em ordem trocada. Só troca se escolher a outra grafia nas duas (o modelo
+    /// de lacuna não sabe que se diz "concerto de música"; o de conversa sabe). Ligada por padrão desde 2026-11-23: mais
+    /// acertos e nenhuma troca indevida no audiolivro e nas gravações; em texto coloquial ou literário ainda troca a mais
+    /// às vezes ("pra trás" → "traz"; docs/modelos.md).
     /// </summary>
-    public bool ConfirmarHomofonoComModelo { get; set; }
+    public bool ConfirmarHomofonoComModelo { get; set; } = true;
 
     /// <summary>Probabilidade mínima, pelo BERT, da outra grafia para o homófono ir ao modelo de conversa.</summary>
     public double LimiteHomofonoComModelo { get; set; } = 0.02;

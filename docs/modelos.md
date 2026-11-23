@@ -14,8 +14,8 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
-| Correção de palavras ouvidas errado, **ligada por padrão** (`--sem-correcao` no Cli pula) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,6% (4 certas, 0 erradas, com os homófonos); no audiolivro de 17 min só uma grafia trocada (ver abaixo) |
-| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção experimental | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
+| Correção de palavras ouvidas errado, **ligada por padrão** (`--sem-correcao` no Cli pula) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,5% (5 certas, 0 erradas, com os homófonos e o gemma nos duvidosos); no audiolivro de 17 min só uma grafia trocada (ver abaixo) |
+| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção pelo modelo; os casos duvidosos para o BERT vão ao `gemma3:12b` (`ConfirmarHomofonoComModelo`) | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -516,8 +516,8 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
       Na conferência das trocas do modelo de conversa (`ConferirCorrecaoComBert`) a lacuna fica desligada: ligada, perdeu
       "quiet quiet" → "quite quiet" (3 certas em vez de 4), porque ali a palavra repetida é a pista.
-    - **BERT + `gemma3:12b` nos homófonos duvidosos (2026-11-23, `ConfirmarHomofonoComModelo`, experimental,
-      desligado):** os modelos de lacuna não sabem que se diz "concerto de música"; o modelo de conversa sabe. Quando
+    - **BERT + `gemma3:12b` nos homófonos duvidosos (2026-11-23, `ConfirmarHomofonoComModelo`, ligada por
+      padrão desde então):** os modelos de lacuna não sabem que se diz "concerto de música"; o modelo de conversa sabe. Quando
       o BERT dá à outra grafia entre 0,02 e 0,99, o `gemma3:12b` vê as duas frases ("1: … 2: …") e diz qual está escrita
       certo, duas vezes, com a ordem trocada; só troca se escolher a outra nas duas (sozinho, escolhia pela posição;
       com a palavra marcada entre colchetes, escolheu a opção 2 em 5 de 6). Com duas outras grafias que ganham da
@@ -537,6 +537,11 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       Os exemplos do Wiktionary não são todos texto certo pela norma atual (ortografia antiga, fala transcrita), por
       isso as trocas a mais foram conferidas uma a uma. Na 1ª rodada, com o WhisperLiveKit no ar, o Docker Desktop
       parou de responder depois de ~10 min de chamadas ao `gemma3:12b` e foi reiniciado; causa não confirmada.
+      **Decisão (2026-11-23): ligada por padrão.** Conferido com todas as opções padrão e o WhisperLiveKit no ar:
+      49 gravações com `avaliar-fala --corrigir`: 5 trocas certas e 0 erradas, WER 6,3% → **5,5%** (antes 4 certas,
+      5,6%; a nova é "bear" → "bare"); audiolivro: a mesma única troca ("marvellous" → "marvelous"), 149,5 s de correção
+      (100,6 s antes, mas com o WhisperLiveKit parado; não comparável direto). Risco aceito: em texto coloquial ou
+      literário ainda troca a mais às vezes ("pra trás" → "traz").
     - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
       logits para o PyTorch: 3e-5), rodando pelo ONNX Runtime 1.32 na CPU e tokenizados pelo `Microsoft.ML.Tokenizers`
       (mesmos tokens do Python; probabilidades iguais às do protótipo). Medido com a correção ligada

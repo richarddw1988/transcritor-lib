@@ -334,7 +334,8 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
    Uma frase por linha (UTF-8). Cada uma passa só pela escolha de homófonos (sem a correção pelo modelo, todas as
    palavras com confiança 1) e o comando lista cada troca e o total. Num texto já escrito certo, toda troca é
    indevida; num com a grafia errada de propósito, mostra quais ele conserta. `--com-modelo` liga
-   `ConfirmarHomofonoComModelo` (seção 6).
+   `ConfirmarHomofonoComModelo` (seção 6); sem ela, o comando mede só o BERT, mesmo com a opção ligada no
+   `appsettings.json`.
 
 ### 4.9 Liberar a GPU
 ```powershell
@@ -509,7 +510,7 @@ foreach (var t in trocas)
   a mesma palavra aparece de novo na frase, a outra ocorrência vira lacuna na conta, para o BERT não copiá-la. A
   troca sai marcada (`Correcao.Homofono`) e, no arquivo, não é conferida no áudio, porque o som é o mesmo. Medido:
   "cela" → "sela" na fala do usuário e nenhuma troca indevida no audiolivro (ver `docs/modelos.md`).
-- Experimental, desligado: com `ConfirmarHomofonoComModelo`, o homófono em que o BERT acha a outra grafia possível
+- Com `ConfirmarHomofonoComModelo` (ligada desde 2026-11-23), o homófono em que o BERT acha a outra grafia possível
   (entre `LimiteHomofonoComModelo`, 0,02, e 0,99) vai ao `ModeloCorrecao`, que vê a frase com cada grafia e diz qual
   está certa, duas vezes, com as opções em ordem trocada; só troca se escolher a outra grafia nas duas.
 - `CorrigirAsync` faz as partes ligadas: com `CorrigirTranscricao = false`, só os homófonos. `Ativo` diz se alguma
@@ -566,7 +567,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ConferirCorrecaoComBert` | `true` | Cada troca proposta pelo modelo de conversa só vale se o BERT preferir a palavra nova (5.5). Ligada, a correção pelo modelo só roda no idioma com o BERT; desligada, roda sem conferir |
 | `LimiteParecida` | `0.5` | Probabilidade mínima, pelo BERT, da palavra nova contra a ouvida; com 0,7 já perdeu uma troca certa |
 | `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |
-| `ConfirmarHomofonoComModelo` | `false` | **Experimental.** Homófono em que o BERT dá à outra grafia entre `LimiteHomofonoComModelo` e `LimiteHomofono` vai ao `ModeloCorrecao`, que vê a frase com cada grafia e diz qual está certa, nas duas ordens; só troca se escolher a outra nas duas (e, com duas outras grafias possíveis, a que ganha da outra). Pega casos que o BERT não sabe ("Fomos ao conserto de música" → "concerto"); custa ~0,4 s por pergunta. Ver `docs/modelos.md` |
+| `ConfirmarHomofonoComModelo` | `true` | Homófono em que o BERT dá à outra grafia entre `LimiteHomofonoComModelo` e `LimiteHomofono` vai ao `ModeloCorrecao`, que vê a frase com cada grafia e diz qual está certa, nas duas ordens; só troca se escolher a outra nas duas (e, com duas outras grafias possíveis, a que ganha da outra). Pega casos que o BERT não sabe ("Fomos ao conserto de música" → "concerto"); custa ~0,4 s por pergunta. Ainda troca a mais às vezes em texto coloquial ou literário ("pra trás" → "traz"). Ver `docs/modelos.md` |
 | `LimiteHomofonoComModelo` | `0.02` | Probabilidade mínima, pelo BERT, da outra grafia para o homófono ir ao modelo de conversa |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |
