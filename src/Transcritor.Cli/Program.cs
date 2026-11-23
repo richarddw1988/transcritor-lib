@@ -655,14 +655,19 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
             continue;
         }
 
-        // A correção usa o mesmo dicionário das parecidas mostradas (--banco), não o do appsettings.json.
+        // A correção usa o mesmo dicionário das parecidas mostradas (--banco), não o do appsettings.json. Com --corrigir,
+        // esta passada é a transcrição crua (sem homófonos), para cada troca ser contada uma vez, na passada da correção.
         using var sp = CriarServicos(
             o =>
             {
                 o.Idioma = idioma;
                 o.GravarJsonAoLado = false;
             },
-            t => t.CaminhoDicionario = banco.Exists ? banco.FullName : null);
+            t =>
+            {
+                t.CaminhoDicionario = banco.Exists ? banco.FullName : null;
+                t.CorrigirHomofonos &= !corrigir;
+            });
         var r = await sp.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(
             wav, idioma == Idiomas.Ingles ? Saida.Ingles : Saida.Portugues, null, ct);
         var reconhecidas = r.Frases.SelectMany(f => f.Palavras).ToList();
@@ -678,7 +683,11 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
                     o.Idioma = idioma;
                     o.GravarJsonAoLado = false;
                 },
-                t => t.CorrigirTranscricao = true);
+                t =>
+                {
+                    t.CorrigirTranscricao = true;
+                    t.CaminhoDicionario = banco.Exists ? banco.FullName : null;
+                });
             var relogioCorrecao = Stopwatch.StartNew();
             var corrigido = await spCorrecao.GetRequiredService<ITranscritorArquivo>().ProcessarAsync(
                 wav, idioma == Idiomas.Ingles ? Saida.Ingles : Saida.Portugues, null, ct);

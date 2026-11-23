@@ -38,8 +38,20 @@ internal sealed class CorretorOllama(
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
 
     public string Identificador =>
-        (UsaModelo ? $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" : "so")
-        + (UsaHomofonos ? $"-h{VersaoHomofonos}:{_opcoes.LimiteHomofono.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : string.Empty);
+        (UsaModelo
+            ? $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" +
+              (ConfereComBert ? $"-cb:{Limite(_opcoes.LimiteParecida)}" : string.Empty)
+            : "so")
+        + (UsaHomofonos ? $"-h{VersaoHomofonos}:{Limite(_opcoes.LimiteHomofono)}" : string.Empty);
+
+    private static string Limite(double valor) => valor.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Conferência das trocas do modelo pelo BERT ligada e com modelo de algum idioma (entra na chave do cache).</summary>
+    private bool ConfereComBert =>
+        _opcoes.ConferirCorrecaoComBert && (TemBert(Idiomas.Ingles) || TemBert(Idiomas.Portugues));
+
+    /// <summary>BERT com modelo para o idioma.</summary>
+    private bool TemBert(string idioma) => escolhedor is not null && escolhedor.Disponivel(idioma);
 
     /// <summary>Mudar a pergunta dos homófonos exige subir (entra na chave do cache).</summary>
     private const int VersaoHomofonos = 3;
@@ -66,10 +78,12 @@ internal sealed class CorretorOllama(
         var podeTrocar = Enumerable.Range(0, pedido.Palavras.Count).Select(i => PodeTrocar(pedido, i)).ToArray();
         if (UsaModelo && podeTrocar.Any(p => p)) // nenhuma palavra duvidosa: a frase nem vai ao modelo da correção
         {
+            var conferirComBert = _opcoes.ConferirCorrecaoComBert && TemBert(pedido.Idioma);
             foreach (var troca in await ProporAsync(pedido, podeTrocar, cancellationToken).ConfigureAwait(false))
             {
                 // Uma troca por vez, sobre a frase com as já aceitas: em "quiet quiet" só uma das duas pode virar "quite".
-                if (!_opcoes.ConfirmarCorrecaoComModelo || await ConfirmarAsync(pedido, atual, troca, cancellationToken).ConfigureAwait(false))
+                if ((!conferirComBert || BertPrefere(pedido, atual, troca))
+                    && (!_opcoes.ConfirmarCorrecaoComModelo || await ConfirmarAsync(pedido, atual, troca, cancellationToken).ConfigureAwait(false)))
                 {
                     aceitas.Add(troca);
                     atual[troca.Indice] = troca.Corrigida;
@@ -201,6 +215,15 @@ internal sealed class CorretorOllama(
         }
 
         return resultado;
+    }
+
+    /// <summary>O BERT dá à palavra nova pelo menos <see cref="OpcoesTraducao.LimiteParecida"/> contra a ouvida.</summary>
+    private bool BertPrefere(PedidoCorrecao pedido, string[] atual, Correcao troca)
+    {
+        var ouvida = Nucleo(atual[troca.Indice]).ToLowerInvariant();
+        var nova = Nucleo(troca.Corrigida).ToLowerInvariant();
+        var provaveis = escolhedor!.Avaliar(atual, troca.Indice, [ouvida, nova], pedido.Idioma);
+        return provaveis.FirstOrDefault(p => Igual(p.Grafia, nova))?.Probabilidade >= _opcoes.LimiteParecida;
     }
 
     /// <summary>Palavra de 4+ letras com confiança abaixo do limite (ou sem confiança informada).</summary>

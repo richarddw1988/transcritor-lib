@@ -65,6 +65,19 @@ public sealed class OpcoesTraducao
     public double LimiteHomofono { get; set; } = 0.99;
 
     /// <summary>
+    /// Cada troca proposta pelo <see cref="ModeloCorrecao"/> só vale se o BERT dos homófonos der à palavra nova pelo menos
+    /// <see cref="LimiteParecida"/> de probabilidade contra a ouvida. Sem os modelos BERT, não confere. Medido: barrou a
+    /// única troca errada da fala do usuário ("leave" → "live") sem perder nenhuma certa.
+    /// </summary>
+    public bool ConferirCorrecaoComBert { get; set; } = true;
+
+    /// <summary>
+    /// Probabilidade mínima, pelo BERT, da palavra nova contra a ouvida numa troca do modelo (com 0,7 já perdeu uma troca
+    /// certa).
+    /// </summary>
+    public double LimiteParecida { get; set; } = 0.5;
+
+    /// <summary>
     /// Cada troca proposta vai a uma segunda chamada ao modelo, que compara a frase com e sem ela; a troca só vale se a
     /// frase sem ela não fizer sentido. Desligada por padrão porque no arquivo a troca já é conferida no áudio
     /// (<c>OpcoesArquivo.ConferirCorrecaoNoAudio</c>), que mediu melhor; ligue ao corrigir frase avulsa, sem áudio.

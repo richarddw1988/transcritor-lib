@@ -317,6 +317,7 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
    dotnet run --project src/Transcritor.Cli -- avaliar-fala --corrigir
    ```
    Mostra cada troca feita (marcando as que pioraram a frase) e, no fim, o WER antes e depois e o tempo por frase.
+   O "antes" é a transcrição crua, sem homófonos, para cada troca contar uma vez.
    Usa o mesmo caminho do arquivo (correção pelo texto + conferência no áudio). Para comparar variações, use as
    variáveis de ambiente, ex.: `$env:TRANSCRITOR_Transcritor__Arquivo__ConferirCorrecaoNoAudio = "false"`.
 
@@ -477,6 +478,9 @@ foreach (var t in trocas)
   modelo que compara a frase com e sem a troca e só a aceita se a frase sem ela não fizer sentido.
 - Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
+- Com os modelos BERT (`PastaModelosHomofonos`), cada troca proposta pelo modelo também passa pelo BERT
+  (`ConferirCorrecaoComBert`, ligada): só vale se ele der à palavra nova pelo menos `LimiteParecida` (0,5) contra a
+  ouvida. Na fala do usuário, barrou a única troca errada ("leave" → "live") sem perder nenhuma certa.
 - Homófonos (`CorrigirHomofonos`, ligada; precisa do dicionário com a lista de homófonos e dos modelos de
   `PastaModelosHomofonos`, senão não faz nada; roda mesmo com `CorrigirTranscricao = false`): depois da correção pelo
   modelo (se ligada), cada palavra que tem homófono no dicionário
@@ -536,6 +540,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
 | `CorrigirHomofonos` | `true` | Cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta e mesmo com `CorrigirTranscricao` desligada (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
 | `PastaModelosHomofonos` | nulo (no Cli: `dados/bert`) | Pasta dos BERT em ONNX (`en/` e `pt/`, cada uma com `model.onnx` e `vocab.txt`), gerados por `preparar-ambiente.ps1 -ComHomofonos` |
+| `ConferirCorrecaoComBert` | `true` | Cada troca proposta pelo modelo de conversa só vale se o BERT preferir a palavra nova (5.5). Sem os modelos BERT, não confere |
+| `LimiteParecida` | `0.5` | Probabilidade mínima, pelo BERT, da palavra nova contra a ouvida; com 0,7 já perdeu uma troca certa |
 | `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |

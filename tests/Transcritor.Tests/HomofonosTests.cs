@@ -77,11 +77,13 @@ public sealed class HomofonosTests : IDisposable
     private static readonly FakeHttpHandler SemOllama = new((_, _) => throw new InvalidOperationException("não deveria chamar o Ollama"));
 
     private static CorretorOllama Corretor(
-        IEscolhedorHomofonos? escolhedor, string banco, bool homofonos = true, FakeHttpHandler? handler = null, bool modelo = true)
+        IEscolhedorHomofonos? escolhedor, string banco, bool homofonos = true, FakeHttpHandler? handler = null, bool modelo = true,
+        bool conferirComBert = false)
     {
         var opcoes = Options.Create(new OpcoesTraducao
         {
             CorrigirTranscricao = modelo,
+            ConferirCorrecaoComBert = conferirComBert,
             ModeloCorrecao = "gemma3:12b",
             CaminhoDicionario = banco,
             CorrigirHomofonos = homofonos,
@@ -164,6 +166,49 @@ public sealed class HomofonosTests : IDisposable
         await corretor.VerificarAsync(CancellationToken.None); // sem modelo de conversa, não confere o Ollama
         Assert.False(Corretor(new Escolhe("sela", 0.999, disponivel: false), banco, modelo: false).Ativo);
         Assert.False(Corretor(new Escolhe("sela", 0.999), banco, homofonos: false, modelo: false).Ativo);
+    }
+
+    /// <summary>Ollama falso que devolve <paramref name="corrigida"/> como a frase corrigida.</summary>
+    private static FakeHttpHandler Corrige(string corrigida) => new((_, _) =>
+        FakeHttpHandler.Json(JsonSerializer.Serialize(
+            new { message = new { role = "assistant", content = $"{{\"corrigida\": \"{corrigida}\"}}" }, done = true })));
+
+    [Fact]
+    public async Task Bert_barra_a_troca_do_modelo_quando_prefere_a_ouvida()
+    {
+        // en22: o modelo trocou "leave" (certa) por "live"; o BERT dá só 0,1 a "live" ali.
+        var (banco, _) = await ImportarAsync();
+        var pedido = new PedidoCorrecao("We live near the station, but we leave early.".Split(' '), "en", [], [], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.6, 1.0]);
+        var bert = new Escolhe("live", 0.1);
+
+        var trocas = await Corretor(bert, banco, handler: Corrige("We live near the station, but we live early."), conferirComBert: true)
+            .CorrigirAsync(pedido, CancellationToken.None);
+
+        Assert.Empty(trocas);
+        var (frase, indice, grafias) = Assert.Single(bert.Pedidos);
+        Assert.Equal(7, indice);
+        Assert.Equal(["leave", "live"], grafias);
+        Assert.Contains("we leave early", frase, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Troca_do_modelo_que_o_bert_aprova_vale_e_sem_a_opcao_o_bert_nao_e_chamado()
+    {
+        var (banco, _) = await ImportarAsync();
+        // en03: "chop" (0,34) → "shop".
+        var pedido = new PedidoCorrecao("She bought a pen at the chop.".Split(' '), "en", [], [], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.34]);
+        var aprova = new Escolhe("shop", 0.95);
+        var semConferir = new Escolhe("shop", 0.0);
+
+        var conferida = await Corretor(aprova, banco, handler: Corrige("She bought a pen at the shop."), conferirComBert: true)
+            .CorrigirAsync(pedido, CancellationToken.None);
+        var livre = await Corretor(semConferir, banco, handler: Corrige("She bought a pen at the shop."))
+            .CorrigirAsync(pedido, CancellationToken.None);
+
+        Assert.Equal(new Correcao(6, "chop.", "shop."), Assert.Single(conferida));
+        Assert.Equal(new Correcao(6, "chop.", "shop."), Assert.Single(livre));
+        Assert.Empty(semConferir.Pedidos);
+        Assert.Contains("-cb:0.5", Corretor(aprova, banco, conferirComBert: true).Identificador, StringComparison.Ordinal);
     }
 
     [Fact]
