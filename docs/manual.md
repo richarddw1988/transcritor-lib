@@ -129,8 +129,10 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 ```
 - Grava `C:\videos\aula.mp4.transcricao.json` e guarda no cache (repetir responde em ~0,1 s, sem chamar serviços).
 - Mostra idioma, duração, quantidade de frases e palavras, e as 5 primeiras frases com tradução.
-- `--idioma pt` força o idioma (evita erro de detecção); `--json saida.json` grava uma cópia (só com um arquivo);
-  `--modelo` troca o Whisper.
+- Sem `--idioma`, a lib confere a detecção do Whisper entre português e inglês nos primeiros 30 s
+  (`ConferirIdioma`, seção 6). Com sotaque, a detecção sozinha às vezes erra e devolve a fala já traduzida.
+- `--idioma pt` força o idioma (pula a detecção e a conferência); `--json saida.json` grava uma cópia (só com um
+  arquivo); `--modelo` troca o Whisper.
 - Vários arquivos de uma vez (`arquivo aula1.mp4 aula2.mp4 aula3.mp4`) processam em lote: cada etapa roda para todos
   antes da seguinte (transcreve todos, depois traduz todos), e cada modelo carrega uma vez por lote em vez de uma vez
   por arquivo. O JSON de cada um fica ao lado da mídia; o progresso mostra `[2/3]`. Se parar no meio, rodar de novo
@@ -473,6 +475,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `SpeachesUrl` | `http://localhost:8000` | Speaches |
 | `ModeloTranscricao` | `Systran/faster-whisper-large-v3` | Whisper do arquivo |
 | `Idioma` | `null` (automático) | Força `pt` ou `en` |
+| `ConferirIdioma` | `true` | Sem `Idioma`, confere a detecção do Whisper: transcreve o começo do áudio também no outro idioma (português ↔ inglês) e fica com o que saiu com mais confiança por palavra. Evita a fala com sotaque voltar traduzida para o idioma errado. Custa uma transcrição curta a mais por arquivo (duas nos arquivos mais longos que a amostra). Só para pt/en: outro idioma detectado fica como veio |
+| `SegundosConferirIdioma` | `30` | Tamanho da amostra do começo usada na conferência |
 | `CaminhoFfmpeg` / `CaminhoFfprobe` | `ffmpeg` / `ffprobe` | Executáveis (PATH ou caminho completo) |
 | `PastaCache` | `%LOCALAPPDATA%\Transcritor\cache` | Cache dos resultados |
 | `GravarJsonAoLado` | `true` | Grava `<arquivo>.transcricao.json` ao lado da mídia |
@@ -576,6 +580,7 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
 | Frase repetida várias vezes no JSON, com início = fim | Alucinação do Whisper na transcrição longa | Já tratado com `RepararTrechosSuspeitos=true` (padrão); se sobrar, apague o cache do arquivo e rode de novo |
 | Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` trava o Speaches 0.8 original | `docker restart speaches`; use a imagem do projeto (`docker compose build speaches`; `docker compose up -d speaches`) |
 | Tempo real começa em inglês na fala em português | Detecção automática puxa para o inglês | `--idioma pt` |
+| Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |
 | `Não foi possível iniciar a captura` | Microfone ausente ou bloqueado | Windows › Privacidade › Microfone; dispositivo padrão de gravação |

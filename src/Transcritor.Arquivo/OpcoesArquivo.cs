@@ -12,6 +12,17 @@ public sealed class OpcoesArquivo
     /// <summary>Força o idioma falado ("pt" ou "en"). Nulo = detecção automática.</summary>
     public string? Idioma { get; set; }
 
+    /// <summary>
+    /// Sem <see cref="Idioma"/> forçado, confere a detecção do Whisper entre português e inglês: transcreve o começo
+    /// do áudio (<see cref="SegundosConferirIdioma"/>) também no outro idioma e fica com o que saiu com mais confiança.
+    /// Evita a fala com sotaque voltar já traduzida para o idioma errado. Custa uma transcrição curta a mais por arquivo
+    /// (e outra do começo, nos arquivos mais longos que a amostra).
+    /// </summary>
+    public bool ConferirIdioma { get; set; } = true;
+
+    /// <summary>Tamanho da amostra da conferência do idioma (o Whisper também detecta pelos primeiros 30 s).</summary>
+    public double SegundosConferirIdioma { get; set; } = 30;
+
     /// <summary>Executável do ffmpeg (nome no PATH ou caminho completo).</summary>
     public string CaminhoFfmpeg { get; set; } = "ffmpeg";
 

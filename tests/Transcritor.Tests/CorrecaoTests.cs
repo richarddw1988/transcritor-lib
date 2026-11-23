@@ -290,7 +290,11 @@ public sealed class TranscritorArquivoCorrecaoTests : IDisposable
 
     private (TranscritorArquivo Transcritor, FakeMotorSequencia Motor) CriarComAudio(FakeCorretor corretor, TranscricaoBruta reouvida)
     {
-        var opcoes = Opcoes.Arquivo(o => o.PastaCache = Path.Combine(_pasta.Caminho, "cache"));
+        var opcoes = Opcoes.Arquivo(o =>
+        {
+            o.PastaCache = Path.Combine(_pasta.Caminho, "cache");
+            o.ConferirIdioma = false;
+        });
         var motor = new FakeMotorSequencia(Bruta, reouvida);
         var conversor = new FakeConversor(new InfoMidia(4, "mp3", 1), ReparadorTrechosTests.Wav(16000 * 4));
         return (new TranscritorArquivo(conversor, motor, new CacheEmDisco(opcoes), opcoes, corretor: corretor), motor);

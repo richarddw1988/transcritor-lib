@@ -226,6 +226,7 @@ public sealed class DescarregarModelosTests : IDisposable
         {
             o.PastaCache = Path.Combine(_pasta.Caminho, "cache");
             o.DescarregarModelosEntreEtapas = descarregar;
+            o.ConferirIdioma = false;
         });
         var conversor = new FakeConversor(new InfoMidia(4, "mp3", 1), ReparadorTrechosTests.Wav(16000 * 4));
         return new TranscritorArquivo(

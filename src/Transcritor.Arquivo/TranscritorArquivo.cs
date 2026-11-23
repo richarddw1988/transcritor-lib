@@ -262,7 +262,8 @@ public sealed class TranscritorArquivo(
     /// <summary>Hash do arquivo + motor/modelo + idioma forçado: trocar o modelo não reaproveita resultado de outro.</summary>
     internal string ChaveCache(string hash)
     {
-        var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? "auto" : Idiomas.Normalizar(_opcoes.Idioma);
+        var idioma = !string.IsNullOrWhiteSpace(_opcoes.Idioma) ? Idiomas.Normalizar(_opcoes.Idioma)
+            : _opcoes.ConferirIdioma ? $"auto-c{ConferenciaIdioma.Versao}" : "auto";
         var reparo = _opcoes.RepararTrechosSuspeitos ? $".r{ReparadorTrechos.Versao}" : string.Empty;
         return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}".Replace('/', '_');
     }
@@ -314,6 +315,65 @@ public sealed class TranscritorArquivo(
         }
     }
 
+    /// <summary>
+    /// Transcreve o WAV inteiro. Sem idioma forçado e com <see cref="OpcoesArquivo.ConferirIdioma"/>, antes confere a
+    /// detecção numa amostra do começo (<see cref="ConferenciaIdioma"/>) e transcreve com o idioma vencedor. Arquivo
+    /// que cabe na amostra não é transcrito de novo: o resultado da amostra vencedora já é o do arquivo inteiro.
+    /// </summary>
+    private async Task<TranscricaoBruta> TranscreverConferindoIdiomaAsync(
+        string wav, double duracao, string pastaTemporaria, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(_opcoes.Idioma) || !_opcoes.ConferirIdioma)
+        {
+            return await motor.TranscreverAsync(wav, _opcoes.Idioma, cancellationToken).ConfigureAwait(false);
+        }
+
+        var cabeNaAmostra = duracao > 0 && duracao <= _opcoes.SegundosConferirIdioma;
+        var amostra = cabeNaAmostra ? wav : Path.Combine(pastaTemporaria, $"{Guid.NewGuid():N}.idioma.wav");
+        try
+        {
+            if (!cabeNaAmostra)
+            {
+                try
+                {
+                    await RecorteWav.RecortarAsync(wav, amostra, 0, _opcoes.SegundosConferirIdioma, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException)
+                {
+                    return await motor.TranscreverAsync(wav, null, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            var detectada = await motor.TranscreverAsync(amostra, null, cancellationToken).ConfigureAwait(false);
+            var outro = ConferenciaIdioma.Outro(detectada.Idioma);
+            var escolhida = detectada;
+            if (outro is not null && ConferenciaIdioma.ConfiancaMedia(detectada) is not null)
+            {
+                var alternativa = await motor.TranscreverAsync(amostra, outro, cancellationToken).ConfigureAwait(false);
+                if (ConferenciaIdioma.AlternativaGanha(detectada, alternativa))
+                {
+                    escolhida = alternativa with { Idioma = outro };
+                }
+            }
+
+            if (cabeNaAmostra)
+            {
+                return escolhida;
+            }
+
+            // O idioma vai forçado também quando a detecção ganhou: o arquivo inteiro sai no idioma conferido.
+            var idioma = outro is null ? null : Idiomas.Normalizar(escolhida.Idioma);
+            return await motor.TranscreverAsync(wav, idioma, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!cabeNaAmostra && File.Exists(amostra))
+            {
+                File.Delete(amostra);
+            }
+        }
+    }
+
     private async Task<ResultadoTranscricao> TranscreverAsync(
         string caminho, string hash, IProgress<ProgressoProcessamento>? progresso, CancellationToken cancellationToken)
     {
@@ -338,7 +398,7 @@ public sealed class TranscritorArquivo(
             progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, 100));
 
             progresso?.Report(new(EtapaProcessamento.Transcrevendo));
-            var bruta = await motor.TranscreverAsync(wav, _opcoes.Idioma, cancellationToken).ConfigureAwait(false);
+            var bruta = await TranscreverConferindoIdiomaAsync(wav, info.Duracao, pastaTemporaria, cancellationToken).ConfigureAwait(false);
             if (_opcoes.RepararTrechosSuspeitos)
             {
                 bruta = await RepararAsync(wav, bruta, pastaTemporaria, cancellationToken).ConfigureAwait(false);

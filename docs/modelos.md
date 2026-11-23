@@ -40,6 +40,44 @@ como `prompt` (sem ele o recorte sai sem pontuação), e só troca se ficar melh
 
 A transcrição longa não é igual a cada execução (mesmo com `temperature=0`); o reparo deixa o resultado estável.
 
+### Conferência do idioma detectado
+
+Com sotaque brasileiro, a detecção de idioma do Whisper erra e ele devolve a fala **já traduzida** para o idioma
+errado (en02: "I can figure out whether…" virou "Eu posso descobrir se o clima será bom amanhã"). O Speaches não
+devolve a confiança da detecção, então a lib confere assim (`ConferirIdioma`, ligada): transcreve os primeiros 30 s
+também no outro idioma (português ↔ inglês) e fica com o resultado de maior confiança média por palavra. Arquivo que
+cabe na amostra não é transcrito de novo; o mais longo é transcrito inteiro com o idioma vencedor forçado.
+
+Medido em 2026-11-22 nas 20 gravações do usuário (`dados/gravacoes`, 12 em inglês e 8 em português, 7–9 s cada),
+`faster-whisper-large-v3`:
+
+| Gravação | Detecção | Confiança média por palavra, forçado em inglês | … forçado em português |
+|---|---|---|---|
+| en01, en04, en05, en09–en12 | en (certo) | 0,85–0,98 | 0,71–0,91 |
+| en02 | pt, texto traduzido | 0,905 | 0,636 |
+| en03 | pt, texto traduzido | 0,798 | 0,680 |
+| en06 | pt, texto traduzido | 0,798 | 0,797 |
+| en07 | pt, texto em inglês | 0,847 | 0,845 |
+| en08 | pt, texto traduzido | 0,864 | 0,580 |
+| pt01–pt08 | pt (certo) | 0,73–0,86 | 0,96–0,99 |
+
+| Regra | Idioma certo |
+|---|---|
+| Só a detecção do Whisper | 15/20 |
+| Conferência pela confiança média por palavra (adotada) | **20/20** |
+| Conferência pelo `avg_logprob` dos segmentos (testada, não adotada) | 17/20 — erra en06, en10 e en11 |
+
+- Em en06 e en07 a diferença é de 0,001–0,002: acerta, mas por pouco. Com mais casos assim, pode errar.
+- Depois da conferência, as 5 gravações saem em inglês, com os erros de reconhecimento do sotaque ("She both a sheet
+  of paper…"), mas no idioma certo.
+- Custo, em lote, 20 gravações com `--saida Ingles` (traduz as que saem em português), cache vazio: 121 s com a
+  conferência e 96 s sem. Sem ela, 13 gravações saíram em português e foram traduzidas; com ela, 8. Não separei o tempo
+  só da transcrição: o custo dela é de pelo menos 25 s, ~1,2 s por arquivo curto.
+- Audiolivro de 17 min (inglês, narração limpa), só transcrição: 207 s com a conferência, 199 s sem;
+  as 177 frases saíram idênticas (~8 s a mais, ~4%).
+- Só pt/en: se o Whisper detectar outro idioma, fica como veio. Motor sem confiança por palavra: não confere.
+- O tempo real (WhisperLiveKit, `--language auto`) não tem essa conferência: lá, use `--idioma`.
+
 ### Confiança por palavra (campo `confianca` do JSON)
 
 O Speaches devolve, para cada palavra, a probabilidade que o Whisper deu a ela; a lib guarda em `Palavra.Confianca`.
@@ -431,7 +469,7 @@ tradução com o `translategemma:12b`, memória da GPU lida a cada 2 s (`nvidia-
   use o lote; um por vez, prefira desligar o descarregar se a GPU tiver folga.
 - Achado à parte, igual nas três formas: em 4 das 10 gravações em inglês, a detecção automática de idioma do Whisper
   disse "pt" e devolveu o texto já traduzido para o português ("Eu posso descobrir se o clima será bom amanhã").
-  Com sotaque brasileiro, force o idioma (`--idioma en`, opção `Idioma`).
+  Tratado depois pela conferência do idioma (ver [Conferência do idioma detectado](#conferência-do-idioma-detectado)).
 - WhisperLiveKit (`large-v3-turbo`), medido de novo em 2026-11-22 (GPU inteira, `nvidia-smi`): com o contêiner
   parado, 0,7 GB; 30 s depois de `docker start`, sem sessão, 2,6 GB (carrega o modelo ao subir, ~1,9 GB); depois de
   uma sessão curta (`simular`, 9 s), 2,8 GB, e ficou assim. Reiniciar o contêiner devolve só ~0,2 GB, porque ele carrega
