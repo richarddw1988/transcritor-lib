@@ -15,7 +15,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
 | Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,6% (4 certas, 0 erradas, com os homófonos); no audiolivro de 17 min só uma grafia trocada (ver abaixo) |
-| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção experimental | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
+| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção experimental | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -479,7 +479,11 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       | Tempo da correção no audiolivro | 99 s | 122 s |
 
       O `avaliar-fala` ficou 2,2 s/frase mais lento (5,4 contra 3,2 s), porque abre os serviços (e o BERT) de novo
-      para cada gravação; num arquivo, o modelo carrega uma vez. Memória: não medida.
+      para cada gravação; num arquivo, o modelo carrega uma vez.
+      **Memória (medida em 2026-11-23):** pico do processo do Cli no audiolivro (transcrição em cache, só os
+      homófonos, um idioma carregado — inglês): **683–684 MB** com o BERT contra 37 MB sem ele, ou seja **~0,65 GB
+      de RAM por idioma carregado**; não usa GPU. Duas rodadas, 21–23 s cada. Os dois idiomas juntos: não medido
+      (cada modelo só carrega na primeira frase do seu idioma).
     - Por isso `CorrigirHomofonos` passou a ligada e, desde 2026-11-23, roda mesmo com a correção pelo modelo
       desligada (a correção em si continua experimental e desligada). Com as opções padrão, só os homófonos:
 
@@ -537,6 +541,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 | Driver NVIDIA | 621.24 | 576 ou mais novo (CUDA 12.9 da imagem do WhisperLiveKit) |
 | Docker Desktop | engine 29.9.3, backend WSL2 (WSL 3.0.5) | backend WSL2 com GPU |
 | Memória da VM do WSL | 12 GB + 4 GB de swap (`.wslconfig`) | 10 GB ou mais (com 4 GB o Ollama trava ao trocar de modelo) |
+| RAM do programa que usa a lib (fora do WSL) | ~0,7 GB de pico com o BERT dos homófonos (um idioma) | +0,65 GB por idioma do BERT carregado; sem os homófonos, poucas dezenas de MB |
 | Disco para o Docker | ~75 GB usados | 50 GB livres na 1ª preparação (pode ficar em outro disco) |
 | .NET SDK | 10.0.400 | 10.0 |
 | ffmpeg/ffprobe | 9.0 (gyan.dev) | qualquer versão recente no PATH |
