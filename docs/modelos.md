@@ -9,12 +9,12 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 
 | Função | Modelo | Serviço | Onde configurar | Tamanho | Desempenho medido (RTX 3060 12 GB) |
 |---|---|---|---|---|---|
-| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo) |
+| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo) |
 | Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s |
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
-| Correção de palavras ouvidas errado, **ligada por padrão** (`--sem-correcao` no Cli pula) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,5% (5 certas, 0 erradas, com os homófonos e o gemma nos duvidosos); no audiolivro de 17 min só uma grafia trocada (ver abaixo) |
+| Correção de palavras ouvidas errado, **ligada por padrão** (`--sem-correcao` no Cli pula) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,5% (5 certas, 0 erradas, com os homófonos e o gemma nos duvidosos); no audiolivro de 17 min só uma grafia trocada; no FLEURS o WER quase não muda (10 certas, 3 estragos em 780 frases; ver abaixo) |
 | Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção pelo modelo; os casos duvidosos para o BERT vão ao `gemma3:12b` (`ConfirmarHomofonoComModelo`) | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
@@ -413,6 +413,31 @@ Os erros, por tipo:
   "whose". Das 4 frases de palavras raras (en27–en30), 3 saíram com erro no arquivo e as 4 no tempo real ("heron" → "Aaron").
 - **Palavra pequena ou flexão:** "can't" → "can", "he" → "they", "a" → "the", "rained" → "raining", "it" → "it's",
   "ao" → "no", "à" → "a".
+
+**3ª rodada, FLEURS** (2026-11-23): divisão `dev` do [google/fleurs](https://huggingface.co/datasets/google/fleurs)
+(CC BY 4.0; frases da Wikipédia lidas por vários falantes; ~400 MB, baixados em `dados/fleurs/`, fora do Git),
+medida com `avaliar-fala --corrigir` e as opções padrão. A referência é a transcrição original do TSV.
+
+| Item | Português (`pt_br`) | Inglês (`en_us`) |
+|---|---|---|
+| Frases / palavras | 386 / 8.441 | 394 / 8.214 |
+| WER do large-v3 | **4,1%** (267 trocas, 27 faltas, 53 sobras) | **5,8%** (329 trocas, 96 faltas, 52 sobras) |
+| Número por extenso na referência e em algarismo na saída ("dez" → "10"), contado como troca | 39 trocas (~0,5 ponto) | 35 trocas (~0,4 ponto) |
+| Confiança < 0,5 como detector | 15 das 320 erradas; 31 alarmes falsos | 49 das 381 erradas; 66 alarmes falsos |
+| Palavra certa entre as 15 parecidas | 66 das 267 trocas | 63 das 329 trocas |
+| Correção: WER antes → depois | 4,1% → 4,1% | 5,9% → 5,8% |
+| Trocas da correção que baixaram os erros | 3 ("caretenoide" → "carotenoide", "obrangente" → "abrangente", "calçam" → "caçam") | 7 ("Mayat" → "Mayotte" 3×, "pray" → "prey", "estatuaries" → "estuaries", "blanching" → "blending", "-Ferise" → "Therese") |
+| Trocas de uma errada por outra errada | 4 ("derrebando" → "derrubando", era "derramando"; "avalização" → "avaliação", era "visualização"; "bajãs" → "beijos"; "janghans" → "jangans") | 3 ("genus" → "genius", era "Guinness"; "Bishkesh" → "Bishkek", a referência tem "Bishkek's"; "-pervading", a referência tem "all-pervading") |
+| Trocas que estragaram palavra certa | **0** | **3** ("Manta" → "Malta", nome de cerveja; "theme" → "time"; "stealthily" → "stealthy") |
+| Tempo do `avaliar-fala` | 9,7 s por frase (119 min) | 11,2 s por frase (128 min) |
+
+- Em fala lida e limpa o large-v3 erra pouco. Os erros que sobram são nomes próprios, palavras raras e normalização
+  (números, hífens, pontuação), e a correção quase não muda o WER. O ganho medido nas 49 frases do usuário (6,3% →
+  5,5%) vem dos homófonos e da pronúncia de quem fala, que o FLEURS quase não tem.
+- As 3 trocas que estragaram são todas em inglês; duas trocam uma palavra que existe e encaixa ("theme",
+  "stealthily"), e nem o BERT nem o áudio seguraram. A correção continua ligada por padrão (3 estragos em 16.655
+  palavras).
+- WER com os números normalizados ("dez" igual a "10") antes de comparar: não medido.
 
 ### Correção de palavras ouvidas errado
 
