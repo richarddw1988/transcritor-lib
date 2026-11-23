@@ -86,7 +86,8 @@ O script é idempotente (pode rodar quantas vezes quiser, só faz o que falta):
 1. confere .NET 10, ffmpeg/ffprobe, GPU e driver, Docker, espaço do disco do Docker e memória do WSL;
 2. constrói a imagem do Speaches (a oficial 0.8.3 com uma correção, ver seção 8) e a do WhisperLiveKit (não há
    imagem publicada; ~22 GB, 20+ min na 1ª vez) e sobe os serviços;
-3. espera cada serviço responder e confere se os contêineres enxergam a GPU;
+3. espera cada serviço responder, confere se os contêineres enxergam a GPU e se o Speaches no ar é a imagem do
+   projeto (aviso, se não for: a lib não consegue tirar o Whisper da GPU entre as etapas);
 4. baixa os modelos que faltam (Whisper no Speaches; translategemma 12b e 4b e gemma3 4b no Ollama);
 5. compila a solução e roda `transcritor servicos`.
 

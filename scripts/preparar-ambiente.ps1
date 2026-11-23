@@ -220,6 +220,18 @@ if (-not $SemTempoReal) {
     $null = Aguardar-Servico 'WhisperLiveKit' "$WhisperLiveKitUrl/health" ($(if ($SoConferir) { 0 } else { 15 }))
 }
 
+# A imagem do projeto (docker/speaches/Dockerfile) marca o /health com este cabeçalho; sem ele, a lib não consegue
+# tirar o Whisper da GPU entre as etapas e espera o tempo ocioso do Speaches.
+if ($speachesNoAr) {
+    $cabecalho = $null
+    try { $cabecalho = (Invoke-WebRequest "$SpeachesUrl/health" -UseBasicParsing -TimeoutSec 5).Headers['X-Transcritor-Descarregar'] } catch { }
+    if ($cabecalho) { Escrever-Ok 'Speaches com a correção do descarregar (imagem do projeto)' }
+    else {
+        Escrever-Aviso ('O Speaches no ar não é a imagem do projeto: a lib não tira o Whisper da GPU entre as etapas. ' +
+            'Rode: docker compose up -d --build speaches')
+    }
+}
+
 # A GPU precisa aparecer dentro dos contêineres; sem isso os modelos rodariam em CPU (ou nem subiriam).
 foreach ($servico in $servicos) {
     # Captura tudo antes de olhar o código de saída (cortar o pipeline no meio dá código de erro falso).
