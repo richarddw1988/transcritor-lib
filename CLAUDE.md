@@ -21,7 +21,9 @@ Toda mudança que afete o que está abaixo atualiza os documentos **no mesmo com
 | Requisito de hardware/VRAM medido | `docs/modelos.md` (requisitos e VRAM) |
 
 Antes de dizer que o ambiente está pronto para outra pessoa, teste num clone limpo:
-`git clone` numa pasta temporária, `dotnet build`, `dotnet test` e `.\scripts\preparar-ambiente.ps1 -SoConferir`.
+`git clone` numa pasta temporária, `dotnet build`, `dotnet test` e `.\scripts\preparar-ambiente.ps1 -SemTempoReal`
+(preparo completo: gera `dados/`, que não vem no clone; `-SemTempoReal` evita recriar o WhisperLiveKit apontando para
+o clone, porque o projeto do compose tem nome fixo). Deve terminar com "Ambiente pronto".
 
 ## Como trabalhar
 - Antes de trocar um modelo padrão, meça (qualidade e tempo) e registre os números em `docs/modelos.md`;
