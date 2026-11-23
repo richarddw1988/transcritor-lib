@@ -66,6 +66,17 @@ public sealed class OpcoesTraducao
     public double LimiteHomofono { get; set; } = 0.99;
 
     /// <summary>
+    /// Experimental. Homófono em que o BERT dá à outra grafia pelo menos <see cref="LimiteHomofonoComModelo"/>, mas não
+    /// chega a <see cref="LimiteHomofono"/>, vai ao <see cref="ModeloCorrecao"/>: ele vê a frase com cada grafia e diz qual
+    /// está escrita certo, duas vezes, com as opções em ordem trocada. Só troca se escolher a outra grafia nas duas
+    /// (o modelo de lacuna não sabe que se diz "concerto de música"; o de conversa sabe).
+    /// </summary>
+    public bool ConfirmarHomofonoComModelo { get; set; }
+
+    /// <summary>Probabilidade mínima, pelo BERT, da outra grafia para o homófono ir ao modelo de conversa.</summary>
+    public double LimiteHomofonoComModelo { get; set; } = 0.02;
+
+    /// <summary>
     /// Cada troca proposta pelo <see cref="ModeloCorrecao"/> só vale se o BERT dos homófonos der à palavra nova pelo menos
     /// <see cref="LimiteParecida"/> de probabilidade contra a ouvida. Sem os modelos BERT, não confere. Medido: barrou a
     /// única troca errada da fala do usuário ("leave" → "live") sem perder nenhuma certa.

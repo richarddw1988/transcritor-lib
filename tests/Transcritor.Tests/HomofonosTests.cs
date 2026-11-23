@@ -78,12 +78,13 @@ public sealed class HomofonosTests : IDisposable
 
     private static CorretorOllama Corretor(
         IEscolhedorHomofonos? escolhedor, string banco, bool homofonos = true, FakeHttpHandler? handler = null, bool modelo = true,
-        bool conferirComBert = false)
+        bool conferirComBert = false, bool homofonoComModelo = false)
     {
         var opcoes = Options.Create(new OpcoesTraducao
         {
             CorrigirTranscricao = modelo,
             ConferirCorrecaoComBert = conferirComBert,
+            ConfirmarHomofonoComModelo = homofonoComModelo,
             ModeloCorrecao = "gemma3:12b",
             CaminhoDicionario = banco,
             CorrigirHomofonos = homofonos,
@@ -209,6 +210,78 @@ public sealed class HomofonosTests : IDisposable
         Assert.Equal(new Correcao(6, "chop.", "shop."), Assert.Single(livre));
         Assert.Empty(semConferir.Pedidos);
         Assert.Contains("-cb:0.5", Corretor(aprova, banco, conferirComBert: true).Identificador, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ollama falso que escolhe a opção que contém <paramref name="grafia"/> (ou sempre a 1, se nulo); conta as perguntas.</summary>
+    private sealed class Escolhedor(string? grafia)
+    {
+        public int Perguntas { get; private set; }
+
+        public FakeHttpHandler Handler => new((_, corpo) =>
+        {
+            Perguntas++;
+            var conteudo = JsonDocument.Parse(corpo).RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+            var opcao1 = conteudo.Split('\n')[0];
+            var escolha = grafia is null || opcao1.Contains(grafia, StringComparison.Ordinal) ? 1 : 2;
+            return FakeHttpHandler.Json(JsonSerializer.Serialize(
+                new { message = new { role = "assistant", content = $"{{\"escolha\": {escolha}}}" }, done = true }));
+        });
+    }
+
+    [Fact]
+    public async Task Homofono_duvidoso_vai_ao_modelo_e_so_troca_se_ele_escolher_a_outra_nas_duas_ordens()
+    {
+        var (banco, _) = await ImportarAsync();
+        // O BERT acha "sela" pouco provável (0,05: abaixo de 0,99, acima de 0,02); o modelo de conversa decide.
+        var bert = new Escolhe("cela", 0.95);
+        var coerente = new Escolhedor("sela");
+        var semPreferencia = new Escolhedor(null); // sempre a opção 1: muda de lado quando a ordem troca
+
+        var trocas = await Corretor(bert, banco, handler: coerente.Handler, modelo: false, homofonoComModelo: true)
+            .CorrigirAsync(Confiante, CancellationToken.None);
+        var mantidas = await Corretor(bert, banco, handler: semPreferencia.Handler, modelo: false, homofonoComModelo: true)
+            .CorrigirAsync(Confiante, CancellationToken.None);
+
+        Assert.Equal(new Correcao(1, "cela", "sela", Homofono: true), Assert.Single(trocas));
+        Assert.Equal(2, coerente.Perguntas);
+        Assert.Empty(mantidas);
+        Assert.Contains("-hm2:0.02", Corretor(bert, banco, modelo: false, homofonoComModelo: true).Identificador, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Duas_grafias_vencem_a_ouvida_e_fica_a_que_ganha_da_outra()
+    {
+        var (banco, _) = await ImportarAsync();
+        // "sessão" tem dois homófonos; o BERT dá 0,05 a cada. O modelo falso prefere seção > cessão > sessão: as duas
+        // ganham da ouvida, e "seção" ganha de "cessão".
+        string[] ordem = ["seção", "cessão", "sessão"];
+        int Posto(string opcao) => Array.FindIndex(ordem, g => opcao.Contains($" {g} ", StringComparison.Ordinal));
+        var ranqueado = new FakeHttpHandler((_, corpo) =>
+        {
+            var linhas = JsonDocument.Parse(corpo).RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!.Split('\n');
+            var escolha = Posto(linhas[0]) <= Posto(linhas[1]) ? 1 : 2;
+            return FakeHttpHandler.Json(JsonSerializer.Serialize(
+                new { message = new { role = "assistant", content = $"{{\"escolha\": {escolha}}}" }, done = true }));
+        });
+        var pedido = new PedidoCorrecao("A sessão de esportes do jornal.".Split(' '), "pt", [], [], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
+        var trocas = await Corretor(new Escolhe("sessão", 0.9), banco, handler: ranqueado, modelo: false, homofonoComModelo: true)
+            .CorrigirAsync(pedido, CancellationToken.None);
+
+        Assert.Equal(new Correcao(1, "sessão", "seção", Homofono: true), Assert.Single(trocas));
+    }
+
+    [Fact]
+    public async Task Homofono_que_o_bert_descarta_ou_com_a_opcao_desligada_nao_vai_ao_modelo()
+    {
+        var (banco, _) = await ImportarAsync();
+
+        // SemOllama lança se for chamado.
+        Assert.Empty(await Corretor(new Escolhe("cela", 0.99), banco, modelo: false, homofonoComModelo: true)
+            .CorrigirAsync(Confiante, CancellationToken.None)); // "sela" com 0,01, abaixo de 0,02
+        Assert.Empty(await Corretor(new Escolhe("cela", 0.95), banco, modelo: false)
+            .CorrigirAsync(Confiante, CancellationToken.None));
+        Assert.DoesNotContain("-hm", Corretor(new Escolhe("cela", 0.95), banco, modelo: false).Identificador, StringComparison.Ordinal);
     }
 
     [Fact]

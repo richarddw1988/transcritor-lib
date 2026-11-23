@@ -516,6 +516,27 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
       Na conferência das trocas do modelo de conversa (`ConferirCorrecaoComBert`) a lacuna fica desligada: ligada, perdeu
       "quiet quiet" → "quite quiet" (3 certas em vez de 4), porque ali a palavra repetida é a pista.
+    - **BERT + `gemma3:12b` nos homófonos duvidosos (2026-11-23, `ConfirmarHomofonoComModelo`, experimental,
+      desligado):** os modelos de lacuna não sabem que se diz "concerto de música"; o modelo de conversa sabe. Quando
+      o BERT dá à outra grafia entre 0,02 e 0,99, o `gemma3:12b` vê as duas frases ("1: … 2: …") e diz qual está escrita
+      certo, duas vezes, com a ordem trocada; só troca se escolher a outra nas duas (sozinho, escolhia pela posição;
+      com a palavra marcada entre colchetes, escolheu a opção 2 em 5 de 6). Com duas outras grafias que ganham da
+      ouvida ("There house": "Their" e "They're"), fica a que ganha da outra. Medido com `avaliar-homofonos` (texto) e
+      `avaliar-fala` (sem `--corrigir`), com o WhisperLiveKit parado:
+
+      | Texto | Só o BERT (padrão) | BERT + gemma |
+      |---|---|---|
+      | 12 casos em português com a grafia errada | 6 certas | **10 certas, 0 erradas** ("Fomos ao conserto de música", "sela da prisão", "em cheque no tabuleiro", "porquê sempre") |
+      | 8 casos em inglês com a grafia errada | 5 certas | **7 certas, 0 erradas** ("There house" → "Their", "in piece" → "peace") |
+      | 49 gravações do usuário | WER 6,2% | **6,0%** ("bear pawns" → "bare pawns") |
+      | Audiolivro de 17 min (texto certo) | 0 trocas, 18 s | **0 trocas**, 41 s |
+      | 6.745 exemplos do Wiktionary em português | 7 trocas | 14: das 7 a mais, 3 acertam a norma ("para traz" → "trás", "o porque" → "porquê"), 2 erram ("pra trás" → "traz" em fala coloquial, "passar cheque" → "xeque") e 2 são duvidosas |
+      | 1.500 exemplos do Wiktionary em inglês | 29 trocas | 33: as 4 a mais erram em poesia ou texto estilizado ("rode" → "rowed", "fair" → "fir", "heart" → "hart") e trocam "grey" → "gray" |
+
+      Continuam errados nos dois: "conserto" repetido na mesma frase, "seção" → "sessão", "for years" → "four".
+      Os exemplos do Wiktionary não são todos texto certo pela norma atual (ortografia antiga, fala transcrita), por
+      isso as trocas a mais foram conferidas uma a uma. Na 1ª rodada, com o WhisperLiveKit no ar, o Docker Desktop
+      parou de responder depois de ~10 min de chamadas ao `gemma3:12b` e foi reiniciado; causa não confirmada.
     - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
       logits para o PyTorch: 3e-5), rodando pelo ONNX Runtime 1.32 na CPU e tokenizados pelo `Microsoft.ML.Tokenizers`
       (mesmos tokens do Python; probabilidades iguais às do protótipo). Medido com a correção ligada

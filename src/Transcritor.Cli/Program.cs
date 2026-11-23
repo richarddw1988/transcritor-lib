@@ -777,9 +777,63 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
     return 0;
 }));
 
+// ---- avaliar-homofonos -----------------------------------------------------
+var argTextoHomofonos = new Argument<FileInfo>("texto")
+{
+    Description = "Arquivo com uma frase por linha (UTF-8). Em texto já escrito certo, toda troca é indevida.",
+};
+var optIdiomaHomofonos = new Option<string>("--idioma") { Description = "Idioma das frases: pt ou en.", Required = true };
+var optComModelo = new Option<bool>("--com-modelo")
+{
+    Description = "Liga ConfirmarHomofonoComModelo: homófono duvidoso para o BERT vai ao ModeloCorrecao (as duas frases, nas duas ordens).",
+};
+var cmdAvaliarHomofonos = new Command(
+    "avaliar-homofonos",
+    "Passa cada frase pela escolha de homófonos (sem a correção pelo modelo, palavras com confiança 1) e lista as trocas.")
+{
+    argTextoHomofonos, optIdiomaHomofonos, optComModelo,
+};
+cmdAvaliarHomofonos.SetAction(async (resultado, ct) => await Executar(async () =>
+{
+    var idioma = Idiomas.Normalizar(resultado.GetValue(optIdiomaHomofonos)!);
+    var comModelo = resultado.GetValue(optComModelo);
+    using var sp = CriarServicos(null, t =>
+    {
+        t.CorrigirTranscricao = false;
+        t.ConfirmarHomofonoComModelo = comModelo;
+    });
+    var corretor = sp.GetRequiredService<ICorretorTranscricao>();
+    if (!corretor.Ativo)
+    {
+        Console.Error.WriteLine("A escolha de homófonos não está ativa: confira o dicionário (com homófonos) e os modelos BERT.");
+        return 3;
+    }
+
+    var linhas = (await File.ReadAllLinesAsync(resultado.GetValue(argTextoHomofonos)!.FullName, ct))
+        .Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+    var relogio = Stopwatch.StartNew();
+    var total = 0;
+    foreach (var linha in linhas)
+    {
+        var palavras = linha.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var trocas = await corretor.CorrigirAsync(
+            new PedidoCorrecao(palavras, idioma, [], [], Enumerable.Repeat<double?>(1.0, palavras.Length).ToList()), ct);
+        foreach (var t in trocas)
+        {
+            total++;
+            Console.WriteLine($"  \"{t.Ouvida}\" → \"{t.Corrigida}\" | {linha}");
+        }
+    }
+
+    Console.WriteLine(
+        $"{linhas.Count} frases: {total} trocas; {relogio.Elapsed.TotalSeconds:F0} s ({corretor.Identificador})");
+    return 0;
+}));
+
 var raiz = new RootCommand("Cli de teste da Transcritor lib.")
 {
     cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdLiberarGpu, cmdDicionario, cmdAvaliarPalavras, cmdAvaliarFala,
+    cmdAvaliarHomofonos,
 };
 return await raiz.Parse(args).InvokeAsync();
 

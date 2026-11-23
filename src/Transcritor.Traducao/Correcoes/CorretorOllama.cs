@@ -39,10 +39,18 @@ internal sealed class CorretorOllama(
 
     public string Identificador =>
         (ModeloEmAlgumIdioma
-            ?$"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" +
+            ? $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" +
               (ConfereComBert ? $"-cb:{Limite(_opcoes.LimiteParecida)}" : string.Empty)
             : "so")
-        + (UsaHomofonos ? $"-h{VersaoHomofonos}:{Limite(_opcoes.LimiteHomofono)}" : string.Empty);
+        + (UsaHomofonos ? $"-h{VersaoHomofonos}:{Limite(_opcoes.LimiteHomofono)}" : string.Empty)
+        + (UsaHomofonos && ConfirmaHomofonoComModelo ? $"-hm{VersaoHomofonoComModelo}:{Limite(_opcoes.LimiteHomofonoComModelo)}" : string.Empty);
+
+    /// <summary>Mudar a pergunta ao modelo sobre o homófono exige subir (entra na chave do cache).</summary>
+    private const int VersaoHomofonoComModelo = 2; // 2: várias grafias possíveis disputam entre si
+
+    /// <summary>Homófono duvidoso vai ao modelo de conversa (<see cref="OpcoesTraducao.ConfirmarHomofonoComModelo"/>).</summary>
+    private bool ConfirmaHomofonoComModelo =>
+        _opcoes.ConfirmarHomofonoComModelo && !string.IsNullOrWhiteSpace(_opcoes.ModeloCorrecao);
 
     private static string Limite(double valor) => valor.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
@@ -75,7 +83,7 @@ internal sealed class CorretorOllama(
     /// Ligada se a correção pelo modelo puder rodar ou se os homófonos puderem (lista no dicionário e BERT de algum
     /// idioma): os homófonos não dependem da correção pelo modelo.
     /// </summary>
-    public bool Ativo => ModeloEmAlgumIdioma ||(UsaHomofonos && (escolhedor!.Disponivel(Idiomas.Ingles) || escolhedor.Disponivel(Idiomas.Portugues)));
+    public bool Ativo => ModeloEmAlgumIdioma || (UsaHomofonos && (escolhedor!.Disponivel(Idiomas.Ingles) || escolhedor.Disponivel(Idiomas.Portugues)));
 
     public string NomeServico => $"{ClienteOllama.Nome} (correção da transcrição)";
 
@@ -111,12 +119,20 @@ internal sealed class CorretorOllama(
             // troca só vale com certeza alta (limite 0,99: no audiolivro, 0 trocas indevidas em 231 palavras).
             var ouvida = Nucleo(atual[i]);
             var provaveis = escolhedor!.Avaliar(atual, i, [ouvida.ToLowerInvariant(), .. iguais], pedido.Idioma, lacunaNasRepetidas: true);
-            if (provaveis.Count == 0 || Igual(provaveis[0].Grafia, ouvida) || provaveis[0].Probabilidade < _opcoes.LimiteHomofono)
+            var outras = provaveis.Where(p => !Igual(p.Grafia, ouvida)).ToList();
+            var escolhida = outras.Count > 0 && outras[0].Probabilidade >= _opcoes.LimiteHomofono
+                ? outras[0].Grafia
+                : ConfirmaHomofonoComModelo
+                    ? await EscolherComModeloAsync(
+                        atual, i, outras.Where(p => p.Probabilidade >= _opcoes.LimiteHomofonoComModelo).Select(p => p.Grafia).ToList(),
+                        cancellationToken).ConfigureAwait(false)
+                    : null;
+            if (escolhida is null)
             {
                 continue;
             }
 
-            var troca = new Correcao(i, atual[i], ComPontuacao(atual[i], provaveis[0].Grafia), Homofono: true);
+            var troca = new Correcao(i, atual[i], ComPontuacao(atual[i], escolhida), Homofono: true);
             aceitas.Add(troca);
             atual[i] = troca.Corrigida;
         }
@@ -149,6 +165,90 @@ internal sealed class CorretorOllama(
         return string.IsNullOrWhiteSpace(corrigida)
             ? []
             : Trocas(pedido.Palavras, corrigida, pedido.Idioma, i => podeTrocar[i], fonte.Dicionario);
+    }
+
+    /// <summary>
+    /// Entre as <paramref name="candidatas"/> (grafias que o BERT acha possíveis, mas sem certeza), a que o modelo de
+    /// conversa prefere à ouvida; se mais de uma ganhar da ouvida ("There house": "Their" e "They're"), a que ganha de
+    /// todas as outras. Nulo se nenhuma ganhar ou se não houver uma só vencedora.
+    /// </summary>
+    private async Task<string?> EscolherComModeloAsync(
+        string[] atual, int indice, IReadOnlyList<string> candidatas, CancellationToken cancellationToken)
+    {
+        var vencedoras = new List<string>();
+        foreach (var c in candidatas)
+        {
+            if (await PrefereNasDuasOrdensAsync(atual, indice, c, null, cancellationToken).ConfigureAwait(false))
+            {
+                vencedoras.Add(c);
+            }
+        }
+
+        foreach (var v in vencedoras)
+        {
+            var ganhaDeTodas = true;
+            foreach (var outra in vencedoras.Where(o => o != v))
+            {
+                if (!await PrefereNasDuasOrdensAsync(atual, indice, v, outra, cancellationToken).ConfigureAwait(false))
+                {
+                    ganhaDeTodas = false;
+                    break;
+                }
+            }
+
+            if (ganhaDeTodas)
+            {
+                return v;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// O modelo de conversa vê a frase com <paramref name="grafia"/> e com <paramref name="contra"/> (nulo = a palavra como
+    /// está) e diz qual está escrita certo, duas vezes, com as opções em ordem trocada (sozinho, ele tende a escolher pela
+    /// posição). Verdadeiro só se escolher <paramref name="grafia"/> nas duas; resposta fora do esquema conta contra.
+    /// </summary>
+    private async Task<bool> PrefereNasDuasOrdensAsync(
+        string[] atual, int indice, string grafia, string? contra, CancellationToken cancellationToken)
+    {
+        string Com(string? g)
+        {
+            var frase = atual.ToArray();
+            if (g is not null)
+            {
+                frase[indice] = ComPontuacao(atual[indice], g);
+            }
+
+            return string.Join(' ', frase);
+        }
+
+        var nova = Com(grafia);
+        var outra = Com(contra);
+        return await EscolheAsync(outra, nova, cancellationToken).ConfigureAwait(false) == 2
+            && await EscolheAsync(nova, outra, cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    private async Task<int> EscolheAsync(string opcao1, string opcao2, CancellationToken cancellationToken)
+    {
+        const string Sistema =
+            "Two versions of a sentence differ only in the spelling of one word (words that sound the same). Which one is " +
+            "spelled correctly for the intended meaning? Reply only with JSON: {\"escolha\": 1} or {\"escolha\": 2}.";
+        var resposta = await ollama.ConversarAsync(
+            _opcoes.ModeloCorrecao,
+            [new MensagemChat("system", Sistema), new MensagemChat("user", $"1: {opcao1}\n2: {opcao2}")],
+            EsquemaVerificacao,
+            maxTokens: 16,
+            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return JsonSerializer.Deserialize<RespostaVerificacao>(resposta, Json)?.Escolha ?? 0;
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
     }
 
     /// <summary>
@@ -241,7 +341,7 @@ internal sealed class CorretorOllama(
         && (pedido.Confiancas is not { } c || indice >= c.Count || c[indice] is not { } v || v < _opcoes.LimiteConfiancaCorrecao);
 
     public Task VerificarAsync(CancellationToken cancellationToken) =>
-        ModeloEmAlgumIdioma ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken) : Task.CompletedTask;
+        ModeloEmAlgumIdioma || (UsaHomofonos && ConfirmaHomofonoComModelo) ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken) : Task.CompletedTask;
 
     public Task DescarregarAsync(CancellationToken cancellationToken) =>
         ollama.DescarregarAsync(_opcoes.ModeloCorrecao, cancellationToken);
