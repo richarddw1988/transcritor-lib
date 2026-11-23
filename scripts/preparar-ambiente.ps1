@@ -100,6 +100,14 @@ function Escrever-Falha([string] $texto) { Write-Host "  [FALHA] $texto" -Foregr
 
 function Testar-Comando([string] $nome) { [bool](Get-Command $nome -ErrorAction SilentlyContinue) }
 
+# Roda um programa que escreve progresso ou avisos no stderr (docker, dotnet, curl). No Windows PowerShell 5.1, com a
+# saída do script redirecionada (ex.: *> preparo.log), cada linha do stderr vira erro, e com 'Stop' o script pararia no
+# primeiro aviso. Aqui o erro só é mostrado; quem chama confere o resultado em $LASTEXITCODE.
+function Rodar-Programa([scriptblock] $blocoPrograma) {
+    $ErrorActionPreference = 'Continue'
+    & $blocoPrograma
+}
+
 function Obter-Json([string] $url) {
     try { Invoke-RestMethod -Uri $url -TimeoutSec 5 -ErrorAction Stop } catch { $null }
 }
@@ -202,7 +210,7 @@ if (-not $SoConferir -and $dockerOk) {
     if ($imagemSpeaches) { Escrever-Ok 'Imagem do Speaches já existe' }
     else {
         Write-Host '  Construindo a imagem do Speaches (baixa a oficial, ~8 GB, na 1ª vez)...'
-        & docker compose build speaches
+        Rodar-Programa { docker compose build speaches }
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'Falhou o build do Speaches (veja o log acima).'; exit 1 }
         Escrever-Ok 'Imagem do Speaches construída'
     }
@@ -211,13 +219,13 @@ if (-not $SoConferir -and $dockerOk) {
         if ($imagem) { Escrever-Ok 'Imagem do WhisperLiveKit já existe' }
         else {
             Write-Host '  Construindo a imagem do WhisperLiveKit (~22 GB, pode levar 20+ min na 1ª vez)...'
-            & docker compose build whisperlivekit
+            Rodar-Programa { docker compose build whisperlivekit }
             if ($LASTEXITCODE -ne 0) { Escrever-Falha 'Falhou o build do WhisperLiveKit (veja o log acima).'; exit 1 }
             Escrever-Ok 'Imagem do WhisperLiveKit construída'
         }
     }
 
-    & docker compose up -d @servicos
+    Rodar-Programa { docker compose up -d @servicos }
     if ($LASTEXITCODE -ne 0) { Escrever-Falha 'docker compose up falhou (veja o log acima).'; exit 1 }
     Escrever-Ok "Contêineres no ar: $($servicos -join ', ')"
 }
@@ -282,7 +290,7 @@ if ($ollamaNoAr) {
         elseif ($SoConferir) { Escrever-Falha "Ollama sem o modelo $modelo" }
         else {
             Write-Host "  Baixando $modelo no Ollama..."
-            & docker exec ollama ollama pull $modelo
+            Rodar-Programa { docker exec ollama ollama pull $modelo }
             if ($LASTEXITCODE -eq 0) { Escrever-Ok "Ollama: $modelo baixado" }
             else { Escrever-Falha "Não consegui baixar $modelo no Ollama." }
         }
@@ -292,7 +300,7 @@ if ($ollamaNoAr) {
 # ---------------------------------------------------------------------------
 if (-not $SoConferir -and $problemas.Count -eq 0) {
     Escrever-Etapa '5. Compilação e conferência final'
-    & dotnet build "$raiz\Transcritor.slnx" -nologo -v q
+    Rodar-Programa { dotnet build "$raiz\Transcritor.slnx" -nologo -v q }
     if ($LASTEXITCODE -ne 0) { Escrever-Falha 'A solução não compilou.' }
     else {
         Escrever-Ok 'Solução compilada'
@@ -310,7 +318,7 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
             $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'true'
             $env:TRANSCRITOR_Transcritor__Traducao__ModeloCorrecao = $ModeloCorrecao
         }
-        & dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos
+        Rodar-Programa { dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos }
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'transcritor servicos apontou problemas (acima).' }
     }
 }
@@ -361,12 +369,12 @@ else {
         $destino = Join-Path $pastaDados $d.Nome
         if (Test-Path $destino) { Escrever-Ok "Já baixado: $($d.Nome)"; continue }
         Write-Host "  Baixando $($d.Url)..."
-        & curl.exe -sSfL -o "$destino.tmp" $d.Url
+        Rodar-Programa { curl.exe -sSfL -o "$destino.tmp" $d.Url }
         if ($LASTEXITCODE -eq 0) { Move-Item -Force "$destino.tmp" $destino; Escrever-Ok "Baixado: $($d.Nome)" }
         else { Escrever-Falha "Não consegui baixar $($d.Url)" }
     }
     if (@($arquivosDicionario | Where-Object { -not (Test-Path (Join-Path $pastaDados $_.Nome)) }).Count -eq 0) {
-        & dotnet run --project "$raiz\src\Transcritor.Cli" -- dicionario importar
+        Rodar-Programa { dotnet run --project "$raiz\src\Transcritor.Cli" -- dicionario importar }
         if ($LASTEXITCODE -eq 0) { Escrever-Ok "Dicionário gerado: $banco" }
         else { Escrever-Falha 'transcritor dicionario importar falhou (acima).' }
     }
@@ -394,8 +402,10 @@ else {
     $comando = 'pip install --no-cache-dir -q --root-user-action=ignore torch --index-url https://download.pytorch.org/whl/cpu' +
         ' && pip install --no-cache-dir -q --root-user-action=ignore transformers onnx onnxscript onnxruntime' +
         ' && python /scripts/exportar-bert.py /saida'
-    & docker run --rm -v "${pastaBert}:/saida" -v "$raiz\scripts:/scripts:ro" -v 'transcritor-hf-bert:/root/.cache/huggingface' `
-        python:3.12-slim sh -c $comando
+    Rodar-Programa {
+        docker run --rm -v "${pastaBert}:/saida" -v "$raiz\scripts:/scripts:ro" -v 'transcritor-hf-bert:/root/.cache/huggingface' `
+            python:3.12-slim sh -c $comando
+    }
     if ($LASTEXITCODE -eq 0) { Escrever-Ok "Modelos BERT gerados em $pastaBert" }
     else { Escrever-Falha 'A conversão dos BERT falhou (veja o log acima).' }
 }
