@@ -171,6 +171,8 @@ palavra por palavra — a análise é pelo contexto:
 | `google-bert/bert-base-cased` | homófonos e conferência da correção (inglês) | 0 trocas indevidas no audiolivro; barrou "leave" → "live" | **em uso** | abaixo |
 | `neuralmind/bert-base-portuguese-cased` (BERTimbau base) | homófonos e conferência da correção (português) | "cela" → "sela"; erra "concerto"; 6 trocas indevidas em 320 palavras de exemplos do Wiktionary | **em uso** | abaixo |
 | `neuralmind/bert-large-portuguese-cased` (BERTimbau large) | homófonos (português) | também erra "concerto", perde "sessão" → "seção" no limite; 4 trocas indevidas; 2,7× mais lento | não usado | abaixo |
+| `PORTULAN/albertina-100m-portuguese-ptbr-encoder` (DeBERTa) | homófonos (português) | 5/10 casos difíceis (base: 8/10); não troca "cela" → "sela" na gravação; 8 trocas indevidas | não usado | abaixo |
+| `PORTULAN/albertina-900m-portuguese-ptbr-encoder` (DeBERTa) | homófonos (português) | 5/10; dá 0,027 a "sela" na gravação; 9 trocas indevidas ("porque" → "porquê"); 14× mais lento | não usado | abaixo |
 
 ## Glossário do usuário (tradução fixa de termos)
 
@@ -484,6 +486,19 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       O large tem ~3× os parâmetros (RAM e tamanho na lib: não medidos). As trocas indevidas dos dois vêm quase todas
       de texto fora do padrão (gíria, ortografia antiga, palavra estrangeira); com o limite 0,99, ficam em 1–2% das
       palavras com homófono nesses exemplos, contra 0 no audiolivro em inglês.
+    - **Albertina PT-BR (PORTULAN, DeBERTa), 2026-11-23:** modelos de lacuna mais novos, treinados em português do
+      Brasil. Mesma conta, com os tokens da palavra achados pela posição no texto (servem para qualquer tokenizador) e
+      a lacuna nas palavras repetidas; pesos em float32 (vêm em bfloat16, que quebra a 100M e reduz a precisão da
+      900M). **Não adotados:** piores que o BERTimbau base em tudo.
+
+      | Medida (português, limite 0,99) | BERTimbau base (em uso) | Albertina 100M (MIT) | Albertina 900M (licença "other") |
+      |---|---|---|---|
+      | 10 casos difíceis | **8/10** | 5/10 | 5/10 |
+      | "cela" → "sela" na gravação pt07 | **troca (0,997)** | não (0,789) | não (0,027) |
+      | "o conserto de música" | errado (0,047) | errado (0,166) | errado (0,004) |
+      | Trocas indevidas nos 320 exemplos do Wiktionary | **6** | 8 | 9 (vários "porque" → "porquê") |
+      | Tempo desses 320 | **52 s** | 111 s | 723 s |
+      | Tamanho (safetensors) | 0,4 GB | 0,26 GB | 1,65 GB |
     - **Lacuna na palavra repetida (2026-11-23, em uso nos homófonos):** quando a mesma palavra aparece de novo na
       frase, o BERT tende a copiar a outra ocorrência. Na escolha de homófonos, as outras ocorrências viram `[MASK]`.
       Achado numa pesquisa por correção pelo contexto: o LanguageTool (API pública, 17 frases de teste) só pegou
