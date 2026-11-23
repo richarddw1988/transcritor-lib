@@ -280,6 +280,10 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
 ### 4.8 Medir o reconhecimento da sua fala
 1. Grave as frases de `docs/avaliacao/frases-para-gravar.json` pelo microfone (mostra cada frase, Enter grava; salva
    em `dados/gravacoes/<id>.wav`, fora do Git; frases já gravadas são puladas, `-Regravar` refaz):
+   São 49 frases: as 20 primeiras (en01–en12, pt01–pt08) e, desde 2026-11-22, mais 29 em grupos: inglês e
+   português curtos ou cheios de palavras do outro idioma (onde a detecção de idioma erra), palavras de som parecido
+   (correção), palavras raras (dica do dicionário) e quatro falas mais longas (en31, en32, pt16, pt17). Só as gravadas
+   entram na medição.
    ```powershell
    .\scripts\gravar-frases.ps1
    ```
