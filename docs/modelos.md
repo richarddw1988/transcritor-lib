@@ -541,7 +541,10 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       49 gravações com `avaliar-fala --corrigir`: 5 trocas certas e 0 erradas, WER 6,3% → **5,5%** (antes 4 certas,
       5,6%; a nova é "bear" → "bare"); audiolivro: a mesma única troca ("marvellous" → "marvelous"), 149,5 s de correção
       (100,6 s antes, mas com o WhisperLiveKit parado; não comparável direto). Risco aceito: em texto coloquial ou
-      literário ainda troca a mais às vezes ("pra trás" → "traz").
+      literário ainda troca a mais às vezes ("pra trás" → "traz"). Conferido depois (2026-11-23): esse erro só
+      aparece na frase do Wiktionary com fala transcrita em grafia de dialeto e marcas "^([sic])" ("oiou", "muler");
+      a mesma frase escrita normal, mesmo com "pra trás" duas vezes, e outras 6 frases com "pra trás"/"traz" saem
+      certas. O Whisper não escreve essas marcas, então a pergunta ao gemma não foi mudada.
     - **Duas notas, vale a menor (2026-11-23, em uso):** quase todas as 29 trocas dos exemplos em inglês acima eram
       erradas e vinham do BERT sozinho, com ≥ 0,99: "love" → "luv", "what" → "watt", "need" → "knead", "through" →
       "thru". Causa: na nota, cada token é mascarado sozinho, então uma palavra rara de vários pedaços tem cada pedaço
