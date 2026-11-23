@@ -556,7 +556,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       | 12 casos em português com a grafia errada (só BERT / com o gemma) | 6 / 10 certas | 4 / **10** certas, 0 erradas |
       | 8 casos em inglês com a grafia errada (só BERT / com o gemma) | 5 / 7 certas | 5 / **7** certas, 0 erradas |
       | 6.745 exemplos do Wiktionary em português, com o gemma | 14 trocas, 172 s | **12**, 140 s (saíram "tença" → "tensa" e um "passar cheque" → "xeque") |
-      | 1.500 exemplos do Wiktionary em inglês, com o gemma | 33 trocas, 31 min | **6**, 5,2 min (sobram "grey" → "gray", "tics" → "ticks", "shott" → "shot" e 3 com colchetes do próprio Wiktionary, como "[Martin") |
+      | 1.500 exemplos do Wiktionary em inglês, com o gemma | 33 trocas, 31 min | **6**, 5,2 min; **3** depois de tirar colchetes em volta da palavra antes de olhar a maiúscula ("[Martin Luther King" → "Marten" saiu); sobram "grey" → "gray" (variante de grafia), "tics" → "ticks" e "shott" → "shot" (grafia antiga) |
       | Audiolivro, 179 frases (texto certo), com o gemma | 0 trocas, 41 s | 0 trocas, 26 s |
       | 49 gravações, `avaliar-fala --corrigir` | WER 6,3% → 5,5%, 5 certas, 0 erradas | o mesmo, 10,1 s por frase |
 

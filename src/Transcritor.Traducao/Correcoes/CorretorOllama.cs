@@ -520,9 +520,9 @@ internal sealed class CorretorOllama(
     private static string Letras(string palavra) =>
         new(palavra.ToLowerInvariant().Where(char.IsLetter).ToArray());
 
-    /// <summary>A palavra sem a pontuação em volta ("beach," → "beach").</summary>
+    /// <summary>A palavra sem a pontuação em volta ("beach," → "beach", "[Martin" → "Martin").</summary>
     private static string Nucleo(string palavra) =>
-        palavra.Replace('’', '\'').Trim('.', ',', '!', '?', ';', ':', '"', '“', '”', '(', ')', '…', '\'', '¿', '¡');
+        palavra.Replace('’', '\'').Trim('.', ',', '!', '?', ';', ':', '"', '“', '”', '(', ')', '[', ']', '…', '\'', '¿', '¡');
 
     /// <summary>Põe a palavra nova no lugar do núcleo da ouvida, mantendo pontuação e maiúscula inicial.</summary>
     private static string ComPontuacao(string ouvida, string nova)

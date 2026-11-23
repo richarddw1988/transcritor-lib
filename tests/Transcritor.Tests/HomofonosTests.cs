@@ -129,6 +129,20 @@ public sealed class HomofonosTests : IDisposable
         Assert.Contains("-h5:0.99", corretor.Identificador, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Nome_entre_colchetes_no_meio_da_frase_nao_vai_ao_bert()
+    {
+        // Wiktionary: "He [Martin Luther King Jr.] clarioned…" virava "Marten"; o colchete escondia a maiúscula.
+        var (banco, _) = await ImportarAsync();
+        var bert = new Escolhe("sela", 0.997);
+        var pedido = new PedidoCorrecao("Ele viu [Cela] no cavalo.".Split(' '), "pt", [], [], [1.0, 1.0, 1.0, 1.0, 1.0]);
+
+        var trocas = await Corretor(bert, banco).CorrigirAsync(pedido, CancellationToken.None);
+
+        Assert.Empty(trocas);
+        Assert.Empty(bert.Pedidos);
+    }
+
     [Theory]
     [InlineData("cela", 0.999)] // o BERT prefere a ouvida
     [InlineData("sela", 0.98)]  // prefere outra, mas abaixo do limite (0,99)
