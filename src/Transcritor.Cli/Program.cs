@@ -217,6 +217,84 @@ cmdServicos.SetAction(async (_, ct) =>
     return falhas == 0 ? 0 : 1;
 });
 
+// ---- liberar-gpu -----------------------------------------------------------
+var optManterTempoReal = new Option<bool>("--manter-tempo-real") { Description = "Não para o WhisperLiveKit (só descarrega Ollama e Speaches)." };
+var optConteinerWlk = new Option<string>("--conteiner")
+{
+    Description = "Nome do contêiner do WhisperLiveKit.",
+    DefaultValueFactory = _ => "whisperlivekit",
+};
+var cmdLiberarGpu = new Command(
+    "liberar-gpu",
+    "Tira da GPU os modelos do Ollama e do Speaches e para o WhisperLiveKit (ele carrega o modelo ao subir e só solta parando). Encerra sessões de tempo real abertas.")
+{
+    optManterTempoReal, optConteinerWlk,
+};
+cmdLiberarGpu.SetAction(async (resultado, ct) => await Executar(async () =>
+{
+    using var sp = CriarServicos(null);
+    var executor = sp.GetRequiredService<Transcritor.Arquivo.Processos.IExecutorProcesso>();
+    var antes = await MemoriaGpuAsync(executor, ct);
+
+    // Ollama: todos os modelos carregados, não só os da configuração.
+    var urlOllama = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OpcoesTraducao>>().Value.OllamaUrl;
+    using (var http = new HttpClient { BaseAddress = new Uri(urlOllama, "/"), Timeout = TimeSpan.FromSeconds(30) })
+    {
+        try
+        {
+            using var ps = System.Text.Json.JsonDocument.Parse(await http.GetStringAsync("api/ps", ct));
+            var modelos = ps.RootElement.GetProperty("models").EnumerateArray().Select(m => m.GetProperty("name").GetString()!).ToList();
+            foreach (var modelo in modelos)
+            {
+                using var corpo = new StringContent(System.Text.Json.JsonSerializer.Serialize(new { model = modelo, keep_alive = 0 }), Encoding.UTF8, "application/json");
+                (await http.PostAsync("api/generate", corpo, ct)).Dispose();
+            }
+
+            Console.WriteLine($"Ollama:         {(modelos.Count == 0 ? "nada carregado" : "descarregado " + string.Join(", ", modelos))}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            Console.WriteLine($"Ollama:         não respondeu em {urlOllama} ({ex.Message})");
+        }
+    }
+
+    // Speaches: pelo motor da lib, que só manda o DELETE se a imagem tiver a correção (senão espera o tempo ocioso).
+    if (sp.GetRequiredService<IMotorTranscricao>() is IDescarregavel motor)
+    {
+        var relogio = Stopwatch.StartNew();
+        await motor.DescarregarAsync(ct);
+        Console.WriteLine($"Speaches:       Whisper descarregado ({relogio.Elapsed.TotalSeconds:F1} s)");
+    }
+
+    if (!resultado.GetValue(optManterTempoReal))
+    {
+        var conteiner = resultado.GetValue(optConteinerWlk)!;
+        var relogio = Stopwatch.StartNew();
+        Transcritor.Arquivo.Processos.ResultadoProcesso r;
+        try
+        {
+            r = await executor.ExecutarAsync("docker", ["stop", conteiner], null, ct);
+        }
+        catch (FerramentaExternaException)
+        {
+            r = new Transcritor.Arquivo.Processos.ResultadoProcesso(-1, string.Empty, "docker não encontrado no PATH");
+        }
+
+        Console.WriteLine(r.CodigoSaida == 0
+            ? $"WhisperLiveKit: parado ({relogio.Elapsed.TotalSeconds:F1} s); para o tempo real voltar: docker start {conteiner}"
+            : $"WhisperLiveKit: não parou ({r.Erro.Trim()})");
+    }
+
+    await Task.Delay(TimeSpan.FromSeconds(2), ct);  // o driver demora um pouco para mostrar a memória devolvida
+    var depois = await MemoriaGpuAsync(executor, ct);
+    if (antes is not null && depois is not null)
+    {
+        Console.WriteLine($"GPU:            {antes / 1024.0:F1} GB → {depois / 1024.0:F1} GB em uso (contando outros programas)");
+    }
+
+    return 0;
+}));
+
 // ---- tempo real: microfone, sistema, simular ------------------------------------
 var optSaidaTr = new Option<Saida>("--saida")
 {
@@ -652,7 +730,7 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
 
 var raiz = new RootCommand("Cli de teste da Transcritor lib.")
 {
-    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdDicionario, cmdAvaliarPalavras, cmdAvaliarFala,
+    cmdArquivo, cmdTraduzir, cmdPalavra, cmdMicrofone, cmdSistema, cmdSimular, cmdCaptura, cmdServicos, cmdLiberarGpu, cmdDicionario, cmdAvaliarPalavras, cmdAvaliarFala,
 };
 return await raiz.Parse(args).InvokeAsync();
 
@@ -807,6 +885,20 @@ static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar, Action<Opco
     }
 
     return services.BuildServiceProvider();
+}
+
+/// <summary>Memória usada na GPU em MiB (nvidia-smi), ou null se não der para ler.</summary>
+static async Task<int?> MemoriaGpuAsync(Transcritor.Arquivo.Processos.IExecutorProcesso executor, CancellationToken ct)
+{
+    try
+    {
+        var r = await executor.ExecutarAsync("nvidia-smi", ["--query-gpu=memory.used", "--format=csv,noheader,nounits"], null, ct);
+        return r.CodigoSaida == 0 && int.TryParse(r.Saida.Split('\n')[0].Trim(), out var mib) ? mib : null;
+    }
+    catch (FerramentaExternaException)
+    {
+        return null;
+    }
 }
 
 static async Task<int> Executar(Func<Task<int>> acao)

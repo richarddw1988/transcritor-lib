@@ -432,6 +432,10 @@ tradução com o `translategemma:12b`, memória da GPU lida a cada 2 s (`nvidia-
 - Achado à parte, igual nas três formas: em 4 das 10 gravações em inglês, a detecção automática de idioma do Whisper
   disse "pt" e devolveu o texto já traduzido para o português ("Eu posso descobrir se o clima será bom amanhã").
   Com sotaque brasileiro, force o idioma (`--idioma en`, opção `Idioma`).
-- A GPU em repouso, com o WhisperLiveKit de pé e sem sessão aberta, ficou em 0,7–0,9 GB. Depois de uma sessão de
-  tempo real (`simular`, 10 s de áudio) foi para 3,0 GB e continuou assim: o WhisperLiveKit não solta o modelo até
-  `docker restart whisperlivekit`.
+- WhisperLiveKit (`large-v3-turbo`), medido de novo em 2026-11-22 (GPU inteira, `nvidia-smi`): com o contêiner
+  parado, 0,7 GB; 30 s depois de `docker start`, sem sessão, 2,6 GB (carrega o modelo ao subir, ~1,9 GB); depois de
+  uma sessão curta (`simular`, 9 s), 2,8 GB, e ficou assim. Reiniciar o contêiner devolve só ~0,2 GB, porque ele carrega
+  de novo; só parado solta tudo. A medição anterior (0,7–0,9 GB em repouso e 3,0 GB depois da sessão) não se repetiu; a
+  causa da diferença não foi confirmada.
+- `liberar-gpu` (Ollama + Speaches + parar o WhisperLiveKit): de 6,6 GB para 0,7 GB, com o `gemma3:4b` e o
+  WhisperLiveKit carregados; o WhisperLiveKit parou em 2,6 s.

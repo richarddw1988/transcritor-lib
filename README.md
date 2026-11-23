@@ -71,7 +71,7 @@ Por que esses modelos, o que mais foi testado e quanto cada um custa: [docs/mode
 | `Transcritor.Traducao` | Tradução pt ↔ en pelo sentido via Ollama (frase com as vizinhas como contexto, palavra com a frase) e análise de sentido. |
 | `Transcritor.TempoReal` | Cliente WebSocket do WhisperLiveKit: eventos `Provisorio`/`Confirmado` como `IAsyncEnumerable`, tradução dos trechos. |
 | `Transcritor.Captura` | Windows (WASAPI/NAudio): microfone e som do sistema em PCM 16 kHz mono. |
-| `Transcritor.Cli` | Console para testar tudo: `arquivo`, `traduzir`, `palavra`, `microfone`, `sistema`, `simular`, `captura`, `servicos`. |
+| `Transcritor.Cli` | Console para testar tudo: `arquivo`, `traduzir`, `palavra`, `microfone`, `sistema`, `simular`, `captura`, `servicos`, `liberar-gpu`. |
 | `Transcritor.Tests` | Testes unitários com fakes de HTTP, WebSocket e processo (não precisam dos serviços). |
 
 Core, Arquivo, Traducao e TempoReal são `net10.0`; Captura, Cli e Tests são `net10.0-windows`.

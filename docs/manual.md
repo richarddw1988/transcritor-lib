@@ -121,6 +121,7 @@ isso. A configuração do Cli fica em `src/Transcritor.Cli/appsettings.json`.
 dotnet run --project src/Transcritor.Cli -- servicos
 ```
 Mostra `[ OK ]` ou `[FALHA]` com o motivo para ffmpeg, Speaches, Ollama (e modelos) e WhisperLiveKit.
+Para tirar os modelos da GPU (ex.: antes de um jogo ou de outro programa pesado), veja a seção 4.9.
 
 ### 4.2 Transcrever (e traduzir) um arquivo
 ```powershell
@@ -296,6 +297,17 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
    Mostra cada troca feita (marcando as que pioraram a frase) e, no fim, o WER antes e depois e o tempo por frase.
    Usa o mesmo caminho do arquivo (correção pelo texto + conferência no áudio). Para comparar variações, use as
    variáveis de ambiente, ex.: `$env:TRANSCRITOR_Transcritor__Arquivo__ConferirCorrecaoNoAudio = "false"`.
+
+### 4.9 Liberar a GPU
+```powershell
+dotnet run --project src/Transcritor.Cli -- liberar-gpu
+```
+Tira da GPU todos os modelos carregados no Ollama e o Whisper do Speaches, e para o WhisperLiveKit (ele carrega o
+modelo ao subir e só solta a memória parado; sessões de tempo real abertas são encerradas). Mostra a memória da GPU
+antes e depois (pelo `nvidia-smi`, contando outros programas). Para o tempo real voltar: `docker start whisperlivekit`.
+- `--manter-tempo-real` deixa o WhisperLiveKit de pé (só descarrega Ollama e Speaches).
+- `--conteiner` troca o nome do contêiner do WhisperLiveKit (padrão `whisperlivekit`).
+- Os serviços não precisam de nada para voltar: o Ollama e o Speaches carregam o modelo de novo na próxima chamada.
 
 ## 5. Usar a lib no seu projeto
 
@@ -546,8 +558,9 @@ O modelo do tempo real fica no `docker-compose.yml` (serviço `whisperlivekit`, 
   (`WHISPER__TTL`) por até `EsperaDescarregarTranscricao`.
 - Fora disso, os modelos descarregam sozinhos (Ollama: 10 min; Speaches: 5 min, `WHISPER__TTL`). A 1ª chamada depois
   disso é mais lenta (carga do modelo: ~5–9 s o Whisper, ~4 s um modelo de 4 GB do Ollama).
-- O WhisperLiveKit (tempo real) carrega o modelo na 1ª sessão e não solta mais: medido em 2026-11-22, a GPU foi de
-  0,9 GB para 3,0 GB numa sessão e continuou em 3,0 GB depois dela. Para liberar: `docker restart whisperlivekit`.
+- O WhisperLiveKit (tempo real) segura ~2 GB enquanto está de pé, com ou sem sessão: carrega o modelo ao subir e não
+  solta mais (reiniciar não adianta, ele carrega de novo). Para liberar: `liberar-gpu` (seção 4.9), que para o
+  contêiner junto com o descarregar do Ollama e do Speaches; volta com `docker start whisperlivekit`.
 - Ver o uso: `nvidia-smi` e `docker exec ollama ollama ps`.
 
 ## 9. Problemas comuns
