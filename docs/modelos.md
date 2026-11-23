@@ -76,7 +76,10 @@ Medido em 2026-11-22 nas 20 gravações do usuário (`dados/gravacoes`, 12 em in
 - Audiolivro de 17 min (inglês, narração limpa), só transcrição: 207 s com a conferência, 199 s sem;
   as 177 frases saíram idênticas (~8 s a mais, ~4%).
 - Só pt/en: se o Whisper detectar outro idioma, fica como veio. Motor sem confiança por palavra: não confere.
-- O tempo real (WhisperLiveKit, `--language auto`) não tem essa conferência: lá, use `--idioma`.
+- O tempo real (WhisperLiveKit, `--language auto`) não tem essa conferência. Medido em 2026-11-22 com `simular` nas
+  mesmas 20 gravações (`large-v3-turbo`, `simulstreaming`): o idioma saiu certo em **20/20**, inclusive nas 5 em que o
+  arquivo errava (en02, en03, en06, en07 e en08 saíram em inglês, com os erros de reconhecimento do sotaque). Sem erro
+  medido, a conferência não foi feita no tempo real; se a fala começar no idioma errado, use `--idioma`.
 
 ### Confiança por palavra (campo `confianca` do JSON)
 
