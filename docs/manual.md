@@ -25,6 +25,7 @@ Sumário:
 | Microfone em tempo real | Eventos `Provisorio` (texto que ainda muda) e `Confirmado` (texto final), com tradução | WhisperLiveKit + Ollama |
 | Som do sistema em tempo real | O mesmo, com o que está tocando no computador | WhisperLiveKit + Ollama |
 | Tradução | Português ↔ inglês pelo sentido: frase com as vizinhas como contexto; palavra solta com a frase | Ollama |
+| Homófonos (com o dicionário e os modelos BERT) | Troca a grafia de palavras que soam igual pela que o sentido pede ("a cela do cavalo" → "a sela do cavalo"), antes de traduzir | BERT na CPU + dicionário |
 | Correção da transcrição (opcional, experimental) | Troca palavras que o reconhecimento ouviu errado por outra de som parecido, pelo sentido da frase ("night" → "knight"), antes de traduzir | Ollama + dicionário |
 | Dicionário local (opcional) | Sentidos reais de uma palavra ou expressão, inglês ↔ português, com a forma base das flexões ("gave" → "give") | SQLite gerado do Wiktionary |
 
@@ -454,7 +455,9 @@ foreach (var v in sentidos)
   `dicionario.TemHomofonos` diz se o banco tem a lista (os gerados antes de 2026-11-23 não têm).
 
 ### 5.5 Correção da transcrição
-O arquivo usa sozinho quando `CorrigirTranscricao = true`. Para corrigir uma frase avulsa (ex.: do tempo real):
+O arquivo usa sozinho quando alguma parte está ligada: a correção pelo modelo (`CorrigirTranscricao = true`,
+experimental) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o dicionário e os modelos BERT). Para corrigir uma
+frase avulsa (ex.: do tempo real):
 ```csharp
 var corretor = sp.GetRequiredService<ICorretorTranscricao>();
 IReadOnlyList<Correcao> trocas = await corretor.CorrigirAsync(
@@ -475,13 +478,15 @@ foreach (var t in trocas)
 - Experimental: ainda troca palavras certas (ver `docs/modelos.md`); confira antes de ligar no seu app.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
 - Homófonos (`CorrigirHomofonos`, ligada; precisa do dicionário com a lista de homófonos e dos modelos de
-  `PastaModelosHomofonos`, senão não faz nada): depois da correção, cada palavra que tem homófono no dicionário
+  `PastaModelosHomofonos`, senão não faz nada; roda mesmo com `CorrigirTranscricao = false`): depois da correção pelo
+  modelo (se ligada), cada palavra que tem homófono no dicionário
   ("cela" ↔ "sela", "conserto" ↔ "concerto") passa por um BERT (modelo de lacuna, na CPU, sem Ollama nem GPU), que dá
   a probabilidade de cada grafia pelo sentido da frase. Troca só se outra grafia tiver pelo menos `LimiteHomofono`
   (0,99), mesmo que o reconhecimento estivesse seguro; palavra com maiúscula no meio da frase (nome) fica de fora. A
   troca sai marcada (`Correcao.Homofono`) e, no arquivo, não é conferida no áudio, porque o som é o mesmo. Medido:
   "cela" → "sela" na fala do usuário e nenhuma troca indevida no audiolivro (ver `docs/modelos.md`).
-- `CorrigirAsync` funciona mesmo com `CorrigirTranscricao = false`; `Ativo` só diz se o arquivo deve usar.
+- `CorrigirAsync` faz as partes ligadas: com `CorrigirTranscricao = false`, só os homófonos (até 2026-11-23 o modelo
+  rodava mesmo desligado; para frase avulsa, ligue a opção). `Ativo` diz se alguma parte está ligada.
 
 ### 5.6 Erros
 Todos herdam de `TranscritorException`:
@@ -526,10 +531,10 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
 | `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta que faz parte de uma expressão do dicionário recebe os sentidos da expressão como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
 | `LimiarPalavraRara` | `0` (desligado) | **Experimental.** Nas frases do arquivo, palavra fora das N mais frequentes (ex.: `10000`) vai com as traduções do dicionário nas instruções do modelo. Precisa do dicionário gerado com as listas de frequência (4.6). Ver 4.6 antes de ligar |
-| `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo, antes de traduzir (seção 5.5) |
+| `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Experimental; os homófonos não dependem dela |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
-| `CorrigirHomofonos` | `true` | Na correção, cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
+| `CorrigirHomofonos` | `true` | Cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta e mesmo com `CorrigirTranscricao` desligada (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
 | `PastaModelosHomofonos` | nulo (no Cli: `dados/bert`) | Pasta dos BERT em ONNX (`en/` e `pt/`, cada uma com `model.onnx` e `vocab.txt`), gerados por `preparar-ambiente.ps1 -ComHomofonos` |
 | `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |

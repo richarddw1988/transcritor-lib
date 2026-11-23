@@ -76,11 +76,12 @@ public sealed class HomofonosTests : IDisposable
 
     private static readonly FakeHttpHandler SemOllama = new((_, _) => throw new InvalidOperationException("não deveria chamar o Ollama"));
 
-    private static CorretorOllama Corretor(IEscolhedorHomofonos? escolhedor, string banco, bool homofonos = true, FakeHttpHandler? handler = null)
+    private static CorretorOllama Corretor(
+        IEscolhedorHomofonos? escolhedor, string banco, bool homofonos = true, FakeHttpHandler? handler = null, bool modelo = true)
     {
         var opcoes = Options.Create(new OpcoesTraducao
         {
-            CorrigirTranscricao = true,
+            CorrigirTranscricao = modelo,
             ModeloCorrecao = "gemma3:12b",
             CaminhoDicionario = banco,
             CorrigirHomofonos = homofonos,
@@ -147,6 +148,22 @@ public sealed class HomofonosTests : IDisposable
 
         Assert.Equal([new Correcao(0, "Cela", "Sela", Homofono: true), new Correcao(3, "cela.", "sela.", Homofono: true)], trocas);
         Assert.Empty(await Corretor(bert, banco).CorrigirAsync(nome, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Com_a_correcao_pelo_modelo_desligada_so_os_homofonos_rodam()
+    {
+        var (banco, _) = await ImportarAsync();
+        // "rasgada" com confiança baixa iria ao modelo de conversa; com ele desligado, o Ollama não é chamado.
+        var duvidosa = Confiante with { Confiancas = [1.0, 1.0, 1.0, 1.0, 1.0, 0.3] };
+        var corretor = Corretor(new Escolhe("sela", 0.999), banco, modelo: false);
+
+        Assert.True(corretor.Ativo);
+        Assert.Equal("so-h3:0.99", corretor.Identificador);
+        Assert.Equal(new Correcao(1, "cela", "sela", Homofono: true), Assert.Single(await corretor.CorrigirAsync(duvidosa, CancellationToken.None)));
+        await corretor.VerificarAsync(CancellationToken.None); // sem modelo de conversa, não confere o Ollama
+        Assert.False(Corretor(new Escolhe("sela", 0.999, disponivel: false), banco, modelo: false).Ativo);
+        Assert.False(Corretor(new Escolhe("sela", 0.999), banco, homofonos: false, modelo: false).Ativo);
     }
 
     [Fact]

@@ -15,7 +15,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
 | Correção de palavras ouvidas errado, **opcional e experimental** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao=true` | 8,2 GB | cada troca conferida no áudio pelo Whisper; na fala do usuário WER 8,0% → 6,6% (3 certas, 0 erradas); no audiolivro de 17 min só uma grafia trocada, ~3 min (ver abaixo) |
-| Escolha de homófonos na correção ("cela" ↔ "sela"), junto com a correção | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada | fala do usuário: "cela" → "sela", WER 6,0% → 5,8% junto com a correção; audiolivro: 0 trocas indevidas, +23 s (ver "Homófonos") |
+| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção experimental | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -463,7 +463,13 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
       O `avaliar-fala` ficou 2,2 s/frase mais lento (5,4 contra 3,2 s), porque abre os serviços (e o BERT) de novo
       para cada gravação; num arquivo, o modelo carrega uma vez. Memória: não medida.
-    - Por isso `CorrigirHomofonos` passou a ligada (a correção em si continua desligada por padrão).
+    - Por isso `CorrigirHomofonos` passou a ligada e, desde 2026-11-23, roda mesmo com a correção pelo modelo
+      desligada (a correção em si continua experimental e desligada). Com as opções padrão, só os homófonos:
+
+      | Conjunto | Sem homófonos | Com os homófonos |
+      |---|---|---|
+      | 49 frases do usuário (`avaliar-fala`, sem `--corrigir`) | WER 6,3% | **6,2%** ("cela" → "sela") |
+      | Audiolivro de 17 min (transcrição do cache) | 0,5 s (tudo do cache) | 24,6 s, **0 trocas** |
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
   mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.

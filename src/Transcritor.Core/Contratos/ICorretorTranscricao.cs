@@ -35,7 +35,10 @@ public interface ICorretorTranscricao
     /// <summary>Identifica modelo e versão do prompt; entra na chave do cache.</summary>
     string Identificador { get; }
 
-    /// <summary>Falso quando a correção está desligada na configuração; quem usa deve pular a correção.</summary>
+    /// <summary>
+    /// Falso quando nenhuma parte da correção está ligada na configuração (nem a pelo modelo nem a dos homófonos); quem
+    /// usa deve pular a correção.
+    /// </summary>
     bool Ativo { get; }
 
     /// <summary>Trocas a fazer, em ordem de índice; vazio se a frase parece certa.</summary>

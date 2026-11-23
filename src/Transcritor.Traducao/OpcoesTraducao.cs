@@ -47,10 +47,11 @@ public sealed class OpcoesTraducao
     public double LimiteConfiancaCorrecao { get; set; } = 0.95;
 
     /// <summary>
-    /// Na correção, cada palavra que tem homófono no dicionário ("cela" ↔ "sela", "bare" ↔ "bear") passa por um BERT
+    /// Cada palavra que tem homófono no dicionário ("cela" ↔ "sela", "bare" ↔ "bear") passa por um BERT
     /// (modelo de lacuna) que dá a probabilidade de cada grafia pelo sentido da frase; troca se outra grafia passar de
     /// <see cref="LimiteHomofono"/>, mesmo que o reconhecimento estivesse seguro. Precisa do dicionário gerado com a
     /// lista de homófonos (desde 2026-11-23) e dos modelos em <see cref="PastaModelosHomofonos"/>; sem eles, não faz nada.
+    /// Roda mesmo com <see cref="CorrigirTranscricao"/> desligada (no arquivo, na etapa da correção).
     /// </summary>
     public bool CorrigirHomofonos { get; set; } = true;
 

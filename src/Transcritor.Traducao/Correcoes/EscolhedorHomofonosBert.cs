@@ -39,7 +39,11 @@ internal sealed class EscolhedorHomofonosBert(IOptions<OpcoesTraducao> opcoes) :
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
     private readonly ConcurrentDictionary<string, Lazy<Modelo?>> _modelos = new(StringComparer.Ordinal);
 
-    public bool Disponivel(string idioma) => ModeloDo(idioma) is not null;
+    /// <summary>Só confere os arquivos; o modelo carrega na 1ª <see cref="Avaliar"/>.</summary>
+    public bool Disponivel(string idioma) =>
+        !string.IsNullOrWhiteSpace(_opcoes.PastaModelosHomofonos)
+        && File.Exists(Path.Combine(Path.GetFullPath(_opcoes.PastaModelosHomofonos), Idiomas.Normalizar(idioma), "model.onnx"))
+        && File.Exists(Path.Combine(Path.GetFullPath(_opcoes.PastaModelosHomofonos), Idiomas.Normalizar(idioma), "vocab.txt"));
 
     public IReadOnlyList<GrafiaProvavel> Avaliar(IReadOnlyList<string> palavras, int indice, IReadOnlyList<string> grafias, string idioma)
     {

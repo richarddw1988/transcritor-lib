@@ -38,8 +38,8 @@ internal sealed class CorretorOllama(
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
 
     public string Identificador =>
-        $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" +
-        (UsaHomofonos ? $"-h{VersaoHomofonos}:{_opcoes.LimiteHomofono.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : string.Empty);
+        (UsaModelo ? $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" : "so")
+        + (UsaHomofonos ? $"-h{VersaoHomofonos}:{_opcoes.LimiteHomofono.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : string.Empty);
 
     /// <summary>Mudar a pergunta dos homófonos exige subir (entra na chave do cache).</summary>
     private const int VersaoHomofonos = 3;
@@ -47,7 +47,14 @@ internal sealed class CorretorOllama(
     /// <summary>Homófonos ligados e o dicionário tem a lista.</summary>
     private bool UsaHomofonos => _opcoes.CorrigirHomofonos && escolhedor is not null && fonte.Dicionario is { TemHomofonos: true };
 
-    public bool Ativo => _opcoes.CorrigirTranscricao && !string.IsNullOrWhiteSpace(_opcoes.ModeloCorrecao);
+    /// <summary>Correção pelo modelo de conversa (<see cref="OpcoesTraducao.CorrigirTranscricao"/>, experimental).</summary>
+    private bool UsaModelo => _opcoes.CorrigirTranscricao && !string.IsNullOrWhiteSpace(_opcoes.ModeloCorrecao);
+
+    /// <summary>
+    /// Ligada se a correção pelo modelo estiver ligada ou se os homófonos puderem rodar (lista no dicionário e BERT de
+    /// algum idioma): os homófonos não dependem da correção experimental.
+    /// </summary>
+    public bool Ativo => UsaModelo || (UsaHomofonos && (escolhedor!.Disponivel(Idiomas.Ingles) || escolhedor.Disponivel(Idiomas.Portugues)));
 
     public string NomeServico => $"{ClienteOllama.Nome} (correção da transcrição)";
 
@@ -57,7 +64,7 @@ internal sealed class CorretorOllama(
         var aceitas = new List<Correcao>();
         var atual = pedido.Palavras.ToArray();
         var podeTrocar = Enumerable.Range(0, pedido.Palavras.Count).Select(i => PodeTrocar(pedido, i)).ToArray();
-        if (podeTrocar.Any(p => p)) // nenhuma palavra duvidosa: a frase nem vai ao modelo da correção
+        if (UsaModelo && podeTrocar.Any(p => p)) // nenhuma palavra duvidosa: a frase nem vai ao modelo da correção
         {
             foreach (var troca in await ProporAsync(pedido, podeTrocar, cancellationToken).ConfigureAwait(false))
             {
@@ -202,9 +209,7 @@ internal sealed class CorretorOllama(
         && (pedido.Confiancas is not { } c || indice >= c.Count || c[indice] is not { } v || v < _opcoes.LimiteConfiancaCorrecao);
 
     public Task VerificarAsync(CancellationToken cancellationToken) =>
-        Ativo
-            ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken)
-            : Task.CompletedTask;
+        UsaModelo ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken) : Task.CompletedTask;
 
     public Task DescarregarAsync(CancellationToken cancellationToken) =>
         ollama.DescarregarAsync(_opcoes.ModeloCorrecao, cancellationToken);

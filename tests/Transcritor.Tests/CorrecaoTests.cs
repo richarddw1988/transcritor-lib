@@ -212,7 +212,7 @@ public class CorretorOllamaTests
         var corretor = Criar(handler, ativo: false);
 
         Assert.False(corretor.Ativo);
-        Assert.Contains(":r", corretor.Identificador, StringComparison.Ordinal);
+        Assert.Equal("so", corretor.Identificador);
         await corretor.VerificarAsync(CancellationToken.None);
         Assert.Empty(handler.Recebidas);
     }
