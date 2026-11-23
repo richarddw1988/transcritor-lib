@@ -212,6 +212,23 @@ public sealed class HomofonosTests : IDisposable
     }
 
     [Fact]
+    public async Task Com_a_conferencia_ligada_e_sem_o_bert_do_idioma_o_modelo_nao_roda()
+    {
+        var (banco, _) = await ImportarAsync();
+        var pedido = new PedidoCorrecao("She bought a pen at the chop.".Split(' '), "en", [], [], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.34]);
+        var semBert = Corretor(new Escolhe("shop", 0.95, disponivel: false), banco, conferirComBert: true);
+        var semEscolhedor = Corretor(null, banco, conferirComBert: true);
+
+        // SemOllama lança se for chamado: nem a frase duvidosa vai ao modelo, nem o Ollama é conferido.
+        Assert.Empty(await semBert.CorrigirAsync(pedido, CancellationToken.None));
+        Assert.Empty(await semEscolhedor.CorrigirAsync(pedido, CancellationToken.None));
+        await semBert.VerificarAsync(CancellationToken.None);
+        Assert.False(semBert.Ativo);
+        Assert.False(semEscolhedor.Ativo);
+        Assert.Equal("so", semEscolhedor.Identificador);
+    }
+
+    [Fact]
     public async Task Desligado_ou_sem_dicionario_o_homofono_seguro_nao_vai_ao_modelo()
     {
         var (banco, _) = await ImportarAsync();

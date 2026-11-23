@@ -57,7 +57,8 @@
     Também gera dados/bert (~1 GB): baixa google-bert/bert-base-cased e neuralmind/bert-base-portuguese-cased do
     huggingface.co e converte para ONNX dentro de um contêiner python:3.12-slim (scripts/exportar-bert.py; baixa ~1,3 GB
     na 1ª vez, entre imagem, PyTorch e modelos). Usados pela correção da transcrição (CorrigirHomofonos); precisam do
-    dicionário com a lista de homófonos (-ComDicionario).
+    dicionário com a lista de homófonos (-ComDicionario). Sem eles, a correção pelo modelo também não roda (ela é
+    conferida pelo BERT; Transcritor:Traducao:ConferirCorrecaoComBert).
 
 .EXAMPLE
     .\scripts\preparar-ambiente.ps1
@@ -382,7 +383,7 @@ if ($faltamBert.Count -eq 0) {
     Escrever-Ok "Modelos BERT em $pastaBert (en, pt)"
 }
 elseif (-not $ComHomofonos) {
-    Write-Host '  Não gerados (opcional; usados pela correção da transcrição). Para gerar: .\scripts\preparar-ambiente.ps1 -ComHomofonos'
+    Write-Host '  Não gerados (opcional; sem eles, nem os homófonos nem a correção pelo modelo rodam). Para gerar: .\scripts\preparar-ambiente.ps1 -ComDicionario -ComHomofonos'
 }
 elseif ($SoConferir) {
     Escrever-Falha "Modelos BERT ausentes em ${pastaBert}: $($faltamBert -join ', ')"

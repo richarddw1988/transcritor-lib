@@ -38,8 +38,8 @@ internal sealed class CorretorOllama(
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
 
     public string Identificador =>
-        (UsaModelo
-            ? $"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" +
+        (ModeloEmAlgumIdioma
+            ?$"ollama:{_opcoes.ModeloCorrecao}:r{Versao}{(_opcoes.ConfirmarCorrecaoComModelo ? "-conf" : string.Empty)}" +
               (ConfereComBert ? $"-cb:{Limite(_opcoes.LimiteParecida)}" : string.Empty)
             : "so")
         + (UsaHomofonos ? $"-h{VersaoHomofonos}:{Limite(_opcoes.LimiteHomofono)}" : string.Empty);
@@ -63,10 +63,19 @@ internal sealed class CorretorOllama(
     private bool UsaModelo => _opcoes.CorrigirTranscricao && !string.IsNullOrWhiteSpace(_opcoes.ModeloCorrecao);
 
     /// <summary>
-    /// Ligada se a correção pelo modelo estiver ligada ou se os homófonos puderem rodar (lista no dicionário e BERT de
-    /// algum idioma): os homófonos não dependem da correção pelo modelo.
+    /// A correção pelo modelo roda no idioma: ligada e, com <see cref="OpcoesTraducao.ConferirCorrecaoComBert"/>, com o
+    /// BERT do idioma. Sem o BERT não roda, porque sem a conferência o modelo troca palavras certas (docs/modelos.md).
     /// </summary>
-    public bool Ativo => UsaModelo || (UsaHomofonos && (escolhedor!.Disponivel(Idiomas.Ingles) || escolhedor.Disponivel(Idiomas.Portugues)));
+    private bool ModeloRoda(string idioma) => UsaModelo && (!_opcoes.ConferirCorrecaoComBert || TemBert(idioma));
+
+    /// <summary>A correção pelo modelo roda em algum idioma (entra na chave do cache e decide se o Ollama é conferido).</summary>
+    private bool ModeloEmAlgumIdioma => ModeloRoda(Idiomas.Ingles) || ModeloRoda(Idiomas.Portugues);
+
+    /// <summary>
+    /// Ligada se a correção pelo modelo puder rodar ou se os homófonos puderem (lista no dicionário e BERT de algum
+    /// idioma): os homófonos não dependem da correção pelo modelo.
+    /// </summary>
+    public bool Ativo => ModeloEmAlgumIdioma ||(UsaHomofonos && (escolhedor!.Disponivel(Idiomas.Ingles) || escolhedor.Disponivel(Idiomas.Portugues)));
 
     public string NomeServico => $"{ClienteOllama.Nome} (correção da transcrição)";
 
@@ -76,9 +85,9 @@ internal sealed class CorretorOllama(
         var aceitas = new List<Correcao>();
         var atual = pedido.Palavras.ToArray();
         var podeTrocar = Enumerable.Range(0, pedido.Palavras.Count).Select(i => PodeTrocar(pedido, i)).ToArray();
-        if (UsaModelo && podeTrocar.Any(p => p)) // nenhuma palavra duvidosa: a frase nem vai ao modelo da correção
+        if (ModeloRoda(pedido.Idioma) && podeTrocar.Any(p => p)) // nenhuma palavra duvidosa: a frase nem vai ao modelo
         {
-            var conferirComBert = _opcoes.ConferirCorrecaoComBert && TemBert(pedido.Idioma);
+            var conferirComBert = _opcoes.ConferirCorrecaoComBert;
             foreach (var troca in await ProporAsync(pedido, podeTrocar, cancellationToken).ConfigureAwait(false))
             {
                 // Uma troca por vez, sobre a frase com as já aceitas: em "quiet quiet" só uma das duas pode virar "quite".
@@ -232,7 +241,7 @@ internal sealed class CorretorOllama(
         && (pedido.Confiancas is not { } c || indice >= c.Count || c[indice] is not { } v || v < _opcoes.LimiteConfiancaCorrecao);
 
     public Task VerificarAsync(CancellationToken cancellationToken) =>
-        UsaModelo ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken) : Task.CompletedTask;
+        ModeloEmAlgumIdioma ? ollama.VerificarAsync([_opcoes.ModeloCorrecao], cancellationToken) : Task.CompletedTask;
 
     public Task DescarregarAsync(CancellationToken cancellationToken) =>
         ollama.DescarregarAsync(_opcoes.ModeloCorrecao, cancellationToken);

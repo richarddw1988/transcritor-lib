@@ -149,7 +149,7 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 - A correção de palavras ouvidas errado roda por padrão antes de traduzir (`CorrigirTranscricao`, seção 6): nas 49
   frases gravadas pelo usuário fez 4 trocas certas e nenhuma errada (WER 6,3% → 5,6%), e no audiolivro só mudou uma
   grafia ("marvellous" → "marvelous"); ver `docs/modelos.md`. Só frases com alguma palavra de confiança abaixo de 0,95
-  vão ao modelo, e cada troca proposta é conferida pelo BERT e no áudio (a frase é transcrita de novo); no audiolivro de
+  vão ao modelo, e cada troca proposta é conferida pelo BERT (sem os modelos BERT, a correção não roda; ver 5.5) e no áudio (a frase é transcrita de novo); no audiolivro de
   17 min a correção levou ~100 s. A palavra trocada guarda a original em `ouvida` no JSON. `--sem-correcao` pula a
   correção pelo modelo (os homófonos continuam).
 
@@ -460,7 +460,7 @@ foreach (var v in sentidos)
 
 ### 5.5 Correção da transcrição
 O arquivo usa sozinho quando alguma parte está ligada: a correção pelo modelo (`CorrigirTranscricao`, ligada por
-padrão desde 2026-11-23; precisa do `ModeloCorrecao` no Ollama) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o
+padrão desde 2026-11-23; precisa do `ModeloCorrecao` no Ollama e dos modelos BERT) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o
 dicionário e os modelos BERT). Para corrigir uma
 frase avulsa (ex.: do tempo real):
 ```csharp
@@ -483,9 +483,11 @@ foreach (var t in trocas)
 - Medido nas 49 frases do usuário: 4 trocas certas e 0 erradas, com a conferência pelo BERT e no áudio; sem elas, o
   modelo sozinho troca palavras certas (ver `docs/modelos.md`). Ainda corrige poucas das palavras erradas.
 - Com o dicionário (`CaminhoDicionario`), o modelo recebe as palavras parecidas de cada palavra como sugestão.
-- Com os modelos BERT (`PastaModelosHomofonos`), cada troca proposta pelo modelo também passa pelo BERT
-  (`ConferirCorrecaoComBert`, ligada): só vale se ele der à palavra nova pelo menos `LimiteParecida` (0,5) contra a
-  ouvida. Na fala do usuário, barrou a única troca errada ("leave" → "live") sem perder nenhuma certa.
+- Cada troca proposta pelo modelo também passa pelo BERT (`ConferirCorrecaoComBert`, ligada): só vale se ele der à
+  palavra nova pelo menos `LimiteParecida` (0,5) contra a ouvida. Na fala do usuário, barrou a única troca errada
+  ("leave" → "live") sem perder nenhuma certa. Por isso, com a opção ligada, **a correção pelo modelo só roda no idioma
+  que tem o BERT** em `PastaModelosHomofonos` (`preparar-ambiente.ps1 -ComHomofonos`); sem ele, a frase fica como foi
+  ouvida e o Ollama nem é chamado. Para rodar sem o BERT, desligue `ConferirCorrecaoComBert` (mais trocas erradas).
 - Homófonos (`CorrigirHomofonos`, ligada; precisa do dicionário com a lista de homófonos e dos modelos de
   `PastaModelosHomofonos`, senão não faz nada; roda mesmo com `CorrigirTranscricao = false`): depois da correção pelo
   modelo (se ligada), cada palavra que tem homófono no dicionário
@@ -540,12 +542,12 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
 | `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta que faz parte de uma expressão do dicionário recebe os sentidos da expressão como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
 | `LimiarPalavraRara` | `0` (desligado) | **Experimental.** Nas frases do arquivo, palavra fora das N mais frequentes (ex.: `10000`) vai com as traduções do dicionário nas instruções do modelo. Precisa do dicionário gerado com as listas de frequência (4.6). Ver 4.6 antes de ligar |
-| `CorrigirTranscricao` | `true` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Precisa do `ModeloCorrecao` no Ollama (`preparar-ambiente.ps1` baixa; sem ele, `false`). Os homófonos não dependem dela |
+| `CorrigirTranscricao` | `true` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Precisa do `ModeloCorrecao` no Ollama (`preparar-ambiente.ps1` baixa; sem ele, `false`) e, com `ConferirCorrecaoComBert`, do BERT do idioma (sem ele, não roda). Os homófonos não dependem dela |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
 | `CorrigirHomofonos` | `true` | Cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta e mesmo com `CorrigirTranscricao` desligada (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
 | `PastaModelosHomofonos` | nulo (no Cli: `dados/bert`) | Pasta dos BERT em ONNX (`en/` e `pt/`, cada uma com `model.onnx` e `vocab.txt`), gerados por `preparar-ambiente.ps1 -ComHomofonos` |
-| `ConferirCorrecaoComBert` | `true` | Cada troca proposta pelo modelo de conversa só vale se o BERT preferir a palavra nova (5.5). Sem os modelos BERT, não confere |
+| `ConferirCorrecaoComBert` | `true` | Cada troca proposta pelo modelo de conversa só vale se o BERT preferir a palavra nova (5.5). Ligada, a correção pelo modelo só roda no idioma com o BERT; desligada, roda sem conferir |
 | `LimiteParecida` | `0.5` | Probabilidade mínima, pelo BERT, da palavra nova contra a ouvida; com 0,7 já perdeu uma troca certa |
 | `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |

@@ -100,7 +100,11 @@ public class CorretorOllamaTests
 {
     private static CorretorOllama Criar(FakeHttpHandler handler, bool ativo = true, bool confirmar = true)
     {
-        var opcoes = Options.Create(new OpcoesTraducao { CorrigirTranscricao = ativo, ModeloCorrecao = "gemma3:12b", ConfirmarCorrecaoComModelo = confirmar });
+        // Sem BERT aqui: a conferência por ele fica desligada, senão a correção pelo modelo nem roda.
+        var opcoes = Options.Create(new OpcoesTraducao
+        {
+            CorrigirTranscricao = ativo, ConferirCorrecaoComBert = false, ModeloCorrecao = "gemma3:12b", ConfirmarCorrecaoComModelo = confirmar,
+        });
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://ollama.test:11434/") };
         return new CorretorOllama(new ClienteOllama(http, opcoes), opcoes, new FonteDicionario(opcoes));
     }
