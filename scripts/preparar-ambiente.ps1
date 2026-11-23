@@ -10,12 +10,13 @@
       3. Espera cada serviço responder.
       4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução e da correção no Ollama.
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
-      Opcional (-ComDicionario): baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o
-      dicionário local em dados/.
-      Opcional (-ComHomofonos): converte para ONNX, dentro de um contêiner Docker, os dois BERT da escolha de homófonos
-      da correção (dados/bert, ~1 GB; não precisa de Python nesta máquina).
+      6. Baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o dicionário local em
+         dados/ (-SemDicionario pula).
+      7. Converte para ONNX, dentro de um contêiner Docker, os dois BERT dos homófonos e da conferência da correção
+         (dados/bert, ~1 GB; não precisa de Python nesta máquina; -SemHomofonos pula).
 
-    Primeira vez: baixa ~56 GB (imagens + modelos; ~48 GB com -SemCorrecao) e leva de 20 a 60 minutos, conforme a internet.
+    Primeira vez: baixa ~58 GB (imagens + modelos + dicionário + BERT; ~48 GB com -SemCorrecao -SemDicionario
+    -SemHomofonos) e leva de 20 a 60 minutos, conforme a internet.
 
 .PARAMETER SoConferir
     Só confere pré-requisitos e serviços; não constrói, não sobe e não baixa nada.
@@ -48,17 +49,17 @@
 .PARAMETER ModeloCorrecao
     Modelo do Ollama para a correção da transcrição (Transcritor:Traducao:ModeloCorrecao).
 
-.PARAMETER ComDicionario
-    Também baixa os dumps do Wiktionary (kaikki.org, ~600 MB, CC BY-SA) e as listas de frequência do FrequencyWords
-    (en_50k.txt e pt_br_50k.txt, ~0,6 MB cada, CC BY-SA) para dados/ e gera dados/dicionario.db
-    (dicionário inglês ↔ português local, ~60 MB). Sem esta opção o script só informa se o dicionário existe.
+.PARAMETER SemDicionario
+    Não baixa os dumps do Wiktionary (kaikki.org, ~600 MB, CC BY-SA) nem as listas de frequência do FrequencyWords
+    (en_50k.txt e pt_br_50k.txt, ~0,6 MB cada, CC BY-SA) e não gera dados/dicionario.db (dicionário inglês ↔ português
+    local, ~60 MB); só informa se ele existe. Sem o dicionário, os homófonos não rodam e a correção perde as sugestões
+    de palavras parecidas.
 
-.PARAMETER ComHomofonos
-    Também gera dados/bert (~1 GB): baixa google-bert/bert-base-cased e neuralmind/bert-base-portuguese-cased do
-    huggingface.co e converte para ONNX dentro de um contêiner python:3.12-slim (scripts/exportar-bert.py; baixa ~1,3 GB
-    na 1ª vez, entre imagem, PyTorch e modelos). Usados pela correção da transcrição (CorrigirHomofonos); precisam do
-    dicionário com a lista de homófonos (-ComDicionario). Sem eles, a correção pelo modelo também não roda (ela é
-    conferida pelo BERT; Transcritor:Traducao:ConferirCorrecaoComBert).
+.PARAMETER SemHomofonos
+    Não gera dados/bert (~1 GB: google-bert/bert-base-cased e neuralmind/bert-base-portuguese-cased do huggingface.co,
+    convertidos para ONNX num contêiner python:3.12-slim por scripts/exportar-bert.py; baixa ~1,3 GB na 1ª vez, entre
+    imagem, PyTorch e modelos); só informa se existem. Sem eles, nem os homófonos (CorrigirHomofonos) nem a correção
+    pelo modelo rodam (ela é conferida pelo BERT; Transcritor:Traducao:ConferirCorrecaoComBert).
 
 .EXAMPLE
     .\scripts\preparar-ambiente.ps1
@@ -79,8 +80,8 @@ param(
     [string] $ModeloAnalise = 'gemma3:12b',
     [switch] $SemCorrecao,
     [string] $ModeloCorrecao = 'gemma3:12b',
-    [switch] $ComDicionario,
-    [switch] $ComHomofonos,
+    [switch] $SemDicionario,
+    [switch] $SemHomofonos,
     [string] $SpeachesUrl = 'http://localhost:8000',
     [string] $OllamaUrl = 'http://localhost:11434',
     [string] $WhisperLiveKitUrl = 'http://localhost:8001'
@@ -315,8 +316,8 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
-# Dicionário local (opcional): não é pré-requisito; só é baixado com -ComDicionario.
-Escrever-Etapa '6. Dicionário inglês-português (opcional)'
+# Dicionário local: usado pela correção e pelos homófonos; -SemDicionario pula.
+Escrever-Etapa '6. Dicionário inglês-português'
 $pastaDados = Join-Path $raiz 'dados'
 $banco = Join-Path $pastaDados 'dicionario.db'
 $arquivosDicionario = @(
@@ -343,13 +344,11 @@ if (Test-Path $banco) {
 if ($bancoValido -and $faltamListas.Count -eq 0 -and $temHomofonos) {
     Escrever-Ok "Dicionário: $banco ($([math]::Round((Get-Item $banco).Length / 1MB)) MB), com listas de frequência e homófonos"
 }
-elseif ($bancoValido -and $faltamListas.Count -eq 0 -and -not $ComDicionario) {
-    Escrever-Aviso "Dicionário sem a lista de homófonos (gerado antes de 2026-11-23). Para completar: .\scripts\preparar-ambiente.ps1 -ComDicionario"
-}
-elseif (-not $ComDicionario) {
-    if ($bancoValido) { Escrever-Aviso "Dicionário sem listas de frequência ($($faltamListas -join ', ')). Para completar: .\scripts\preparar-ambiente.ps1 -ComDicionario" }
-    elseif (Test-Path $banco) { Escrever-Aviso "Dicionário de versão anterior em $banco (a lib não usa). Para gerar de novo: .\scripts\preparar-ambiente.ps1 -ComDicionario" }
-    else { Write-Host '  Não gerado (opcional). Para gerar: .\scripts\preparar-ambiente.ps1 -ComDicionario' }
+elseif ($SemDicionario) {
+    if ($bancoValido -and $faltamListas.Count -eq 0) { Escrever-Aviso "Dicionário sem a lista de homófonos (gerado antes de 2026-11-23). Para completar, rode o script sem -SemDicionario" }
+    elseif ($bancoValido) { Escrever-Aviso "Dicionário sem listas de frequência ($($faltamListas -join ', ')). Para completar, rode o script sem -SemDicionario" }
+    elseif (Test-Path $banco) { Escrever-Aviso "Dicionário de versão anterior em $banco (a lib não usa). Para gerar de novo, rode o script sem -SemDicionario" }
+    else { Write-Host '  Não gerado (-SemDicionario): sem ele, os homófonos não rodam e a correção fica sem as palavras parecidas.' }
 }
 elseif ($SoConferir) {
     if (-not $bancoValido) { Escrever-Falha "Dicionário ausente ou de versão anterior em $banco" }
@@ -374,16 +373,16 @@ else {
 }
 
 # ---------------------------------------------------------------------------
-# Modelos BERT da escolha de homófonos (opcional): convertidos para ONNX dentro de um contêiner, sem Python aqui.
-Escrever-Etapa '7. Escolha de homófonos na correção (opcional)'
+# Modelos BERT dos homófonos e da conferência da correção: convertidos para ONNX num contêiner, sem Python aqui.
+Escrever-Etapa '7. BERT dos homófonos e da correção'
 $pastaBert = Join-Path $pastaDados 'bert'
 $faltamBert = @('en', 'pt' | Where-Object {
         -not (Test-Path (Join-Path $pastaBert "$_\model.onnx")) -or -not (Test-Path (Join-Path $pastaBert "$_\vocab.txt")) })
 if ($faltamBert.Count -eq 0) {
     Escrever-Ok "Modelos BERT em $pastaBert (en, pt)"
 }
-elseif (-not $ComHomofonos) {
-    Write-Host '  Não gerados (opcional; sem eles, nem os homófonos nem a correção pelo modelo rodam). Para gerar: .\scripts\preparar-ambiente.ps1 -ComDicionario -ComHomofonos'
+elseif ($SemHomofonos) {
+    Write-Host '  Não gerados (-SemHomofonos): sem eles, nem os homófonos nem a correção pelo modelo rodam.'
 }
 elseif ($SoConferir) {
     Escrever-Falha "Modelos BERT ausentes em ${pastaBert}: $($faltamBert -join ', ')"

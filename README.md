@@ -6,7 +6,7 @@ Os modelos de IA rodam em contêineres Docker (Speaches, WhisperLiveKit, Ollama)
 - **Arquivo**: transcreve áudio ou vídeo e gera um JSON com frases e palavras (início e fim de cada uma), tradução
   português ↔ inglês pelo sentido, correção de palavras ouvidas errado ("cela" → "sela") e, opcionalmente, as expressões e "o que a pessoa quis dizer".
 - **Microfone e som do sistema em tempo real**: eventos `Provisorio` e `Confirmado`, com tradução.
-- **Dicionário inglês ↔ português local** (opcional): sentidos reais de palavras e expressões, gerado do Wiktionary
+- **Dicionário inglês ↔ português local**: sentidos reais de palavras e expressões, gerado do Wiktionary
   em SQLite (~60 MB, consulta em menos de 1 ms), com listas de frequência de palavras. Com ele, a tradução de palavra
   escolhe entre os sentidos das expressões ("gave up"; acerto de 80% → 82% em 192 casos sem a tradução da frase).
   Experimental, desligado por padrão: dar à tradução das frases os sentidos das palavras raras.
@@ -40,7 +40,7 @@ cd transcritor-lib
 .\scripts\preparar-ambiente.ps1
 ```
 O script confere tudo, constrói a imagem do WhisperLiveKit, sobe os serviços, baixa os modelos e termina com
-**Ambiente pronto** (1ª vez: ~56 GB e 20–60 min). Depois:
+**Ambiente pronto** (1ª vez: ~58 GB e 20–60 min). Depois:
 
 ```powershell
 dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida Ambos

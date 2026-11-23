@@ -511,7 +511,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
     o ganho é pequeno, mas sem estrago medido. Custa o `gemma3:12b` no Ollama (8,2 GB, baixado pelo
     `preparar-ambiente.ps1`; `-SemCorrecao` não baixa) e ~3,5 s por frase duvidosa. Como o resultado sem erro depende
     da conferência, com `ConferirCorrecaoComBert` ligada a correção pelo modelo só roda no idioma que tem o BERT (num
-    clone novo, sem `-ComHomofonos`, não roda; sem a conferência eram 4 certas e 1 errada). Conferido depois da troca: o
+    clone preparado com `-SemHomofonos`, não roda; sem a conferência eram 4 certas e 1 errada). Conferido depois da troca: o
     `arquivo` com as opções padrão numa gravação nova passou pela correção (chave do cache
     `corr.ollama_gemma3_12b_r4-cb_0.5-h3_0.99`).
   - As contagens das variantes "BERT no lugar do modelo" vêm de uma rodada em que o "antes" já incluía os homófonos

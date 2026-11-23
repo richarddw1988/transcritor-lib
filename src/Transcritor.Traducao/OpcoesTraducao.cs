@@ -58,7 +58,7 @@ public sealed class OpcoesTraducao
 
     /// <summary>
     /// Pasta dos BERT convertidos para ONNX (<c>&lt;pasta&gt;/en</c> e <c>&lt;pasta&gt;/pt</c>, cada uma com model.onnx e
-    /// vocab.txt; gerados por <c>scripts/preparar-ambiente.ps1 -ComHomofonos</c>). Nulo = sem escolha de homófonos.
+    /// vocab.txt; gerados por <c>scripts/preparar-ambiente.ps1</c>). Nulo = sem escolha de homófonos.
     /// </summary>
     public string? PastaModelosHomofonos { get; set; }
 

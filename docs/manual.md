@@ -27,7 +27,7 @@ Sumário:
 | Tradução | Português ↔ inglês pelo sentido: frase com as vizinhas como contexto; palavra solta com a frase | Ollama |
 | Homófonos (com o dicionário e os modelos BERT) | Troca a grafia de palavras que soam igual pela que o sentido pede ("a cela do cavalo" → "a sela do cavalo"), antes de traduzir | BERT na CPU + dicionário |
 | Correção da transcrição (ligada por padrão) | Troca palavras que o reconhecimento ouviu errado por outra de som parecido, pelo sentido da frase ("night" → "knight"), antes de traduzir | Ollama + dicionário |
-| Dicionário local (opcional) | Sentidos reais de uma palavra ou expressão, inglês ↔ português, com a forma base das flexões ("gave" → "give") | SQLite gerado do Wiktionary |
+| Dicionário local | Sentidos reais de uma palavra ou expressão, inglês ↔ português, com a forma base das flexões ("gave" → "give") | SQLite gerado do Wiktionary |
 
 Nos três modos você escolhe a saída: `Portugues`, `Ingles` ou `Ambos`. O texto sai sempre no idioma falado; a
 tradução vem quando a saída pede o outro idioma.
@@ -44,7 +44,7 @@ Precisa de Windows 10/11 com GPU NVIDIA (12 GB recomendado; ver [modelos.md](mod
 1. **Driver NVIDIA** 576 ou mais novo (pelo NVIDIA App ou nvidia.com). Confira com `nvidia-smi`.
 2. **Docker Desktop** com backend WSL2: <https://www.docker.com/products/docker-desktop/>.
    - Em *Settings › Resources › Advanced › Disk image location*, deixe o disco do Docker numa unidade com
-     **60 GB livres** ou mais (a 1ª preparação baixa ~56 GB; ~48 GB com `-SemCorrecao`).
+     **60 GB livres** ou mais (a 1ª preparação baixa ~58 GB; ~48 GB com `-SemCorrecao -SemDicionario -SemHomofonos`).
 3. **Memória da VM do WSL**: se existir `%USERPROFILE%\.wslconfig` com `memory` abaixo de 10 GB, aumente (abaixo,
    12 GB + 4 GB de swap) e rode `wsl --shutdown`; com 4 GB o Ollama trava ao trocar de modelo.
    ```ini
@@ -89,10 +89,14 @@ O script é idempotente (pode rodar quantas vezes quiser, só faz o que falta):
    imagem publicada; ~22 GB, 20+ min na 1ª vez) e sobe os serviços;
 3. espera cada serviço responder, confere se os contêineres enxergam a GPU e se o Speaches no ar é a imagem do
    projeto (aviso, se não for: a lib não consegue tirar o Whisper da GPU entre as etapas);
-4. baixa os modelos que faltam (Whisper no Speaches; translategemma 12b e 4b e gemma3 4b no Ollama);
+4. baixa os modelos que faltam (Whisper no Speaches; translategemma 12b e 4b, gemma3 4b e, para a correção, gemma3
+   12b no Ollama);
 5. compila a solução e roda `transcritor servicos`;
-6. (com `-ComDicionario`) baixa o Wiktionary e as listas de frequência e gera o dicionário;
-7. (com `-ComHomofonos`) converte para ONNX, num contêiner, os dois BERT da escolha de homófonos (`dados/bert`).
+6. baixa o Wiktionary e as listas de frequência e gera o dicionário (`dados/dicionario.db`; `-SemDicionario` pula);
+7. converte para ONNX, num contêiner, os dois BERT dos homófonos e da conferência da correção (`dados/bert`;
+   `-SemHomofonos` pula). Sem eles, a correção pelo modelo não roda (5.5).
+
+A pasta `dados/` fica dentro do clone: um clone novo precisa dos passos 6 e 7 de novo (o resto fica no Docker).
 
 No fim deve aparecer **Ambiente pronto**. Na 1ª vez leva de 20 a 60 min, conforme a internet.
 
@@ -105,8 +109,8 @@ Opções do script:
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
 | `-SemCorrecao` | Não baixa o `gemma3:12b` da correção de palavras ouvidas errado (~8 GB; o mesmo da análise) e confere os serviços sem ela. Ponha `CorrigirTranscricao = false` no `appsettings.json` (seção 6) |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
-| `-ComHomofonos` | Gera `dados/bert` (~1 GB): baixa os BERT do huggingface.co e converte para ONNX num contêiner `python:3.12-slim` (`scripts/exportar-bert.py`; ~1,3 GB de download e ~2,5 min na 1ª vez; não precisa de Python no Windows). Usados pela correção da transcrição (5.5). Junto com `-ComDicionario`, que traz a lista de homófonos |
-| `-ComDicionario` | Também baixa o Wiktionary (~600 MB, kaikki.org) e as listas de frequência (~1,3 MB) para `dados/` e gera `dados/dicionario.db` (~60 MB, ~40 s). Gera de novo o dicionário de versão anterior. Ver 4.6 |
+| `-SemDicionario` | Não baixa o Wiktionary (~600 MB, kaikki.org) nem as listas de frequência (~1,3 MB) e não gera `dados/dicionario.db` (~60 MB, ~40 s); só informa. Sem ele, os homófonos não rodam e a correção fica sem as palavras parecidas. Sem a opção, o script também gera de novo o dicionário de versão anterior. Ver 4.6 |
+| `-SemHomofonos` | Não gera `dados/bert` (~1 GB: os BERT do huggingface.co convertidos para ONNX num contêiner `python:3.12-slim` por `scripts/exportar-bert.py`; ~1,3 GB de download e ~2,5 min na 1ª vez; não precisa de Python no Windows); só informa. Sem eles, nem os homófonos nem a correção pelo modelo rodam (5.5) |
 
 4. Rode os testes (não precisam dos serviços):
    ```powershell
@@ -206,14 +210,14 @@ dotnet run --project src/Transcritor.Cli -- simular C:\videos\aula.mp4 --saida A
 Toca o arquivo para o WhisperLiveKit no ritmo real (`--velocidade 2` = dobro). Serve para comparar configurações no
 mesmo áudio.
 
-### 4.6 Dicionário inglês ↔ português (opcional)
+### 4.6 Dicionário inglês ↔ português
 Dicionário local gerado do Wiktionary (extração do kaikki.org, licença CC BY-SA 4.0 / GFDL), com a posição de cada
 palavra em listas de frequência ([FrequencyWords](https://github.com/hermitdave/FrequencyWords), contagens de
 legendas do OpenSubtitles 2018, CC BY-SA 4.0), que dizem quais palavras são raras. Não usa GPU nem serviços. A pasta
 `dados/` não vai para o Git.
 
-1. Baixe os dois dumps (~600 MB) e as duas listas (~0,6 MB cada) e gere o SQLite — ou rode
-   `.\scripts\preparar-ambiente.ps1 -ComDicionario`, que faz isso:
+1. O `.\scripts\preparar-ambiente.ps1` já faz isto (sem `-SemDicionario`). À mão: baixe os dois dumps (~600 MB) e
+   as duas listas (~0,6 MB cada) e gere o SQLite:
    ```powershell
    New-Item -ItemType Directory -Force dados
    ```
@@ -486,7 +490,7 @@ foreach (var t in trocas)
 - Cada troca proposta pelo modelo também passa pelo BERT (`ConferirCorrecaoComBert`, ligada): só vale se ele der à
   palavra nova pelo menos `LimiteParecida` (0,5) contra a ouvida. Na fala do usuário, barrou a única troca errada
   ("leave" → "live") sem perder nenhuma certa. Por isso, com a opção ligada, **a correção pelo modelo só roda no idioma
-  que tem o BERT** em `PastaModelosHomofonos` (`preparar-ambiente.ps1 -ComHomofonos`); sem ele, a frase fica como foi
+  que tem o BERT** em `PastaModelosHomofonos` (gerado pelo `preparar-ambiente.ps1`); sem ele, a frase fica como foi
   ouvida e o Ollama nem é chamado. Para rodar sem o BERT, desligue `ConferirCorrecaoComBert` (mais trocas erradas).
 - Homófonos (`CorrigirHomofonos`, ligada; precisa do dicionário com a lista de homófonos e dos modelos de
   `PastaModelosHomofonos`, senão não faz nada; roda mesmo com `CorrigirTranscricao = false`): depois da correção pelo
@@ -546,7 +550,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
 | `CorrigirHomofonos` | `true` | Cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta e mesmo com `CorrigirTranscricao` desligada (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
-| `PastaModelosHomofonos` | nulo (no Cli: `dados/bert`) | Pasta dos BERT em ONNX (`en/` e `pt/`, cada uma com `model.onnx` e `vocab.txt`), gerados por `preparar-ambiente.ps1 -ComHomofonos` |
+| `PastaModelosHomofonos` | nulo (no Cli: `dados/bert`) | Pasta dos BERT em ONNX (`en/` e `pt/`, cada uma com `model.onnx` e `vocab.txt`), gerados por `preparar-ambiente.ps1` (sem `-SemHomofonos`) |
 | `ConferirCorrecaoComBert` | `true` | Cada troca proposta pelo modelo de conversa só vale se o BERT preferir a palavra nova (5.5). Ligada, a correção pelo modelo só roda no idioma com o BERT; desligada, roda sem conferir |
 | `LimiteParecida` | `0.5` | Probabilidade mínima, pelo BERT, da palavra nova contra a ouvida; com 0,7 já perdeu uma troca certa |
 | `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |

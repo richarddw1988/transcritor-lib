@@ -4,7 +4,7 @@ using Transcritor.Traducao.Correcoes;
 
 namespace Transcritor.Tests;
 
-/// <summary>Só roda com os modelos convertidos em dados/bert (scripts/preparar-ambiente.ps1 -ComHomofonos); senão, é pulado.</summary>
+/// <summary>Só roda com os modelos convertidos em dados/bert (gerados por scripts/preparar-ambiente.ps1); senão, é pulado.</summary>
 public sealed class FactComBertAttribute : FactAttribute
 {
     public FactComBertAttribute()
@@ -12,7 +12,7 @@ public sealed class FactComBertAttribute : FactAttribute
         if (!File.Exists(Path.Combine(EscolhedorHomofonosBertTests.Pasta, "en", "model.onnx"))
             || !File.Exists(Path.Combine(EscolhedorHomofonosBertTests.Pasta, "pt", "model.onnx")))
         {
-            Skip = $"Sem os modelos BERT em {EscolhedorHomofonosBertTests.Pasta} (preparar-ambiente.ps1 -ComHomofonos).";
+            Skip = $"Sem os modelos BERT em {EscolhedorHomofonosBertTests.Pasta} (gere com scripts/preparar-ambiente.ps1).";
         }
     }
 }
