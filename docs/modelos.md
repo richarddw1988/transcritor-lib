@@ -436,6 +436,20 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
     só usa as que estão na lista de frequência.
   - Por isso fica desligada. Para voltar ao assunto: um modelo maior (que não cabe com o Whisper nos 12 GB) ou um
     jeito de saber quão seguro o modelo está na escolha.
+  - **Teste com BERT (modelo de lacuna), 2026-11-23, protótipo em Python, fora da lib:** `google-bert/bert-base-cased`
+    (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), ~0,4 GB cada, na CPU. Nota de cada grafia =
+    pseudo-log-verossimilhança dos tokens da palavra (cada um mascarado por vez, o resto da frase à vista);
+    probabilidade = softmax das notas entre as grafias; troca só se a outra grafia tiver probabilidade ≥ limite.
+
+    | Conjunto | Resultado |
+    |---|---|
+    | 23 casos difíceis (mesma palavra duas vezes na frase, "night"/"knight", "their"/"there", "right"/"write") | **22/23** (gemma3: 12/15); erra "o conserto de música" (dá 0,066 a "concerto") |
+    | Audiolivro: 231 palavras com homófono, todas certas | trocas indevidas por limite: 10 (0,5), 6 (0,9), 5 (0,95), 3 (0,99); com 0,99 eram todas "Aunt" → "Ant" em "Aunt Spiker" (nome); sem palavra com maiúscula no meio da frase, **0** |
+    | 49 frases do usuário, limite 0,99 | **1 certa** ("cela" → "sela", 0,997), **0 erradas**; não pegou "concerto" nem "bare" (o "pawns" errado ao lado atrapalha) |
+
+    - Abaixo de 0,99 entram trocas erradas: "mirror" → "myrrh" (0,968), "pool" → "pall" (0,975), "need" → "knead" (0,912).
+    - Tempo: 231 palavras em 43 s na CPU (~0,19 s cada), sem GPU.
+    - Ainda não está na lib: precisaria rodar o BERT no .NET (ONNX Runtime) ou num serviço à parte.
 - **Precisão baixa em texto já certo:** o modelo "corrige" palavras que só são raras ou literárias. A 2ª chamada
   cortou o dano no audiolivro de 19 para 5 trocas (~0,2 ponto de WER) sem perder ganho na fala do usuário (−0,9 ponto),
   mas a correção ainda acerta pouco: 2 das 17 palavras erradas. Por isso continua desligada e experimental.
