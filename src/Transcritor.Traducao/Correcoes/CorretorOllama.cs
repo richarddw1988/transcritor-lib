@@ -54,7 +54,7 @@ internal sealed class CorretorOllama(
     private bool TemBert(string idioma) => escolhedor is not null && escolhedor.Disponivel(idioma);
 
     /// <summary>Mudar a pergunta dos homófonos exige subir (entra na chave do cache).</summary>
-    private const int VersaoHomofonos = 3;
+    private const int VersaoHomofonos = 4; // 4: outras ocorrências da palavra viram lacuna (2026-11-23)
 
     /// <summary>Homófonos ligados e o dicionário tem a lista.</summary>
     private bool UsaHomofonos => _opcoes.CorrigirHomofonos && escolhedor is not null && fonte.Dicionario is { TemHomofonos: true };
@@ -110,7 +110,7 @@ internal sealed class CorretorOllama(
             // O BERT dá uma probabilidade para cada grafia; quase toda palavra com homófono já está certa, então a
             // troca só vale com certeza alta (limite 0,99: no audiolivro, 0 trocas indevidas em 231 palavras).
             var ouvida = Nucleo(atual[i]);
-            var provaveis = escolhedor!.Avaliar(atual, i, [ouvida.ToLowerInvariant(), .. iguais], pedido.Idioma);
+            var provaveis = escolhedor!.Avaliar(atual, i, [ouvida.ToLowerInvariant(), .. iguais], pedido.Idioma, lacunaNasRepetidas: true);
             if (provaveis.Count == 0 || Igual(provaveis[0].Grafia, ouvida) || provaveis[0].Probabilidade < _opcoes.LimiteHomofono)
             {
                 continue;

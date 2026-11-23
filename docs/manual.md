@@ -497,7 +497,8 @@ foreach (var t in trocas)
   modelo (se ligada), cada palavra que tem homófono no dicionário
   ("cela" ↔ "sela", "conserto" ↔ "concerto") passa por um BERT (modelo de lacuna, na CPU, sem Ollama nem GPU), que dá
   a probabilidade de cada grafia pelo sentido da frase. Troca só se outra grafia tiver pelo menos `LimiteHomofono`
-  (0,99), mesmo que o reconhecimento estivesse seguro; palavra com maiúscula no meio da frase (nome) fica de fora. A
+  (0,99), mesmo que o reconhecimento estivesse seguro; palavra com maiúscula no meio da frase (nome) fica de fora. Se
+  a mesma palavra aparece de novo na frase, a outra ocorrência vira lacuna na conta, para o BERT não copiá-la. A
   troca sai marcada (`Correcao.Homofono`) e, no arquivo, não é conferida no áudio, porque o som é o mesmo. Medido:
   "cela" → "sela" na fala do usuário e nenhuma troca indevida no audiolivro (ver `docs/modelos.md`).
 - `CorrigirAsync` faz as partes ligadas: com `CorrigirTranscricao = false`, só os homófonos. `Ativo` diz se alguma

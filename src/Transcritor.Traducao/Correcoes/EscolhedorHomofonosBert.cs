@@ -21,8 +21,12 @@ internal interface IEscolhedorHomofonos
     /// <summary>
     /// Probabilidade de cada uma das <paramref name="grafias"/> na posição <paramref name="indice"/> da frase (as outras
     /// palavras ficam como estão), da mais provável para a menos; vazio se a frase for longa demais para o modelo.
+    /// Com <paramref name="lacunaNasRepetidas"/>, outras ocorrências da mesma palavra viram lacuna, para o BERT não
+    /// copiá-las (homófonos: "o conserto do carro … o conserto de música"). Nas trocas do modelo de conversa fica
+    /// desligado: lá a repetição é pista ("quiet quiet" → "quite quiet").
     /// </summary>
-    IReadOnlyList<GrafiaProvavel> Avaliar(IReadOnlyList<string> palavras, int indice, IReadOnlyList<string> grafias, string idioma);
+    IReadOnlyList<GrafiaProvavel> Avaliar(
+        IReadOnlyList<string> palavras, int indice, IReadOnlyList<string> grafias, string idioma, bool lacunaNasRepetidas = false);
 }
 
 /// <summary>
@@ -45,15 +49,33 @@ internal sealed class EscolhedorHomofonosBert(IOptions<OpcoesTraducao> opcoes) :
         && File.Exists(Path.Combine(Path.GetFullPath(_opcoes.PastaModelosHomofonos), Idiomas.Normalizar(idioma), "model.onnx"))
         && File.Exists(Path.Combine(Path.GetFullPath(_opcoes.PastaModelosHomofonos), Idiomas.Normalizar(idioma), "vocab.txt"));
 
-    public IReadOnlyList<GrafiaProvavel> Avaliar(IReadOnlyList<string> palavras, int indice, IReadOnlyList<string> grafias, string idioma)
+    public IReadOnlyList<GrafiaProvavel> Avaliar(
+        IReadOnlyList<string> palavras, int indice, IReadOnlyList<string> grafias, string idioma, bool lacunaNasRepetidas = false)
     {
         ArgumentNullException.ThrowIfNull(palavras);
         ArgumentNullException.ThrowIfNull(grafias);
         var modelo = ModeloDo(idioma) ?? throw new InvalidOperationException($"Sem modelo BERT para '{idioma}' em {_opcoes.PastaModelosHomofonos}.");
-        var (antes, palavra, depois) = Partes(palavras, indice);
+        var bruta = palavras[indice];
+        var (inicio, fim) = Nucleo(bruta);
+        var palavra = bruta[inicio..fim];
         var maiuscula = palavra.Length > 0 && char.IsUpper(palavra[0]);
-        var idsAntes = modelo.Codificar(antes);
-        var idsDepois = modelo.Codificar(depois);
+
+        // Com lacunaNasRepetidas, a mesma palavra em outro ponto da frase vira [MASK]: senão o BERT copia a outra
+        // ocorrência ("o concerto do carro … o concerto de música" deixava "conserto" com 0,75, abaixo do limite; com a lacuna, 0,99). O WordPiece separa as
+        // palavras pelos espaços, então codificar uma por vez dá os mesmos tokens que a frase inteira.
+        var alvo = lacunaNasRepetidas ? palavra : null;
+        var idsAntes = new List<int>();
+        for (var j = 0; j < indice; j++)
+        {
+            idsAntes.AddRange(modelo.CodificarMascarando(palavras[j], alvo));
+        }
+
+        idsAntes.AddRange(modelo.Codificar(bruta[..inicio]));
+        var idsDepois = new List<int>(modelo.Codificar(bruta[fim..]));
+        for (var j = indice + 1; j < palavras.Count; j++)
+        {
+            idsDepois.AddRange(modelo.CodificarMascarando(palavras[j], alvo));
+        }
 
         var notas = new List<(string Grafia, double Nota)>();
         foreach (var g in grafias.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -82,6 +104,15 @@ internal sealed class EscolhedorHomofonosBert(IOptions<OpcoesTraducao> opcoes) :
     internal static (string Antes, string Palavra, string Depois) Partes(IReadOnlyList<string> palavras, int indice)
     {
         var bruta = palavras[indice];
+        var (inicio, fim) = Nucleo(bruta);
+        var antes = string.Join(' ', palavras.Take(indice).Append(bruta[..inicio])).Trim();
+        var depois = (bruta[fim..] + " " + string.Join(' ', palavras.Skip(indice + 1))).Trim();
+        return (antes, bruta[inicio..fim], depois);
+    }
+
+    /// <summary>Início e fim do núcleo da palavra, sem a pontuação colada antes e depois ("(night)." → 1 e 6).</summary>
+    private static (int Inicio, int Fim) Nucleo(string bruta)
+    {
         var inicio = 0;
         while (inicio < bruta.Length && !char.IsLetterOrDigit(bruta[inicio]))
         {
@@ -94,9 +125,7 @@ internal sealed class EscolhedorHomofonosBert(IOptions<OpcoesTraducao> opcoes) :
             fim--;
         }
 
-        var antes = string.Join(' ', palavras.Take(indice).Append(bruta[..inicio])).Trim();
-        var depois = (bruta[fim..] + " " + string.Join(' ', palavras.Skip(indice + 1))).Trim();
-        return (antes, bruta[inicio..fim], depois);
+        return (inicio, fim);
     }
 
     private Modelo? ModeloDo(string idioma)
@@ -138,6 +167,18 @@ internal sealed class EscolhedorHomofonosBert(IOptions<OpcoesTraducao> opcoes) :
     {
         public IReadOnlyList<int> Codificar(string texto) =>
             texto.Length == 0 ? [] : tokenizador.EncodeToIds(texto, addSpecialTokens: false);
+
+        /// <summary>Os tokens da palavra; se o núcleo for <paramref name="alvo"/> (sem diferenciar maiúsculas), um [MASK] no lugar dele.</summary>
+        public IReadOnlyList<int> CodificarMascarando(string bruta, string? alvo)
+        {
+            var (inicio, fim) = Nucleo(bruta);
+            if (alvo is null || fim == inicio || !string.Equals(bruta[inicio..fim], alvo, StringComparison.OrdinalIgnoreCase))
+            {
+                return Codificar(bruta);
+            }
+
+            return [.. Codificar(bruta[..inicio]), tokenizador.MaskingTokenId, .. Codificar(bruta[fim..])];
+        }
 
         /// <summary>Soma do log-probabilidade de cada token da palavra, mascarado por vez (um lote por palavra).</summary>
         public double Nota(IReadOnlyList<int> antes, IReadOnlyList<int> palavra, IReadOnlyList<int> depois)

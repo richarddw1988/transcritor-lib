@@ -26,8 +26,8 @@ public sealed class EscolhedorHomofonosBertTests : IDisposable
 
     public void Dispose() => _bert.Dispose();
 
-    private double Probabilidade(string frase, int indice, string grafia, string[] grafias, string idioma) =>
-        _bert.Avaliar(frase.Split(' '), indice, grafias, idioma).Single(g => string.Equals(g.Grafia, grafia, StringComparison.OrdinalIgnoreCase)).Probabilidade;
+    private double Probabilidade(string frase, int indice, string grafia, string[] grafias, string idioma, bool lacuna = false) =>
+        _bert.Avaliar(frase.Split(' '), indice, grafias, idioma, lacuna).Single(g => string.Equals(g.Grafia, grafia, StringComparison.OrdinalIgnoreCase)).Probabilidade;
 
     [FactComBert]
     public void Mesmas_probabilidades_do_prototipo_em_python()
@@ -38,6 +38,20 @@ public sealed class EscolhedorHomofonosBertTests : IDisposable
         Assert.Equal(0.957, Probabilidade(Cela, 1, "cela", ["cela", "sela"], "pt"), 2);
         Assert.Equal(0.9996, Probabilidade("There house is bigger than ours.", 0, "their", ["there", "their"], "en"), 3);
         Assert.Equal(0.9994, Probabilidade("The night rode his horse through the forest.", 1, "knight", ["night", "knight", "nite"], "en"), 3);
+    }
+
+    [FactComBert]
+    public void Outra_ocorrencia_da_palavra_vira_lacuna_e_nao_e_copiada()
+    {
+        // Sem a lacuna, o "concerto de música" à vista segura o 1º "concerto": "conserto" fica com 0,75, abaixo do limite.
+        const string Frase = "O concerto do carro ficou mais caro do que o concerto de música.";
+        const string Cela = "A cela da prisão era pequena e a cela do cavalo estava rasgada.";
+
+        Assert.Equal(0.751, Probabilidade(Frase, 1, "conserto", ["concerto", "conserto"], "pt"), 0.005);
+        Assert.Equal(0.992, Probabilidade(Frase, 1, "conserto", ["concerto", "conserto"], "pt", lacuna: true), 2);
+        // Valores do protótipo com a lacuna: a 2ª "cela" continua "sela"; a 1ª fica, por pouco.
+        Assert.Equal(0.997, Probabilidade(Cela, 8, "sela", ["cela", "sela"], "pt", lacuna: true), 2);
+        Assert.Equal(0.525, Probabilidade(Cela, 1, "cela", ["cela", "sela"], "pt", lacuna: true), 0.005);
     }
 
     [FactComBert]

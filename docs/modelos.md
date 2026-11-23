@@ -484,6 +484,23 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       O large tem ~3× os parâmetros (RAM e tamanho na lib: não medidos). As trocas indevidas dos dois vêm quase todas
       de texto fora do padrão (gíria, ortografia antiga, palavra estrangeira); com o limite 0,99, ficam em 1–2% das
       palavras com homófono nesses exemplos, contra 0 no audiolivro em inglês.
+    - **Lacuna na palavra repetida (2026-11-23, em uso nos homófonos):** quando a mesma palavra aparece de novo na
+      frase, o BERT tende a copiar a outra ocorrência. Na escolha de homófonos, as outras ocorrências viram `[MASK]`.
+      Achado numa pesquisa por correção pelo contexto: o LanguageTool (API pública, 17 frases de teste) só pegou
+      "concertar", "viajem", "piece"/"peace" e "right"/"write", e deixou passar "cela", "concerto", "sessão",
+      "cheque" e "there"/"their"; a literatura usa o mesmo desenho da lib (candidatos de som parecido + modelo de
+      lacuna + limite alto).
+
+      | Medida | Sem a lacuna | Com a lacuna |
+      |---|---|---|
+      | "O concerto do carro … o concerto de música." (1º "concerto") | "conserto" com 0,751: não troca | **0,992: troca certo** |
+      | "o conserto de música" | 0,066 para "concerto" | 0,047: continua errado |
+      | Trocas indevidas nas 34 palavras com homófono repetidas na frase (exemplos do Wiktionary e audiolivro) | 0 | 0 |
+      | 49 frases do usuário (`avaliar-fala`, com e sem `--corrigir`) | 6,2%; com a correção 6,3% → 5,6% (4 certas, 0 erradas) | o mesmo |
+      | Audiolivro de 17 min, opções padrão | 1 troca ("marvellous" → "marvelous") | a mesma; 100,6 s |
+
+      Na conferência das trocas do modelo de conversa (`ConferirCorrecaoComBert`) a lacuna fica desligada: ligada, perdeu
+      "quiet quiet" → "quite quiet" (3 certas em vez de 4), porque ali a palavra repetida é a pista.
     - **Na lib (2026-11-23):** os mesmos modelos convertidos para ONNX (`scripts/exportar-bert.py`; diferença máxima dos
       logits para o PyTorch: 3e-5), rodando pelo ONNX Runtime 1.32 na CPU e tokenizados pelo `Microsoft.ML.Tokenizers`
       (mesmos tokens do Python; probabilidades iguais às do protótipo). Medido com a correção ligada
