@@ -427,8 +427,9 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 - Frase = sentença completa (não corta em "Mrs." nem no meio da sentença); `traducao` só quando a saída pede.
   Título de capítulo ("Chapter Three", "Capítulo 2", "Part IV") vira uma frase sozinha, mesmo com pausa entre a
   palavra e o número ou sem ponto depois do número.
-- Palavra com hífen que o Whisper devolve em dois pedaços (" Super" + "-G.", " fazê" + "-lo") vira uma palavra só em
-  `palavras` ("Super-G.", com o tempo das duas e a menor confiança), e a frase não sai "Super -G.".
+- Palavra que o Whisper devolve em dois pedaços, com o segundo colado e começando com sinal (" Super" + "-G.",
+  " fazê" + "-lo", " 1" + ".400", " U" + ".S.", " d" + "'água", " 8" + "%"), vira uma palavra só em `palavras`
+  ("Super-G.", com o tempo das duas e a menor confiança), e a frase não sai "Super -G." nem "1 .400".
 - `sentido` e `blocos` só com `AnalisarSentido = true`; `palavraInicial/palavraFinal` são índices em `palavras`.
 - `confianca` (0 a 1) é a probabilidade que o Whisper deu à palavra; baixa indica provável erro de reconhecimento.
   Não aparece quando o motor não informa, nem em JSON gravado antes deste campo existir (`Palavra.Confianca` nulo).

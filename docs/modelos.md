@@ -176,6 +176,62 @@ palavra por palavra — a análise é pelo contexto:
   0,5), mas pega pouco: na fala do usuário só 2 de 17 palavras erradas ficaram abaixo de 0,5 (ver
   [Erros reais na fala do usuário](#erros-reais-na-fala-do-usuário-avaliar-fala)).
 
+### Sinais de palavra duvidosa e pedaços colados (2026-11-24)
+
+**Objetivo:** marcar no JSON as palavras prováveis de erro, com uma alternativa, para a pessoa conferir no player.
+
+**Medição:**
+- Áudio: FLEURS `dev`, 386 gravações em português e 394 em inglês, `large-v3`, idioma forçado.
+- Cada gravação foi transcrita uma vez a temperatura 0 (a normal, com confiança por palavra) e duas vezes a 0,6
+  (amostras).
+- Errada = palavra da transcrição normal que não casa com a referência, depois de minúsculas e sem pontuação. Palavras
+  com dígito ficaram de fora, porque a referência escreve números por extenso.
+- Sinais medidos:
+  - **discordam:** alguma amostra pôs outra coisa no lugar da palavra;
+  - **confiança:** a probabilidade que o Whisper deu à palavra;
+  - **fora do dicionário:** a mesma regra da 4ª rodada.
+
+**1. Pedaços colados.** O Speaches marca o começo de cada palavra com um espaço. Às vezes ele devolve um pedaço sem
+espaço que continua a palavra anterior: " adaptar" + "-se", " 1" + ".400", " U" + ".S.", " d" + "'água", " 8" +
+"%". Foram 146 pedaços desses nas 780 gravações. O montador juntava tudo com espaço, e a frase saía "adaptar -se",
+"1 .400". Juntar esses pedaços à palavra anterior (`MontadorFrases.Versao` 6) baixou as palavras erradas por essa
+conta:
+
+| | Antes | Juntando os pedaços |
+|---|---|---|
+| Português | 347 de 8.328 (4,2%) | 276 de 8.287 (3,3%) |
+| Inglês | 447 de 8.085 (5,5%) | 375 de 8.018 (4,7%) |
+
+A primeira análise, sem juntar os pedaços, superestimou os sinais abaixo. Parecia que eles pegavam 80% dos erros, mas
+a maioria era esse defeito: as amostras de texto vêm com a palavra inteira, e a transcrição normal vinha partida.
+
+**2. Sinais, com os pedaços já juntados:**
+
+| Sinal | Marcadas pt | Precisão pt | Cobertura pt | Marcadas en | Precisão en | Cobertura en |
+|---|---|---|---|---|---|---|
+| Amostras discordam | 84 (1,0%) | 63% | 19% | 130 (1,6%) | 71% | 25% |
+| Confiança < 0,5 | 57 (0,7%) | 56% | 12% | 109 (1,4%) | 47% | 14% |
+| Confiança < 0,9 | 522 (6,3%) | 25% | 47% | 955 (11,9%) | 24% | 61% |
+| Fora do dicionário | 219 (2,6%) | 33% | 26% | 255 (3,2%) | 36% | 25% |
+| Discordam ou confiança < 0,5 | 108 (1,3%) | 53% | 21% | 203 (2,5%) | 57% | 31% |
+
+Precisão = marcadas que estavam erradas; cobertura = erros que foram marcados.
+
+- A alternativa das amostras era a palavra certa em só 10 das 53 erradas marcadas em português e em 29 das 92 em
+  inglês.
+- Trocar sozinho quando as duas amostras concordam contra a transcrição normal quase não mudou: 362 → 341 erros em
+  português e 505 → 501 em inglês (WER sem tirar os números: 4,31% → 4,06% e 6,20% → 6,15%). As trocas que sobraram
+  eram quase todas de grafia ("1 400" → "1400"), com casos piores ("prefecture" → "perfecture", "blog" → "block").
+
+**Decisão:**
+- Feito: a junção dos pedaços colados.
+- Não adotado: as amostras. Elas custam duas transcrições a mais por arquivo para pegar 1 de cada 4 ou 5 erros, com
+  alternativa certa em menos da metade.
+- Para destacar dúvidas no player, use o que o JSON já traz: `confianca` < 0,5 marca ~1% das palavras e acerta metade
+  das vezes, de graça.
+- O ganho real até aqui veio do vocabulário do assunto (acima).
+- Não medido: um segundo modelo diferente, como o `large-v3-turbo`, que não está instalado e precisaria ser baixado.
+
 ## Modelos testados e por que foram ou não escolhidos
 
 ### Transcrição

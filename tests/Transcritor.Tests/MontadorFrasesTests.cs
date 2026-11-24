@@ -159,17 +159,45 @@ public class MontadorFrasesTests
     }
 
     [Fact]
-    public void Hifen_solto_ou_com_espaco_antes_nao_junta()
+    public void Sinal_com_espaco_antes_nao_junta()
     {
         var bruta = Bruta(
         [
             new Palavra(" isso", 0, 0.3),
             new Palavra(" -", 0.3, 0.4),
             new Palavra(" -aquilo", 0.4, 0.7),
-            new Palavra("-", 0.7, 0.8),
-            new Palavra(" fim.", 0.8, 1.0),
+            new Palavra(" (fim).", 0.8, 1.0),
         ]);
 
-        Assert.Equal(["isso - -aquilo - fim."], Textos(bruta));
+        Assert.Equal(["isso - -aquilo (fim)."], Textos(bruta));
+    }
+
+    [Fact]
+    public void Numero_sigla_apostrofo_e_porcentagem_colados_viram_uma_palavra()
+    {
+        // Pedaços reais do Speaches no FLEURS (sem espaço antes = continuação da palavra anterior).
+        var bruta = Bruta(
+        [
+            new Palavra(" Os", 0, 0.2),
+            new Palavra(" 1", 0.2, 0.4),
+            new Palavra(".400", 0.4, 0.8),
+            new Palavra(" do", 0.8, 0.9),
+            new Palavra(" U", 0.9, 1.0),
+            new Palavra(".S.-China", 1.0, 1.5),
+            new Palavra(" d", 1.5, 1.6),
+            new Palavra("'água", 1.6, 1.9),
+            new Palavra(" com", 1.9, 2.0),
+            new Palavra(" 8", 2.0, 2.2),
+            new Palavra("%", 2.2, 2.4),
+            new Palavra(" e", 2.4, 2.5),
+            new Palavra(" 15", 2.5, 2.7),
+            new Palavra("-year", 2.7, 2.9),
+            new Palavra("-old.", 2.9, 3.1),
+        ]);
+
+        var frase = Assert.Single(MontadorFrases.Montar(bruta));
+
+        Assert.Equal("Os 1.400 do U.S.-China d'água com 8% e 15-year-old.", frase.Texto);
+        Assert.Equal(9, frase.Palavras.Count);
     }
 }
