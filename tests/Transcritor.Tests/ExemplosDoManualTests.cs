@@ -25,6 +25,7 @@ public class ExemplosDoManualTests
         services.AddTranscritorTempoReal();
         services.AddTranscritorCaptura();
         services.AddTranscritorTraducao(o => o.OllamaUrl = new Uri("http://outra-maquina:11434"));
+        services.AddTranscritorArquivo(o => o.Vocabulario = "Speaches, WhisperLiveKit");
         services.AddTranscritorTraducao(o =>
             o.Glossario.Add(new EntradaGlossario { Origem = "en", Termo = "Giant Peach", Traducao = "Pêssego Gigante" }));
         using var sp = services.BuildServiceProvider();
@@ -51,6 +52,8 @@ public class ExemplosDoManualTests
         IReadOnlyList<ResultadoTranscricao> lote = await transcritor.ProcessarLoteAsync(
             [@"C:\videos\aula1.mp4", @"C:\videos\aula2.mp4"], Saida.Ambos, progresso, ct);
         Console.WriteLine(lote.Count);
+
+        await File.WriteAllTextAsync(OpcoesArquivo.CaminhoVocabularioAoLado(@"C:\videos\aula.mp4"), "Dona Chica\nLuis Barcellos\nNAudio", ct);
 
         _ = await JsonTranscricao.LerAsync(@"C:\videos\aula.mp4.transcricao.json", ct);
     }

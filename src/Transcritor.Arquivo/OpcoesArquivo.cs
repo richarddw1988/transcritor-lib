@@ -23,6 +23,18 @@ public sealed class OpcoesArquivo
     /// <summary>Tamanho da amostra da conferência do idioma (o Whisper também detecta pelos primeiros 30 s).</summary>
     public double SegundosConferirIdioma { get; set; } = 30;
 
+    /// <summary>
+    /// Nomes e termos do assunto (pessoas, lugares, siglas, jargão), um por linha ou separados por vírgula, mandados ao
+    /// Whisper como dica em todos os arquivos. Soma com o arquivo ao lado da mídia
+    /// (<see cref="LerVocabularioAoLado"/>). Até 800 caracteres; o que passar fica de fora. Nulo = sem dica.
+    /// </summary>
+    public string? Vocabulario { get; set; }
+
+    /// <summary>
+    /// Lê também "&lt;arquivo&gt;.vocabulario.txt" ao lado da mídia, se existir: o vocabulário daquele vídeo.
+    /// </summary>
+    public bool LerVocabularioAoLado { get; set; } = true;
+
     /// <summary>Executável do ffmpeg (nome no PATH ou caminho completo).</summary>
     public string CaminhoFfmpeg { get; set; } = "ffmpeg";
 
@@ -78,4 +90,7 @@ public sealed class OpcoesArquivo
 
     /// <summary>Caminho do JSON gravado ao lado da mídia.</summary>
     public static string CaminhoJsonAoLado(string caminhoArquivo) => caminhoArquivo + ".transcricao.json";
+
+    /// <summary>Caminho do vocabulário lido ao lado da mídia (ex.: "aula.mp4.vocabulario.txt").</summary>
+    public static string CaminhoVocabularioAoLado(string caminhoArquivo) => caminhoArquivo + ".vocabulario.txt";
 }

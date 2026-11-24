@@ -65,7 +65,10 @@ public sealed class TranscritorArquivo(
                 item.Caminho,
                 p => item.Progresso?.Report(new(EtapaProcessamento.CalculandoHash, p)),
                 cancellationToken).ConfigureAwait(false);
-            item.Chave = ChaveCache(item.Hash);
+            item.Vocabulario = Vocabulario.Montar(
+                _opcoes.Vocabulario,
+                _opcoes.LerVocabularioAoLado ? await Vocabulario.LerAoLadoAsync(item.Caminho, cancellationToken).ConfigureAwait(false) : null);
+            item.Chave = ChaveCache(item.Hash, item.Vocabulario);
             item.Progresso?.Report(new(EtapaProcessamento.LendoCache));
             item.Transcricao = await cache.LerAsync(item.Chave, cancellationToken).ConfigureAwait(false);
             item.TudoDoCache = item.Transcricao is not null;
@@ -79,7 +82,7 @@ public sealed class TranscritorArquivo(
             await DescarregarAsync([corretor, tradutor, analisador], cancellationToken).ConfigureAwait(false);
             foreach (var item in transcrever)
             {
-                item.Transcricao = await TranscreverAsync(item.Caminho, item.Hash, item.Progresso, cancellationToken).ConfigureAwait(false);
+                item.Transcricao = await TranscreverAsync(item.Caminho, item.Hash, item.Vocabulario, item.Progresso, cancellationToken).ConfigureAwait(false);
                 await cache.GravarAsync(item.Chave, item.Transcricao, cancellationToken).ConfigureAwait(false);
             }
 
@@ -259,13 +262,17 @@ public sealed class TranscritorArquivo(
         }
     }
 
-    /// <summary>Hash do arquivo + motor/modelo + idioma forçado: trocar o modelo não reaproveita resultado de outro.</summary>
-    internal string ChaveCache(string hash)
+    /// <summary>
+    /// Hash do arquivo + motor/modelo + idioma forçado + vocabulário: trocar o modelo ou a dica não reaproveita
+    /// resultado de outro.
+    /// </summary>
+    internal string ChaveCache(string hash, string? vocabulario = null)
     {
         var idioma = !string.IsNullOrWhiteSpace(_opcoes.Idioma) ? Idiomas.Normalizar(_opcoes.Idioma)
             : _opcoes.ConferirIdioma ? $"auto-c{ConferenciaIdioma.Versao}" : "auto";
         var reparo = _opcoes.RepararTrechosSuspeitos ? $".r{ReparadorTrechos.Versao}" : string.Empty;
-        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}".Replace('/', '_');
+        var dica = vocabulario is null ? string.Empty : $".v{Vocabulario.Chave(vocabulario)}";
+        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}".Replace('/', '_');
     }
 
     /// <summary>
@@ -273,7 +280,7 @@ public sealed class TranscritorArquivo(
     /// e troca o trecho se o resultado novo for melhor. Usa o idioma detectado na transcrição inteira.
     /// </summary>
     private async Task<TranscricaoBruta> RepararAsync(
-        string wav, TranscricaoBruta bruta, string pastaTemporaria, CancellationToken cancellationToken)
+        string wav, TranscricaoBruta bruta, string pastaTemporaria, string? vocabulario, CancellationToken cancellationToken)
     {
         var janelas = ReparadorTrechos.Detectar(bruta.Palavras, bruta.Duracao);
         if (janelas.Count == 0)
@@ -296,7 +303,7 @@ public sealed class TranscritorArquivo(
                 }
 
                 var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? bruta.Idioma : _opcoes.Idioma;
-                var contexto = ReparadorTrechos.ContextoAntes(bruta.Palavras, janela);
+                var contexto = Vocabulario.ComContexto(vocabulario, ReparadorTrechos.ContextoAntes(bruta.Palavras, janela));
                 var nova = await motor.TranscreverAsync(recorte, idioma, contexto, cancellationToken).ConfigureAwait(false);
                 if (ReparadorTrechos.Melhorou(bruta, janela, nova))
                 {
@@ -318,14 +325,16 @@ public sealed class TranscritorArquivo(
     /// <summary>
     /// Transcreve o WAV inteiro. Sem idioma forçado e com <see cref="OpcoesArquivo.ConferirIdioma"/>, antes confere a
     /// detecção numa amostra do começo (<see cref="ConferenciaIdioma"/>) e transcreve com o idioma vencedor. Arquivo
-    /// que cabe na amostra não é transcrito de novo: o resultado da amostra vencedora já é o do arquivo inteiro.
+    /// que cabe na amostra não é transcrito de novo: o resultado da amostra vencedora já é o do arquivo inteiro (a não
+    /// ser com vocabulário). A conferência roda sem o vocabulário, que não foi medido na detecção do idioma; só a
+    /// transcrição final leva a dica.
     /// </summary>
     private async Task<TranscricaoBruta> TranscreverConferindoIdiomaAsync(
-        string wav, double duracao, string pastaTemporaria, CancellationToken cancellationToken)
+        string wav, double duracao, string pastaTemporaria, string? vocabulario, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(_opcoes.Idioma) || !_opcoes.ConferirIdioma)
         {
-            return await motor.TranscreverAsync(wav, _opcoes.Idioma, cancellationToken).ConfigureAwait(false);
+            return await motor.TranscreverAsync(wav, _opcoes.Idioma, vocabulario, cancellationToken).ConfigureAwait(false);
         }
 
         var cabeNaAmostra = duracao > 0 && duracao <= _opcoes.SegundosConferirIdioma;
@@ -340,7 +349,7 @@ public sealed class TranscritorArquivo(
                 }
                 catch (InvalidDataException)
                 {
-                    return await motor.TranscreverAsync(wav, null, cancellationToken).ConfigureAwait(false);
+                    return await motor.TranscreverAsync(wav, null, vocabulario, cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -356,14 +365,15 @@ public sealed class TranscritorArquivo(
                 }
             }
 
-            if (cabeNaAmostra)
+            if (cabeNaAmostra && vocabulario is null)
             {
                 return escolhida;
             }
 
             // O idioma vai forçado também quando a detecção ganhou: o arquivo inteiro sai no idioma conferido.
             var idioma = outro is null ? null : Idiomas.Normalizar(escolhida.Idioma);
-            return await motor.TranscreverAsync(wav, idioma, cancellationToken).ConfigureAwait(false);
+            var final = await motor.TranscreverAsync(wav, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+            return idioma is null && cabeNaAmostra ? final with { Idioma = escolhida.Idioma } : final;
         }
         finally
         {
@@ -375,7 +385,7 @@ public sealed class TranscritorArquivo(
     }
 
     private async Task<ResultadoTranscricao> TranscreverAsync(
-        string caminho, string hash, IProgress<ProgressoProcessamento>? progresso, CancellationToken cancellationToken)
+        string caminho, string hash, string? vocabulario, IProgress<ProgressoProcessamento>? progresso, CancellationToken cancellationToken)
     {
         progresso?.Report(new(EtapaProcessamento.LendoMidia));
         var info = await conversor.ObterInfoAsync(caminho, cancellationToken).ConfigureAwait(false);
@@ -398,10 +408,10 @@ public sealed class TranscritorArquivo(
             progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, 100));
 
             progresso?.Report(new(EtapaProcessamento.Transcrevendo));
-            var bruta = await TranscreverConferindoIdiomaAsync(wav, info.Duracao, pastaTemporaria, cancellationToken).ConfigureAwait(false);
+            var bruta = await TranscreverConferindoIdiomaAsync(wav, info.Duracao, pastaTemporaria, vocabulario, cancellationToken).ConfigureAwait(false);
             if (_opcoes.RepararTrechosSuspeitos)
             {
-                bruta = await RepararAsync(wav, bruta, pastaTemporaria, cancellationToken).ConfigureAwait(false);
+                bruta = await RepararAsync(wav, bruta, pastaTemporaria, vocabulario, cancellationToken).ConfigureAwait(false);
             }
 
             progresso?.Report(new(EtapaProcessamento.MontandoFrases));
@@ -595,6 +605,9 @@ public sealed class TranscritorArquivo(
         public IProgress<ProgressoProcessamento>? Progresso { get; } = progresso;
 
         public string Hash { get; set; } = string.Empty;
+
+        /// <summary>Dica mandada ao Whisper (opção + arquivo ao lado da mídia), já montada; nula sem vocabulário.</summary>
+        public string? Vocabulario { get; set; }
 
         /// <summary>Chave do cache da transcrição (ou da transcrição corrigida, depois da correção).</summary>
         public string Chave { get; set; } = string.Empty;

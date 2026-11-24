@@ -144,6 +144,12 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   (`ConferirIdioma`, seção 6). Com sotaque, a detecção sozinha às vezes erra e devolve a fala já traduzida.
 - `--idioma pt` força o idioma (pula a detecção e a conferência); `--json saida.json` grava uma cópia (só com um
   arquivo); `--modelo` troca o Whisper.
+- **Nomes e termos do assunto** (pessoas, lugares, siglas, jargão): ponha um por linha (ou separados por vírgula) em
+  `C:\videos\aula.mp4.vocabulario.txt`, ao lado da mídia, ou passe `--vocabulario termos.txt` para todos os arquivos
+  da execução (os dois somam; linhas com `#` são comentário). A lista vai ao Whisper como dica. No FLEURS, com ~15
+  termos por grupo de 10 frases, os termos escritos certo foram de 86% para 97% em português e de 81% para 95% em
+  inglês, e o WER caiu de 4,3% para 3,1% e de 8,0% para 4,1% (`docs/modelos.md`). Só ajuda o termo que está na lista;
+  até 800 caracteres (o resto fica de fora). Mudar a lista gera resultado novo no cache.
 - Vários arquivos de uma vez (`arquivo aula1.mp4 aula2.mp4 aula3.mp4`) processam em lote: cada etapa roda para todos
   antes da seguinte (transcreve todos, depois traduz todos), e cada modelo carrega uma vez por lote em vez de uma vez
   por arquivo. O JSON de cada um fica ao lado da mídia; o progresso mostra `[2/3]`. Se parar no meio, rodar de novo
@@ -393,6 +399,11 @@ foreach (var frase in r.Frases)
 // Vários arquivos: uma etapa por vez para todos; um resultado por arquivo, na mesma ordem.
 IReadOnlyList<ResultadoTranscricao> lote = await transcritor.ProcessarLoteAsync(
     [@"C:\videos\aula1.mp4", @"C:\videos\aula2.mp4"], Saida.Ambos, progresso, ct);
+
+// Nomes e termos do assunto como dica ao Whisper: o vocabulário daquele vídeo, ao lado da mídia...
+await File.WriteAllTextAsync(OpcoesArquivo.CaminhoVocabularioAoLado(@"C:\videos\aula.mp4"), "Dona Chica\nLuis Barcellos\nNAudio", ct);
+// ...e/ou um vocabulário para todos os arquivos, no registro:
+services.AddTranscritorArquivo(o => o.Vocabulario = "Speaches, WhisperLiveKit");
 ```
 O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 ```json
@@ -544,6 +555,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `Idioma` | `null` (automático) | Força `pt` ou `en` |
 | `ConferirIdioma` | `true` | Sem `Idioma`, confere a detecção do Whisper: transcreve o começo do áudio também no outro idioma (português ↔ inglês) e fica com o que saiu com mais confiança por palavra. Evita a fala com sotaque voltar traduzida para o idioma errado. Custa uma transcrição curta a mais por arquivo (duas nos arquivos mais longos que a amostra). Só para pt/en: outro idioma detectado fica como veio |
 | `SegundosConferirIdioma` | `30` | Tamanho da amostra do começo usada na conferência |
+| `Vocabulario` | `null` | Nomes e termos do assunto (um por linha ou separados por vírgula) mandados ao Whisper como dica ("prompt") em todos os arquivos. Soma com o `<arquivo>.vocabulario.txt`. Até 800 caracteres. A conferência do idioma roda sem a dica; a transcrição final leva |
+| `LerVocabularioAoLado` | `true` | Lê também `<arquivo>.vocabulario.txt` ao lado da mídia, se existir |
 | `CaminhoFfmpeg` / `CaminhoFfprobe` | `ffmpeg` / `ffprobe` | Executáveis (PATH ou caminho completo) |
 | `PastaCache` | `%LOCALAPPDATA%\Transcritor\cache` | Cache dos resultados |
 | `GravarJsonAoLado` | `true` | Grava `<arquivo>.transcricao.json` ao lado da mídia |
@@ -617,7 +630,7 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 ## 7. Cache
 
 - Resultados de arquivo: um JSON por chave em `%LOCALAPPDATA%\Transcritor\cache`. A chave junta o hash do arquivo, o
-  modelo e as versões da montagem, do reparo de trechos, da correção (e da conferência no áudio), da tradução e da análise; trocar modelo ou prompt gera
+  modelo, o vocabulário e as versões da montagem, do reparo de trechos, da correção (e da conferência no áudio), da tradução e da análise; trocar modelo ou prompt gera
   resultado novo.
 - Palavras: `palavras.json` na mesma pasta.
 - Para limpar: apague a pasta (os serviços refazem tudo na próxima vez).

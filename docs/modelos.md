@@ -120,6 +120,38 @@ som parecido, palavras raras e quatro falas de 20–25 s; `docs/avaliacao/frases
   - A linha "Detected language" que o arquivo grava com as probabilidades de pt e en não aparece no log do contêiner
     (o nível do log desse módulo fica acima de INFO); a correção em si funciona (a en13 saiu em inglês nas 3 rodadas).
 
+### Vocabulário do assunto (dica ao Whisper)
+
+Opções `Vocabulario` e `LerVocabularioAoLado` (arquivo `<mídia>.vocabulario.txt`), `--vocabulario` no Cli. Os nomes e
+termos do assunto vão ao Whisper no campo `prompt` do Speaches, no formato "termo1, termo2, termo3.", até 800
+caracteres. A conferência do idioma roda sem a dica, porque a detecção do idioma com a dica não foi medida. A dica vai
+na transcrição final e nos trechos refeitos pelo reparo; nos trechos, ela vem antes do texto falado logo antes do trecho.
+
+**Medição** (2026-11-24, RTX 3060, `large-v3`, idioma forçado, temperatura 0):
+- Áudio: FLEURS `dev`, as mesmas gravações da 3ª rodada de `avaliar-fala`, 386 em português e 394 em inglês.
+- Vídeos simulados: os textos foram embaralhados (semente 42) e agrupados de 10 em 10.
+- Lista de cada grupo: os termos dos seus textos. Termo é palavra com maiúscula fora do começo da frase, sigla ou
+  palavra fora do dicionário local (nem verbete, nem flexão, nem entre as 30 mil mais frequentes), com 3+ letras e sem
+  dígito.
+- Tamanho das listas: média de 15 termos em português (4 a 31) e 20 em inglês (9 a 36), até ~300 caracteres.
+- Cada gravação foi transcrita três vezes: sem dica, com a lista como `prompt` e com a lista como `hotwords`.
+- WER: minúsculas, sem pontuação, a mesma conta nas três condições. Não é comparável com os 4,1%/5,8% da 3ª rodada,
+  que usou a normalização do `avaliar-fala`.
+
+| Condição | WER pt | Termos certos pt | WER en | Termos certos en | Termo da lista escrito sem ser falado |
+|---|---|---|---|---|---|
+| Sem dica | 4,25% | 500/579 (86%) | 7,97% | 628/780 (81%) | 0 pt / 4 en |
+| **`prompt`** (adotado) | **3,08%** | **564/579 (97%)** | **4,12%** | **739/780 (95%)** | 0 pt / 4 en |
+| `hotwords` | 3,68% | 562/579 (97%) | 4,78% | 729/780 (93%) | 0 pt / 5 en |
+
+- O `prompt` ganhou do `hotwords` nos dois idiomas; no inglês o WER quase caiu pela metade.
+- Os termos "escritos sem ser falados" no inglês são quase todos de grafia: "Japanese" e "America" já aparecem sem
+  dica (a referência escreve de outro jeito). Só "Canaan" (1 vez) pode ter vindo da lista.
+- **Limite da medição:** cada lista continha todos os termos das frases do grupo. Na prática, a lista vem de quem
+  conhece o assunto, e um termo que ficou fora dela não ganha nada.
+- Não medido: fala espontânea (CORAA, AMI), listas grandes (perto de 800 caracteres), o tempo a mais por arquivo e o
+  tempo real (o WhisperLiveKit já recebe `Contexto`, seção do tempo real no manual).
+
 ### Confiança por palavra (campo `confianca` do JSON)
 
 O Speaches devolve, para cada palavra, a probabilidade que o Whisper deu a ela; a lib guarda em `Palavra.Confianca`.

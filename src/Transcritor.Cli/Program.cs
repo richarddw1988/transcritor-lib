@@ -40,9 +40,15 @@ var optCorrigirArquivo = new Option<bool>("--corrigir")
         + "quase não mudam o WER e custam de 9 a 33 s por frase; ver docs/modelos.md). Os homófonos pelo BERT rodam sempre.",
 };
 
+var optVocabulario = new Option<FileInfo?>("--vocabulario")
+{
+    Description = "Arquivo de texto com nomes e termos do assunto (um por linha ou separados por vírgula), mandados ao Whisper "
+        + "como dica. Soma com o \"<mídia>.vocabulario.txt\" ao lado de cada mídia, lido sempre que existir.",
+};
+
 var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um ou mais arquivos e grava o JSON de cada um com frases e palavras.")
 {
-    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo,
+    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo, optVocabulario,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
@@ -53,12 +59,21 @@ cmdArquivo.SetAction(async (resultado, ct) =>
     var json = resultado.GetValue(optJson);
     var sentido = resultado.GetValue(optSentido);
     var corrigirArquivo = resultado.GetValue(optCorrigirArquivo);
+    var vocabulario = resultado.GetValue(optVocabulario);
+    if (vocabulario is { Exists: false })
+    {
+        await Console.Error.WriteLineAsync($"Arquivo de vocabulário não encontrado: {vocabulario.FullName}");
+        return 1;
+    }
+
+    var textoVocabulario = vocabulario is null ? null : await File.ReadAllTextAsync(vocabulario.FullName, ct);
 
     using var sp = CriarServicos(
         o =>
         {
             if (!string.IsNullOrWhiteSpace(modelo)) o.ModeloTranscricao = modelo;
             if (!string.IsNullOrWhiteSpace(idioma)) o.Idioma = idioma;
+            if (textoVocabulario is not null) o.Vocabulario = textoVocabulario;
         },
         t =>
         {
