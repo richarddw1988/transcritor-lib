@@ -12,6 +12,8 @@ namespace Transcritor.Arquivo;
 /// <item>Termina também numa pausa longa (<see cref="PausaQueFechaFrase"/>), para fala sem pontuação.</item>
 /// <item>Título de capítulo ("Chapter Three", "Capítulo 2") fica junto e sozinho numa frase, mesmo quando o narrador
 /// pausa entre a palavra e o número ou o Whisper não pontua o fim do título.</item>
+/// <item>Pedaço que o Whisper devolve colado à palavra anterior e começando com hífen ("Super" + "-G.",
+/// "fazê" + "-lo") vira uma palavra só, para a frase não sair "Super -G.".</item>
 /// <item>Sentença mais longa que <see cref="DuracaoMaxima"/> é dividida na última vírgula (ou ; :), para caber na tela.</item>
 /// </list>
 /// Sem tempo por palavra, cai para os segmentos do motor.
@@ -19,7 +21,7 @@ namespace Transcritor.Arquivo;
 internal static class MontadorFrases
 {
     /// <summary>Muda quando a regra de montagem muda; entra na chave do cache.</summary>
-    public const int Versao = 4;
+    public const int Versao = 5;
 
     public static readonly TimeSpan PausaQueFechaFrase = TimeSpan.FromSeconds(1.5);
     public static readonly TimeSpan DuracaoMaxima = TimeSpan.FromSeconds(30);
@@ -57,9 +59,36 @@ internal static class MontadorFrases
         "cinquenta", "sessenta", "setenta", "oitenta", "noventa", "cem",
     };
 
+    /// <summary>
+    /// Junta à anterior a palavra que começa com hífen sem espaço antes ("-G.", "-lo") seguida de letra ou número, quando
+    /// a anterior termina em letra ou número. O tempo vai do começo da primeira ao fim da segunda; a confiança fica a
+    /// menor das duas. Hífen solto (" - ") ou com espaço antes não junta.
+    /// </summary>
+    internal static List<Palavra> JuntarHifen(IReadOnlyList<Palavra> palavras)
+    {
+        var resultado = new List<Palavra>(palavras.Count);
+        foreach (var p in palavras)
+        {
+            var texto = p.Texto;
+            var anterior = resultado.Count > 0 ? resultado[^1].Texto.TrimEnd() : string.Empty;
+            if (texto.Length > 1 && texto[0] == '-' && char.IsLetterOrDigit(texto[1])
+                && anterior.Length > 0 && char.IsLetterOrDigit(anterior[^1]))
+            {
+                var a = resultado[^1];
+                var confianca = a.Confianca is { } ca && p.Confianca is { } cp ? Math.Min(ca, cp) : a.Confianca ?? p.Confianca;
+                resultado[^1] = a with { Texto = anterior + texto.TrimEnd(), Fim = Math.Max(a.Fim, p.Fim), Confianca = confianca };
+                continue;
+            }
+
+            resultado.Add(p);
+        }
+
+        return resultado;
+    }
+
     public static IReadOnlyList<Frase> Montar(TranscricaoBruta bruta)
     {
-        var palavras = bruta.Palavras
+        var palavras = JuntarHifen(bruta.Palavras)
             .Select(p => p with { Texto = p.Texto.Trim() })
             .Where(p => p.Texto.Length > 0)
             .OrderBy(p => p.Inicio)

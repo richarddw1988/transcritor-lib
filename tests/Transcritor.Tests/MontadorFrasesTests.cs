@@ -135,4 +135,41 @@ public class MontadorFrasesTests
         Assert.Equal(0.123, palavra.Inicio);
         Assert.Equal(0.679, palavra.Fim);
     }
+
+    [Fact]
+    public void Pedaco_com_hifen_colado_vira_uma_palavra_so()
+    {
+        // Caso real do Speaches com vocabulário: " Super" + "-G." (sem espaço antes do hífen).
+        var bruta = Bruta(
+        [
+            new Palavra(" standing", 0, 0.5, 0.9),
+            new Palavra(" Super", 0.5, 0.8, 0.95),
+            new Palavra("-G.", 0.8, 1.1, 0.7),
+            new Palavra(" Fazê", 1.2, 1.5, 0.9),
+            new Palavra("-lo", 1.5, 1.7),
+            new Palavra(" agora.", 1.7, 2.0, 0.9),
+        ]);
+
+        var frases = MontadorFrases.Montar(bruta);
+
+        Assert.Equal(["standing Super-G.", "Fazê-lo agora."], frases.Select(f => f.Texto));
+        var superG = frases[0].Palavras[1];
+        Assert.Equal(("Super-G.", 0.5, 1.1, (double?)0.7), (superG.Texto, superG.Inicio, superG.Fim, superG.Confianca));
+        Assert.Equal(0.9, frases[1].Palavras[0].Confianca);
+    }
+
+    [Fact]
+    public void Hifen_solto_ou_com_espaco_antes_nao_junta()
+    {
+        var bruta = Bruta(
+        [
+            new Palavra(" isso", 0, 0.3),
+            new Palavra(" -", 0.3, 0.4),
+            new Palavra(" -aquilo", 0.4, 0.7),
+            new Palavra("-", 0.7, 0.8),
+            new Palavra(" fim.", 0.8, 1.0),
+        ]);
+
+        Assert.Equal(["isso - -aquilo - fim."], Textos(bruta));
+    }
 }
