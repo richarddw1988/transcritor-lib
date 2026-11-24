@@ -64,6 +64,8 @@ public class TrocasDaCorrecaoTests
         Assert.Empty(CorretorOllama.Trocas(Palavras("And slightly mildewed"), "And lightly mildewed", "en"));
         Assert.Empty(CorretorOllama.Trocas(Palavras("The old man whispered."), "The old man whisper'd.", "en"));
         Assert.True(CorretorOllama.MesmaPalavra("Giant", "Giants", "en", null));
+        Assert.Empty(CorretorOllama.Trocas(Palavras("and move very stealthily too."), "and move very stealthy too.", "en"));
+        Assert.True(CorretorOllama.MesmaPalavra("happy", "happily", "en", null));
         Assert.False(CorretorOllama.MesmaPalavra("night", "knight", "en", null));
     }
 
@@ -210,6 +212,18 @@ public class CorretorOllamaTests
     }
 
     [Fact]
+    public async Task Erro_do_Ollama_so_nesta_frase_nao_troca_nada_e_nao_derruba()
+    {
+        // No AMI, uma frase alucinada ("Errrrr…") fez o Ollama responder 500 e derrubava o arquivo inteiro.
+        var handler = new FakeHttpHandler((_, _) => new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent("{\"error\":\"prediction aborted, token repeat limit reached\"}"),
+        });
+
+        Assert.Empty(await Criar(handler).CorrigirAsync(Pedido, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Desligado_nao_verifica_o_modelo()
     {
         var handler = new FakeHttpHandler((_, _) => throw new InvalidOperationException("não deveria chamar"));
@@ -266,6 +280,19 @@ public class ConferenciaCorrecaoTests
         Assert.False(ConferenciaCorrecao.Confirma(trocada, 1, Ouvida(("a", 0.9), ("do", 0.9), ("cavalo", 0.9)), 0.2));
         Assert.False(ConferenciaCorrecao.Confirma(trocada, 1, Ouvida(("a", 0.9), ("sela", 0.1), ("do", 0.9), ("cavalo", 0.9)), 0.2));
         Assert.True(ConferenciaCorrecao.Confirma(trocada, 1, Ouvida(("a", 0.9), ("sela", 0.53), ("do", 0.9), ("cavalo", 0.9)), 0.2));
+    }
+
+    [Fact]
+    public void Frase_inventada_que_so_repete_a_candidata_nao_confirma()
+    {
+        // FLEURS: "can be a good time to base a holiday around." reouvida como "I'll see you next time. Bye!".
+        string[] trocada = ["can", "be", "a", "good", "time", "to", "base", "a", "holiday", "around."];
+        var inventada = Ouvida(("I'll", 0.03), ("see", 0.84), ("you", 0.99), ("next", 0.54), ("time.", 0.74), ("Bye!", 0.77));
+        var umaDiferente = Ouvida(("can", 0.3), ("be", 0.9), ("a", 0.9), ("good", 0.9), ("time", 0.7), ("to", 0.9),
+            ("face", 0.9), ("a", 0.9), ("holiday", 0.9), ("around.", 0.9));
+
+        Assert.False(ConferenciaCorrecao.Confirma(trocada, 4, inventada, 0.2));
+        Assert.True(ConferenciaCorrecao.Confirma(trocada, 4, umaDiferente, 0.2));
     }
 }
 

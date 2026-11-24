@@ -1,6 +1,6 @@
 # Especificação: modelos de IA usados e testados
 
-Última atualização: 2026-11-23. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
+Última atualização: 2026-11-24. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
 configuração ou uma medição mudar (ver [CLAUDE.md](../CLAUDE.md)).
 
 Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum dado sai da máquina.
@@ -9,13 +9,13 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 
 | Função | Modelo | Serviço | Onde configurar | Tamanho | Desempenho medido (RTX 3060 12 GB) |
 |---|---|---|---|---|---|
-| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo) |
+| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo) |
 | Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s |
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
-| Correção de palavras ouvidas errado, **ligada por padrão** (`--sem-correcao` no Cli pula) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,5% (5 certas, 0 erradas, com os homófonos e o gemma nos duvidosos); no audiolivro de 17 min só uma grafia trocada; no FLEURS o WER quase não muda (10 certas, 3 estragos em 780 frases; ver abaixo) |
-| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção pelo modelo; os casos duvidosos para o BERT vão ao `gemma3:12b` (`ConfirmarHomofonoComModelo`) | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
+| Correção de palavras ouvidas errado, **opcional, desligada por padrão desde 2026-11-24** (`--corrigir` no Cli liga) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,5% (5 certas, 0 erradas, com os homófonos e o gemma nos duvidosos); no audiolivro de 17 min só uma grafia trocada; no FLEURS, no CORAA e no AMI o WER não muda e custa de 9 a 33 s por frase (ver "4ª rodada") |
+| Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção pelo modelo; os casos duvidosos para o BERT podem ir ao `gemma3:12b` (`ConfirmarHomofonoComModelo`, desligada por padrão desde 2026-11-24) | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
 
@@ -167,7 +167,7 @@ palavra por palavra — a análise é pelo contexto:
 | `gemma3:4b` | palavra solta | certo com a tradução da frase como pista ("banco" → bench/bank); erra expressões idiomáticas ("call" → "ligar") | **em uso** | [etapa-2.md](etapa-2.md) |
 | `gemma3:4b` | análise de sentido | 6,4 s/frase, mas tipos sem sentido e 7/66 traduções de bloco erradas | não usado | [etapa-4.md](etapa-4.md) |
 | `gemma3:4b` | correção da transcrição | mesmo WER que o 12b na fala do usuário (8,0% → 7,1%), mas repetiu palavra ("quite quite") | não usado | abaixo |
-| `gemma3:12b` | correção da transcrição | ver [Correção de palavras ouvidas errado](#correção-de-palavras-ouvidas-errado) | **em uso (ligada por padrão desde 2026-11-23)** | abaixo |
+| `gemma3:12b` | correção da transcrição | ver [Correção de palavras ouvidas errado](#correção-de-palavras-ouvidas-errado) | **opcional** (ligada por padrão de 2026-11-23 a 2026-11-24; desligada depois da 4ª rodada) | abaixo |
 | `gemma3:12b` | análise de sentido | 72/72 blocos e traduções certos no teste; expressões com nota | **em uso (opcional)** | [etapa-4.md](etapa-4.md) |
 | `google-bert/bert-base-cased` | homófonos e conferência da correção (inglês) | 0 trocas indevidas no audiolivro; barrou "leave" → "live" | **em uso** | abaixo |
 | `neuralmind/bert-base-portuguese-cased` (BERTimbau base) | homófonos e conferência da correção (português) | "cela" → "sela"; erra "concerto"; 6 trocas indevidas em 320 palavras de exemplos do Wiktionary | **em uso** | abaixo |
@@ -413,6 +413,17 @@ Os erros, por tipo:
   "whose". Das 4 frases de palavras raras (en27–en30), 3 saíram com erro no arquivo e as 4 no tempo real ("heron" → "Aaron").
 - **Palavra pequena ou flexão:** "can't" → "can", "he" → "they", "a" → "the", "rained" → "raining", "it" → "it's",
   "ao" → "no", "à" → "a".
+- **Leitura diferente do roteiro (2026-11-23):** reouvindo com a frase do roteiro como dica do Whisper, três "erros"
+  eram o que o usuário disse de fato: "I said I said" (en15, a repetição volta mesmo com a dica), "It's raining"
+  (en31, "rained" fica com 0,05) e "fomos no sítio" (pt16, "ao" fica com 0,03). O campo `falado` do JSON guarda isso
+  e o `avaliar-fala` compara com ele: **WER 5,5% → 4,6%** (com a correção; 5,4% antes dela), as mesmas 5 trocas
+  certas e 0 erradas. Sem como confirmar de ouvido o que foi dito, sete gravações foram descartadas (movidas para
+  `dados/gravacoes/descartadas/`): en08 ("gave her up", "they"), en12 ("the bear pawns"), en21 ("the" por "a", 0,14
+  com a dica), en24 ("head", 0,85 mesmo com a dica), en30 ("wind barrel", 0,88 mesmo com a dica), en03 ("cheap" fica
+  com 0,01 com o roteiro e "sheet" com 0,90 com "sheet pen" de dica: leu "sheet" de novo) e en25 ("wall" 0,10, "hall"
+  0,13). **Com as 42 restantes** (499 palavras): WER 2,6% → **2,0%** com a correção, 3 trocas certas ("aunt's" →
+  "aunts", "quiet" → "quite", "cela" → "sela") e 0 erradas ("bear" → "bare" era da en12 e "chop" → "shop", da en03).
+  Nas 42, toda palavra do roteiro que ficou errada volta com confiança de 0,16 ou mais quando o roteiro é a dica.
 
 **3ª rodada, FLEURS** (2026-11-23): divisão `dev` do [google/fleurs](https://huggingface.co/datasets/google/fleurs)
 (CC BY 4.0; frases da Wikipédia lidas por vários falantes; ~400 MB, baixados em `dados/fleurs/`, fora do Git),
@@ -435,14 +446,58 @@ medida com `avaliar-fala --corrigir` e as opções padrão. A referência é a t
   (números, hífens, pontuação), e a correção quase não muda o WER. O ganho medido nas 49 frases do usuário (6,3% →
   5,5%) vem dos homófonos e da pronúncia de quem fala, que o FLEURS quase não tem.
 - As 3 trocas que estragaram são todas em inglês; duas trocam uma palavra que existe e encaixa ("theme",
-  "stealthily"), e nem o BERT nem o áudio seguraram. A correção continua ligada por padrão (3 estragos em 16.655
-  palavras).
+  "stealthily"), e nem o BERT nem o áudio seguraram. Viraram duas regras da conferência (ver "4ª rodada").
 - WER com os números normalizados ("dez" igual a "10") antes de comparar: não medido.
+
+**4ª rodada, fala espontânea e regras novas** (2026-11-24): `avaliar-fala --corrigir` com as opções padrão de então
+(correção e gemma nos homófonos ligados), em quatro conjuntos, fora do Git em `dados/`:
+
+- **FLEURS `dev`**, os mesmos da 3ª rodada. O inglês estava muito baixo (pico mediano −39 dBFS; os arquivos baixos
+  tinham WER 6,4%, os outros 4,7%) e foi normalizado para pico de −3 dBFS. Nas mesmas 384 frases, os erros da
+  transcrição (antes da correção) foram de 466 para 445 (~5,8% → ~5,6%).
+- **CORAA v1.1 `dev`** ([gabrielrstan/CORAA-v1.1](https://huggingface.co/datasets/gabrielrstan/CORAA-v1.1); CC BY-NC-ND 4.0
+  segundo o artigo): português falado espontâneo (entrevistas, conversas, aulas). Amostra de 400 trechos de 4 s ou
+  mais, 80 por projeto, 6.336 palavras. A referência escreve como foi falado ("num", "cê", "né", "é é").
+- **AMI** ([edinburghcstr/ami](https://huggingface.co/datasets/edinburghcstr/ami), `ihm`, `test`, 1º arquivo; CC BY 4.0):
+  reuniões em inglês, 3 reuniões e 4 falantes. Amostra de 400 trechos normalizados para pico de −3 dBFS, 7.419
+  palavras, referência em minúsculas.
+
+Antes da rodada, duas regras novas na conferência, para os estragos da 3ª rodada: a frase reouvida tem de bater com
+pelo menos 60% das outras palavras (`ConferenciaCorrecao.MinimoOutrasIguais`; o Whisper tinha inventado "I'll see you
+next time" e confirmado "time") e advérbio em "-ily" conta como a mesma palavra que o adjetivo em "-y"
+("stealthily" → "stealthy" deixa de ser troca). Nas 42 gravações do usuário nada mudou (3 certas, 0 erradas).
+
+| Item | FLEURS pt | FLEURS en (384 de 394 frases) | CORAA | AMI |
+|---|---|---|---|---|
+| WER do large-v3 | 4,1% | ~5,6% | **19,2%** | **20,2%** |
+| WER sem formas faladas, hesitação, repetição e números até 20 (conta aproximada, fora do `avaliar-fala`) | 4,9% (5,2% na mesma conta crua) | 6,6% (6,9%) | **15,3%** (19,1%) | **14,7%** (20,1%) |
+| Correção: WER antes → depois | 4,1% → 4,1% | não calculado (rodada parou) | 19,2% → 19,2% | 20,1% → 20,2% |
+| Trocas que acertaram | 3 | 6 ("Mayat" → "Mayotte" 2×, "pray" → "prey", "blanching" → "blending", "estatuaries" → "estuaries", "-Ferise" → "Therese") | 1 ("capu" → "capô") | 0 |
+| Uma errada por outra errada, ou só grafia | 4 | 4 ("Bishkesh" → "Bishkek", "Mould" → "Mold", "healing" → "hearing", "genus" → "genius") | 5 | 6 ("summarise" → "summarize" 2×, "summarisation", "-click", "Knight" → "Night", "fluences" → "fluencies") |
+| Trocas que estragaram palavra certa | 0 | **0** ("theme", "stealthily" e "Manta" não voltaram) | **2** ("poliente" → "poluente", "gayzinhos" → "gays") | **1** ("four" → "for") |
+| Tempo do `avaliar-fala` com a correção | 8,7 s/frase | não calculado | **33,0 s/frase** | 25,2 s/frase |
+
+- **Decisão (2026-11-24): `CorrigirTranscricao` e `ConfirmarHomofonoComModelo` desligadas por padrão.** Em nenhum
+  conjunto a correção mudou o WER; na fala espontânea estragou mais do que acertou e triplicou o tempo. Sem as duas, o
+  padrão não precisa do `gemma3:12b` (8,2 GB; `preparar-ambiente.ps1 -ComCorrecao` baixa). Os homófonos só pelo BERT
+  continuam ligados. Para religar: `--corrigir` no `arquivo` do Cli ou as duas opções no `appsettings.json`.
+- Duas falhas do Ollama derrubavam o arquivo inteiro: no AMI, numa frase alucinada ("Errrrr…"), o `gemma3:12b`
+  respondeu 500 ("token repeat limit reached"); agora essa frase fica sem correção. No FLEURS en, duas vezes (com o
+  Whisper do Speaches dividindo a GPU) o Ollama passou de 5 min sem responder e o `avaliar-fala` parou (em ~330 e em
+  384 frases); causa não confirmada, continua sendo erro.
+- **A confiança não aponta o erro.** A confiança mediana das palavras trocadas foi 0,93 (FLEURS pt), 0,83 (en), 0,86
+  (CORAA) e 0,86 (AMI); abaixo de 0,5 ficam só 5%, 12%, 16% e 18% delas, e no CORAA e no AMI há mais palavras certas
+  abaixo de 0,5 (144 e 237) do que erradas (106 e 111).
+- **Palavra fora do dicionário** (nem verbete, nem flexão, nem entre as 30 mil mais frequentes) como sinal de erro:
+  marca só 0,2–1,2% das palavras certas (nomes e termos do assunto: "Niigata", "kundalini", "tfidf"), mas pega 20%
+  (FLEURS pt), 13% (en), 4% (CORAA) e 5% (AMI) das erradas; a maioria dos erros é uma palavra que existe.
+- No CORAA e no AMI, as diferenças mais comuns não são erro de reconhecimento: "pra" → "para" (31), "tá" → "está",
+  "cê" → "você", "né" e "eh" que somem; "wanna" → "want to" (34), "cause" → "because" (20), "um" e "uh" que somem.
 
 ### Correção de palavras ouvidas errado
 
-`ICorretorTranscricao` (opção `CorrigirTranscricao`, ligada por padrão desde 2026-11-23; ver a decisão no fim desta
-seção): o modelo recebe a frase, as vizinhas e as palavras de
+`ICorretorTranscricao` (opção `CorrigirTranscricao`, desligada por padrão desde 2026-11-24; ver a "4ª rodada" acima e
+as decisões no fim desta seção): o modelo recebe a frase, as vizinhas e as palavras de
 som parecido do dicionário, e devolve a frase corrigida; a lib só aceita a troca de uma palavra por outra de som
 parecido. Medido em 2026-11-21 com o `gemma3:12b` na fala do usuário (20 frases, `avaliar-fala --corrigir`) e no
 audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dano):
@@ -563,7 +618,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
       Os exemplos do Wiktionary não são todos texto certo pela norma atual (ortografia antiga, fala transcrita), por
       isso as trocas a mais foram conferidas uma a uma. Na 1ª rodada, com o WhisperLiveKit no ar, o Docker Desktop
       parou de responder depois de ~10 min de chamadas ao `gemma3:12b` e foi reiniciado; causa não confirmada.
-      **Decisão (2026-11-23): ligada por padrão.** Conferido com todas as opções padrão e o WhisperLiveKit no ar:
+      **Decisão (2026-11-23): ligada por padrão** (revogada em 2026-11-24, ver "4ª rodada"). Conferido com todas as opções padrão e o WhisperLiveKit no ar:
       49 gravações com `avaliar-fala --corrigir`: 5 trocas certas e 0 erradas, WER 6,3% → **5,5%** (antes 4 certas,
       5,6%; a nova é "bear" → "bare"); audiolivro: a mesma única troca ("marvellous" → "marvelous"), 149,5 s de correção
       (100,6 s antes, mas com o WhisperLiveKit parado; não comparável direto). Risco aceito: em texto coloquial ou
@@ -630,7 +685,7 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
   - Sozinho, o BERT puxa para palavras raras que encaixam na frase; como conferência do modelo, só barra o que não
     faz sentido. Ficou ligada, com limite 0,5.
-  - **Decisão (2026-11-23): `CorrigirTranscricao` passou a ligada por padrão.** Com a conferência pelo BERT e no
+  - **Decisão (2026-11-23, revogada em 2026-11-24 pela "4ª rodada"): `CorrigirTranscricao` passou a ligada por padrão.** Com a conferência pelo BERT e no
     áudio, a correção não errou nenhuma troca nas 49 frases (4 certas) e no audiolivro só mudou uma grafia
     ("marvellous" → "marvelous"), em 101 s para 17 min. Continua corrigindo poucas das palavras erradas (ver abaixo);
     o ganho é pequeno, mas sem estrago medido. Custa o `gemma3:12b` no Ollama (8,2 GB, baixado pelo

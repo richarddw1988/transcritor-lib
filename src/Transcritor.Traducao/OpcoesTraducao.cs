@@ -32,11 +32,12 @@ public sealed class OpcoesTraducao
 
     /// <summary>
     /// Liga a correção de palavras ouvidas errado no processamento de arquivos (antes de traduzir): o modelo troca uma
-    /// palavra por outra de som parecido quando a frase não faz sentido ("night" → "knight"). Ligada por padrão desde
-    /// 2026-11-23, com cada troca conferida pelo BERT (<see cref="ConferirCorrecaoComBert"/>) e no áudio: nas 49 frases
-    /// medidas, 4 trocas certas e 0 erradas (docs/modelos.md). Precisa do <see cref="ModeloCorrecao"/> no Ollama.
+    /// palavra por outra de som parecido quando a frase não faz sentido ("night" → "knight"). Cada troca é conferida
+    /// pelo BERT (<see cref="ConferirCorrecaoComBert"/>) e no áudio. Desligada por padrão desde 2026-11-24: no FLEURS,
+    /// no CORAA e no AMI o WER não mudou (na fala espontânea do CORAA estragou 2 palavras certas e acertou 1) e custou de
+    /// 9 a 33 s por frase (docs/modelos.md). Precisa do <see cref="ModeloCorrecao"/> no Ollama.
     /// </summary>
-    public bool CorrigirTranscricao { get; set; } = true;
+    public bool CorrigirTranscricao { get; set; }
 
     /// <summary>Modelo da correção de palavras ouvidas errado.</summary>
     public string ModeloCorrecao { get; set; } = "gemma3:12b";
@@ -69,11 +70,12 @@ public sealed class OpcoesTraducao
     /// Homófono em que o BERT dá à outra grafia pelo menos <see cref="LimiteHomofonoComModelo"/>, mas não chega a
     /// <see cref="LimiteHomofono"/>, vai ao <see cref="ModeloCorrecao"/>: ele vê a frase com cada grafia e diz qual está
     /// escrita certo, duas vezes, com as opções em ordem trocada. Só troca se escolher a outra grafia nas duas (o modelo
-    /// de lacuna não sabe que se diz "concerto de música"; o de conversa sabe). Ligada por padrão desde 2026-11-23: mais
-    /// acertos e nenhuma troca indevida no audiolivro e nas gravações; em texto coloquial ou literário ainda troca a mais
-    /// às vezes ("pra trás" → "traz"; docs/modelos.md).
+    /// de lacuna não sabe que se diz "concerto de música"; o de conversa sabe). Mais acertos nos casos difíceis, mas nas
+    /// 49 gravações do usuário só levou o WER de 6,2% a 6,0%; desligada por padrão desde 2026-11-24, junto com
+    /// <see cref="CorrigirTranscricao"/>, para o padrão não precisar do <see cref="ModeloCorrecao"/> (8 GB). Em texto
+    /// coloquial ou literário ainda troca a mais às vezes ("pra trás" → "traz"; docs/modelos.md).
     /// </summary>
-    public bool ConfirmarHomofonoComModelo { get; set; } = true;
+    public bool ConfirmarHomofonoComModelo { get; set; }
 
     /// <summary>Probabilidade mínima, pelo BERT, da outra grafia para o homófono ir ao modelo de conversa.</summary>
     public double LimiteHomofonoComModelo { get; set; } = 0.02;

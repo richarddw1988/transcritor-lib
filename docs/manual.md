@@ -44,7 +44,7 @@ Precisa de Windows 10/11 com GPU NVIDIA (12 GB recomendado; ver [modelos.md](mod
 1. **Driver NVIDIA** 576 ou mais novo (pelo NVIDIA App ou nvidia.com). Confira com `nvidia-smi`.
 2. **Docker Desktop** com backend WSL2: <https://www.docker.com/products/docker-desktop/>.
    - Em *Settings › Resources › Advanced › Disk image location*, deixe o disco do Docker numa unidade com
-     **60 GB livres** ou mais (a 1ª preparação baixa ~58 GB; ~48 GB com `-SemCorrecao -SemDicionario -SemHomofonos`).
+     **60 GB livres** ou mais (a 1ª preparação baixa ~50 GB; ~58 GB com `-ComCorrecao`, ~48 GB com `-SemDicionario -SemHomofonos`).
 3. **Memória da VM do WSL**: se existir `%USERPROFILE%\.wslconfig` com `memory` abaixo de 10 GB, aumente (abaixo,
    16 GB + 4 GB de swap, para máquina com 32 GB de RAM; com menos, 12 GB) e rode `wsl --shutdown`; com 4 GB o Ollama
    trava ao trocar de modelo. Com 12 GB a VM fica no limite quando o `gemma3:12b` e o WhisperLiveKit estão no ar
@@ -109,7 +109,7 @@ Opções do script:
 | `-SoConferir` | Só confere; não constrói, não sobe, não baixa |
 | `-SemTempoReal` | Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB); arquivo e tradução continuam |
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
-| `-SemCorrecao` | Não baixa o `gemma3:12b` da correção de palavras ouvidas errado (~8 GB; o mesmo da análise) e confere os serviços sem ela. Ponha `CorrigirTranscricao = false` no `appsettings.json` (seção 6) |
+| `-ComCorrecao` | Também baixa o `gemma3:12b` da correção de palavras ouvidas errado (~8 GB; o mesmo da análise) e confere os serviços com ela. A correção vem desligada desde 2026-11-24; para usá-la, ligue `CorrigirTranscricao` e `ConfirmarHomofonoComModelo` no `appsettings.json` (seção 6) ou passe `--corrigir` ao `arquivo` |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
 | `-SemDicionario` | Não baixa o Wiktionary (~600 MB, kaikki.org) nem as listas de frequência (~1,3 MB) e não gera `dados/dicionario.db` (~60 MB, ~40 s); só informa. Sem ele, os homófonos não rodam e a correção fica sem as palavras parecidas. Sem a opção, o script também gera de novo o dicionário de versão anterior. Ver 4.6 |
 | `-SemHomofonos` | Não gera `dados/bert` (~1 GB: os BERT do huggingface.co convertidos para ONNX num contêiner `python:3.12-slim` por `scripts/exportar-bert.py`; ~1,3 GB de download e ~2,5 min na 1ª vez; não precisa de Python no Windows); só informa. Sem eles, nem os homófonos nem a correção pelo modelo rodam (5.5) |
@@ -152,12 +152,13 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 - `--sentido` também gera os blocos (expressões) e o "o que quis dizer" de cada frase. É lento (~10–13 s por frase)
   e precisa do `gemma3:12b` (`preparar-ambiente.ps1 -ComAnaliseDeSentido`); com 12 GB de GPU, pare o tempo real antes
   (`docker stop whisperlivekit`).
-- A correção de palavras ouvidas errado roda por padrão antes de traduzir (`CorrigirTranscricao`, seção 6): nas 49
-  frases gravadas pelo usuário fez 4 trocas certas e nenhuma errada (WER 6,3% → 5,6%), e no audiolivro só mudou uma
-  grafia ("marvellous" → "marvelous"); ver `docs/modelos.md`. Só frases com alguma palavra de confiança abaixo de 0,95
-  vão ao modelo, e cada troca proposta é conferida pelo BERT (sem os modelos BERT, a correção não roda; ver 5.5) e no áudio (a frase é transcrita de novo); no audiolivro de
-  17 min a correção levou ~100 s. A palavra trocada guarda a original em `ouvida` no JSON. `--sem-correcao` pula a
-  correção pelo modelo (os homófonos continuam).
+- Os homófonos pelo BERT ("cela" → "sela") rodam sempre que o dicionário e os modelos BERT existem (5.5).
+- `--corrigir` liga a correção de palavras ouvidas errado pelo `gemma3:12b` antes de traduzir (`CorrigirTranscricao`
+  e `ConfirmarHomofonoComModelo`, seção 6; precisa de `preparar-ambiente.ps1 -ComCorrecao`). Vem desligada desde
+  2026-11-24: nas 49 frases gravadas pelo usuário levou o WER de 6,3% a 5,5%, mas no FLEURS, no CORAA e no AMI não
+  mudou o WER e custou de 9 a 33 s por frase (ver `docs/modelos.md`). Só frases com alguma palavra de confiança abaixo
+  de 0,95 vão ao modelo, e cada troca proposta é conferida pelo BERT e no áudio (a frase é transcrita de novo). A
+  palavra trocada guarda a original em `ouvida` no JSON.
 
 Tempo de referência (RTX 3060): 6 min de áudio em inglês → ~8 min com a tradução 12b (7 min só da tradução), antes de
 a correção ser ligada por padrão (ela soma ~100 s por 17 min de audiolivro);
@@ -321,6 +322,9 @@ nada olhando os erros de um conjunto que você vai usar para decidir.
    `--banco` trocam os caminhos. Esta medida não passa pela correção pelo modelo, mesmo com ela ligada (ver o passo 3);
    os homófonos, sim.
    - O Whisper escreve números como dígitos ("sete" → "7"), o que conta como troca: evite números nas frases.
+   - Se você leu a frase diferente (repetiu palavra, trocou o tempo verbal), ponha o que disse de fato no campo
+     opcional `falado` da frase no JSON: a medida compara com ele, e o `texto` continua sendo o que o script mostra.
+     Erro de pronúncia (a palavra certa, dita de um jeito que soa como outra) fica no `texto`: é o que se quer medir.
 3. Meça a correção de palavras ouvidas errado (`ModeloCorrecao`, com o dicionário):
    ```powershell
    dotnet run --project src/Transcritor.Cli -- avaliar-fala --corrigir
@@ -474,8 +478,8 @@ foreach (var v in sentidos)
   `dicionario.TemHomofonos` diz se o banco tem a lista (os gerados antes de 2026-11-23 não têm).
 
 ### 5.5 Correção da transcrição
-O arquivo usa sozinho quando alguma parte está ligada: a correção pelo modelo (`CorrigirTranscricao`, ligada por
-padrão desde 2026-11-23; precisa do `ModeloCorrecao` no Ollama e dos modelos BERT) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o
+O arquivo usa sozinho quando alguma parte está ligada: a correção pelo modelo (`CorrigirTranscricao`, desligada por
+padrão desde 2026-11-24; precisa do `ModeloCorrecao` no Ollama e dos modelos BERT) e/ou os homófonos (`CorrigirHomofonos`, ligada, com o
 dicionário e os modelos BERT). Para corrigir uma
 frase avulsa (ex.: do tempo real):
 ```csharp
@@ -512,7 +516,7 @@ foreach (var t in trocas)
   a mesma palavra aparece de novo na frase, a outra ocorrência vira lacuna na conta, para o BERT não copiá-la. A
   troca sai marcada (`Correcao.Homofono`) e, no arquivo, não é conferida no áudio, porque o som é o mesmo. Medido:
   "cela" → "sela" na fala do usuário e nenhuma troca indevida no audiolivro (ver `docs/modelos.md`).
-- Com `ConfirmarHomofonoComModelo` (ligada desde 2026-11-23), o homófono em que o BERT acha a outra grafia possível
+- Com `ConfirmarHomofonoComModelo` (desligada por padrão desde 2026-11-24, junto com a correção), o homófono em que o BERT acha a outra grafia possível
   (entre `LimiteHomofonoComModelo`, 0,02, e 0,99) vai ao `ModeloCorrecao`, que vê a frase com cada grafia e diz qual
   está certa, duas vezes, com as opções em ordem trocada; só troca se escolher a outra grafia nas duas.
 - `CorrigirAsync` faz as partes ligadas: com `CorrigirTranscricao = false`, só os homófonos. `Ativo` diz se alguma
@@ -561,7 +565,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
 | `CaminhoDicionario` | nulo (no Cli: `dados/dicionario.db`) | Dicionário da seção 4.6. Com ele, a palavra solta que faz parte de uma expressão do dicionário recebe os sentidos da expressão como opções numeradas e o modelo escolhe uma; nulo ou arquivo ausente = só o modelo |
 | `LimiarPalavraRara` | `0` (desligado) | **Experimental.** Nas frases do arquivo, palavra fora das N mais frequentes (ex.: `10000`) vai com as traduções do dicionário nas instruções do modelo. Precisa do dicionário gerado com as listas de frequência (4.6). Ver 4.6 antes de ligar |
-| `CorrigirTranscricao` | `true` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Precisa do `ModeloCorrecao` no Ollama (`preparar-ambiente.ps1` baixa; sem ele, `false`) e, com `ConferirCorrecaoComBert`, do BERT do idioma (sem ele, não roda). Os homófonos não dependem dela |
+| `CorrigirTranscricao` | `false` | Corrige palavras ouvidas errado no arquivo pelo modelo de conversa, antes de traduzir (seção 5.5). Desligada desde 2026-11-24: quase não muda o WER e custa de 9 a 33 s por frase (`docs/modelos.md`). Precisa do `ModeloCorrecao` no Ollama (`preparar-ambiente.ps1 -ComCorrecao`) e, com `ConferirCorrecaoComBert`, do BERT do idioma (sem ele, não roda). Os homófonos não dependem dela |
 | `ModeloCorrecao` | `gemma3:12b` | Modelo da correção |
 | `LimiteConfiancaCorrecao` | `0.95` | Só palavras com confiança abaixo disto podem ser trocadas; frase sem nenhuma não vai ao modelo |
 | `CorrigirHomofonos` | `true` | Cada palavra com homófono no dicionário ("cela" ↔ "sela") passa pelo BERT, mesmo com confiança alta e mesmo com `CorrigirTranscricao` desligada (5.5). Sem a lista de homófonos ou sem os modelos, não faz nada |
@@ -569,7 +573,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ConferirCorrecaoComBert` | `true` | Cada troca proposta pelo modelo de conversa só vale se o BERT preferir a palavra nova (5.5). Ligada, a correção pelo modelo só roda no idioma com o BERT; desligada, roda sem conferir |
 | `LimiteParecida` | `0.5` | Probabilidade mínima, pelo BERT, da palavra nova contra a ouvida; com 0,7 já perdeu uma troca certa |
 | `LimiteHomofono` | `0.99` | Probabilidade mínima da outra grafia para trocar o homófono; abaixo de 0,99 entraram trocas erradas |
-| `ConfirmarHomofonoComModelo` | `true` | Homófono em que o BERT dá à outra grafia entre `LimiteHomofonoComModelo` e `LimiteHomofono` vai ao `ModeloCorrecao`, que vê a frase com cada grafia e diz qual está certa, nas duas ordens; só troca se escolher a outra nas duas (e, com duas outras grafias possíveis, a que ganha da outra). Pega casos que o BERT não sabe ("Fomos ao conserto de música" → "concerto"); custa ~0,4 s por pergunta. Ainda troca a mais às vezes em texto coloquial ou literário ("pra trás" → "traz"). Ver `docs/modelos.md` |
+| `ConfirmarHomofonoComModelo` | `false` | Homófono em que o BERT dá à outra grafia entre `LimiteHomofonoComModelo` e `LimiteHomofono` vai ao `ModeloCorrecao`, que vê a frase com cada grafia e diz qual está certa, nas duas ordens; só troca se escolher a outra nas duas (e, com duas outras grafias possíveis, a que ganha da outra). Pega casos que o BERT não sabe ("Fomos ao conserto de música" → "concerto"); custa ~0,4 s por pergunta. Ainda troca a mais às vezes em texto coloquial ou literário ("pra trás" → "traz"). Desligada desde 2026-11-24 para o padrão não precisar do `gemma3:12b`. Ver `docs/modelos.md` |
 | `LimiteHomofonoComModelo` | `0.02` | Probabilidade mínima, pelo BERT, da outra grafia para o homófono ir ao modelo de conversa |
 | `ConfirmarCorrecaoComModelo` | `false` | 2ª chamada ao modelo por troca, comparando a frase com e sem ela. No arquivo a conferência no áudio mediu melhor; ligue ao usar `CorrigirAsync` em frase avulsa |
 | `AnalisarSentido` | `false` | Liga blocos e "o que quis dizer" no arquivo |

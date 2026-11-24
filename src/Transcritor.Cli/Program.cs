@@ -34,14 +34,15 @@ var optSaida = new Option<Saida>("--saida")
 
 var optSentido = new Option<bool>("--sentido") { Description = "Também gera blocos (expressões) e o que quis dizer em cada frase (lento: ~13 s/frase com gemma3:12b)." };
 
-var optSemCorrecao = new Option<bool>("--sem-correcao")
+var optCorrigirArquivo = new Option<bool>("--corrigir")
 {
-    Description = "Não passa pela correção de palavras ouvidas errado pelo modelo (ligada por padrão; ~3,5 s por frase duvidosa). Os homófonos continuam.",
+    Description = "Liga a correção de palavras ouvidas errado pelo gemma3:12b e o gemma nos homófonos duvidosos (desligadas por padrão: "
+        + "quase não mudam o WER e custam de 9 a 33 s por frase; ver docs/modelos.md). Os homófonos pelo BERT rodam sempre.",
 };
 
 var cmdArquivo = new Command("arquivo", "Transcreve (e traduz) um ou mais arquivos e grava o JSON de cada um com frases e palavras.")
 {
-    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optSemCorrecao,
+    argCaminhos, optSaida, optModelo, optIdioma, optJson, optSentido, optCorrigirArquivo,
 };
 cmdArquivo.SetAction(async (resultado, ct) =>
 {
@@ -51,7 +52,7 @@ cmdArquivo.SetAction(async (resultado, ct) =>
     var idioma = resultado.GetValue(optIdioma);
     var json = resultado.GetValue(optJson);
     var sentido = resultado.GetValue(optSentido);
-    var semCorrecao = resultado.GetValue(optSemCorrecao);
+    var corrigirArquivo = resultado.GetValue(optCorrigirArquivo);
 
     using var sp = CriarServicos(
         o =>
@@ -62,7 +63,11 @@ cmdArquivo.SetAction(async (resultado, ct) =>
         t =>
         {
             if (sentido) t.AnalisarSentido = true;
-            if (semCorrecao) t.CorrigirTranscricao = false;
+            if (corrigirArquivo)
+            {
+                t.CorrigirTranscricao = true;
+                t.ConfirmarHomofonoComModelo = true;
+            }
         });
 
     return await Executar(async () =>
@@ -648,7 +653,8 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
     {
         var id = item.GetProperty("id").GetString()!;
         var idioma = item.GetProperty("idioma").GetString()!;
-        var texto = item.GetProperty("texto").GetString()!;
+        // "falado": o que a pessoa disse de fato, quando leu diferente do "texto" (palavra repetida, tempo verbal trocado).
+        var texto = (item.TryGetProperty("falado", out var falado) ? falado : item.GetProperty("texto")).GetString()!;
         var wav = Path.Combine(pasta.FullName, id + ".wav");
         if (!File.Exists(wav))
         {
@@ -688,6 +694,7 @@ cmdAvaliarFala.SetAction(async (resultado, ct) => await Executar(async () =>
                 t =>
                 {
                     t.CorrigirTranscricao = true;
+                    t.ConfirmarHomofonoComModelo = true;
                     t.CaminhoDicionario = banco.Exists ? banco.FullName : null;
                 });
             var relogioCorrecao = Stopwatch.StartNew();

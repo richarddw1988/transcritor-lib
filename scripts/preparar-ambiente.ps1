@@ -8,15 +8,16 @@
       2. Constrói as imagens do Speaches (a oficial 0.8.3 com uma correção) e do WhisperLiveKit (não há imagem
          publicada) e sobe os serviços do docker-compose.yml.
       3. Espera cada serviço responder.
-      4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução e da correção no Ollama.
+      4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama (e o da correção, com
+         -ComCorrecao).
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
       6. Baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o dicionário local em
          dados/ (-SemDicionario pula).
       7. Converte para ONNX, dentro de um contêiner Docker, os dois BERT dos homófonos e da conferência da correção
          (dados/bert, ~1 GB; não precisa de Python nesta máquina; -SemHomofonos pula).
 
-    Primeira vez: baixa ~58 GB (imagens + modelos + dicionário + BERT; ~48 GB com -SemCorrecao -SemDicionario
-    -SemHomofonos) e leva de 20 a 60 minutos, conforme a internet.
+    Primeira vez: baixa ~50 GB (imagens + modelos + dicionário + BERT; ~58 GB com -ComCorrecao, ~48 GB com
+    -SemDicionario -SemHomofonos) e leva de 20 a 60 minutos, conforme a internet.
 
 .PARAMETER SoConferir
     Só confere pré-requisitos e serviços; não constrói, não sobe e não baixa nada.
@@ -42,9 +43,11 @@
 .PARAMETER ModeloAnalise
     Modelo do Ollama para a análise de sentido (Transcritor:Traducao:ModeloAnalise).
 
-.PARAMETER SemCorrecao
-    Não baixa o modelo da correção de palavras ouvidas errado (Transcritor:Traducao:CorrigirTranscricao, ligada por
-    padrão; ~8 GB) e confere os serviços com ela desligada. Ponha CorrigirTranscricao = false no appsettings.json.
+.PARAMETER ComCorrecao
+    Também baixa o modelo da correção de palavras ouvidas errado (~8 GB; o mesmo da análise de sentido) e confere os
+    serviços com ela ligada. A correção (Transcritor:Traducao:CorrigirTranscricao e ConfirmarHomofonoComModelo) vem
+    desligada desde 2026-11-24: quase não muda o WER (docs/modelos.md). Para usá-la, ligue as duas no
+    appsettings.json ou passe --corrigir ao "transcritor arquivo".
 
 .PARAMETER ModeloCorrecao
     Modelo do Ollama para a correção da transcrição (Transcritor:Traducao:ModeloCorrecao).
@@ -78,7 +81,7 @@ param(
     [string] $ModeloPalavras = 'gemma3:4b',
     [switch] $ComAnaliseDeSentido,
     [string] $ModeloAnalise = 'gemma3:12b',
-    [switch] $SemCorrecao,
+    [switch] $ComCorrecao,
     [string] $ModeloCorrecao = 'gemma3:12b',
     [switch] $SemDicionario,
     [switch] $SemHomofonos,
@@ -283,7 +286,7 @@ if ($ollamaNoAr) {
     $instalados = (Obter-Json "$OllamaUrl/api/tags").models.name
     $modelosOllama = @($ModeloFrases, $ModeloFrasesTempoReal, $ModeloPalavras)
     if ($ComAnaliseDeSentido) { $modelosOllama += $ModeloAnalise }
-    if (-not $SemCorrecao) { $modelosOllama += $ModeloCorrecao }
+    if ($ComCorrecao) { $modelosOllama += $ModeloCorrecao }
     foreach ($modelo in $modelosOllama | Select-Object -Unique) {
         $nome = if ($modelo.Contains(':')) { $modelo } else { "${modelo}:latest" }
         if ($instalados -contains $nome) { Escrever-Ok "Ollama: $modelo" }
@@ -312,11 +315,13 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
             $env:TRANSCRITOR_Transcritor__Traducao__AnalisarSentido = 'true'
             $env:TRANSCRITOR_Transcritor__Traducao__ModeloAnalise = $ModeloAnalise
         }
-        if ($SemCorrecao) {
-            $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'false'
-        } else {
+        if ($ComCorrecao) {
             $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'true'
+            $env:TRANSCRITOR_Transcritor__Traducao__ConfirmarHomofonoComModelo = 'true'
             $env:TRANSCRITOR_Transcritor__Traducao__ModeloCorrecao = $ModeloCorrecao
+        } else {
+            $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'false'
+            $env:TRANSCRITOR_Transcritor__Traducao__ConfirmarHomofonoComModelo = 'false'
         }
         Rodar-Programa { dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos }
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'transcritor servicos apontou problemas (acima).' }

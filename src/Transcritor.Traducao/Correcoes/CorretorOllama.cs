@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Transcritor.Core;
 using Transcritor.Core.Contratos;
+using Transcritor.Core.Erros;
 using Transcritor.Dicionario;
 using Transcritor.Traducao.Ollama;
 
@@ -19,7 +20,7 @@ internal sealed class CorretorOllama(
     : ICorretorTranscricao, IServicoVerificavel, IDescarregavel
 {
     /// <summary>Mudar o prompt ou a trava exige subir a versão (entra na chave do cache).</summary>
-    public const int Versao = 4;
+    public const int Versao = 5; // 5: advérbio em "-ily" e adjetivo em "-y" contam como a mesma palavra (2026-11-23)
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -144,12 +145,22 @@ internal sealed class CorretorOllama(
     private async Task<List<Correcao>> ProporAsync(PedidoCorrecao pedido, bool[] podeTrocar, CancellationToken cancellationToken)
     {
         var frase = string.Join(' ', pedido.Palavras);
-        var resposta = await ollama.ConversarAsync(
-            _opcoes.ModeloCorrecao,
-            [new MensagemChat("system", Instrucao(pedido.Idioma)), new MensagemChat("user", Pedido(pedido, frase, Parecidas(pedido, podeTrocar)))],
-            Esquema,
-            maxTokens: 64 + (frase.Length * 2),
-            cancellationToken).ConfigureAwait(false);
+        string resposta;
+        try
+        {
+            resposta = await ollama.ConversarAsync(
+                _opcoes.ModeloCorrecao,
+                [new MensagemChat("system", Instrucao(pedido.Idioma)), new MensagemChat("user", Pedido(pedido, frase, Parecidas(pedido, podeTrocar)))],
+                Esquema,
+                maxTokens: 64 + (frase.Length * 2),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (TranscritorException ex) when (ex.GetType() == typeof(TranscritorException))
+        {
+            // O Ollama recusou só esta frase (ex.: 500 "token repeat limit reached" numa frase alucinada, "Errrrrr…"):
+            // ela fica como foi ouvida, sem derrubar o arquivo. Serviço fora do ar ou modelo ausente continuam erro.
+            return [];
+        }
 
         string? corrigida;
         try
@@ -470,6 +481,11 @@ internal sealed class CorretorOllama(
             return true; // terminação a mais ou a menos: flexão
         }
 
+        if (AdverbioDoAdjetivo(a, b) || AdverbioDoAdjetivo(b, a))
+        {
+            return true; // "stealthily" → "stealthy" (FLEURS): o modelo "corrige" a gramática
+        }
+
         if ((a.EndsWith(b, StringComparison.Ordinal) || b.EndsWith(a, StringComparison.Ordinal))
             && !ChaveFonetica.Calcular(a, idioma).Intersect(ChaveFonetica.Calcular(b, idioma)).Any())
         {
@@ -484,6 +500,11 @@ internal sealed class CorretorOllama(
         var formas = new HashSet<string>(dicionario.Lemas(ouvida, idioma), StringComparer.OrdinalIgnoreCase) { DicionarioSqlite.Chave(ouvida) };
         return dicionario.Lemas(nova, idioma).Append(DicionarioSqlite.Chave(nova)).Any(formas.Contains);
     }
+
+    /// <summary>Advérbio em "-ily" do adjetivo em "-y" ("stealthily" / "stealthy", "happily" / "happy").</summary>
+    private static bool AdverbioDoAdjetivo(string adverbio, string adjetivo) =>
+        adverbio.Length > 4 && adverbio.EndsWith("ily", StringComparison.Ordinal)
+        && adjetivo == string.Concat(adverbio.AsSpan(0, adverbio.Length - 3), "y");
 
     /// <summary>Mesma palavra, ignorando maiúsculas.</summary>
     private static bool Igual(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);

@@ -13,7 +13,7 @@
   { "id": "en12", "idioma": "en", "texto": "The bear ate the berries and walked away with bare paws." },
   { "id": "en13", "idioma": "en", "texto": "I need a real idea for the final project." },
   { "id": "en14", "idioma": "en", "texto": "The hotel has a nice pool and a small bar." },
-  { "id": "en15", "idioma": "en", "texto": "No, I said the total was normal." },
+  { "id": "en15", "idioma": "en", "texto": "No, I said the total was normal.", "falado": "No, I said I said the total was normal." },
   { "id": "en16", "idioma": "en", "texto": "Okay, see you later." },
   { "id": "en17", "idioma": "en", "texto": "My computer is slow, so I use my phone for email." },
   { "id": "en18", "idioma": "en", "texto": "Can you send me the file before lunch?" },
@@ -29,7 +29,7 @@
   { "id": "en28", "idioma": "en", "texto": "A heron waded through the marsh looking for frogs." },
   { "id": "en29", "idioma": "en", "texto": "The squirrel hid acorns under the wooden shed." },
   { "id": "en30", "idioma": "en", "texto": "He shoveled gravel into the rusty wheelbarrow." },
-  { "id": "en31", "idioma": "en", "texto": "Last weekend we drove to the coast with my cousins. It rained most of Saturday, so we stayed inside, played cards and cooked a huge dinner. On Sunday the sun came out and we finally went for a long walk on the beach." },
+  { "id": "en31", "idioma": "en", "texto": "Last weekend we drove to the coast with my cousins. It rained most of Saturday, so we stayed inside, played cards and cooked a huge dinner. On Sunday the sun came out and we finally went for a long walk on the beach.", "falado": "Last weekend we drove to the coast with my cousins. It's raining most of Saturday, so we stayed inside, played cards and cooked a huge dinner. On Sunday the sun came out and we finally went for a long walk on the beach." },
   { "id": "en32", "idioma": "en", "texto": "When I started learning English, I was afraid of speaking. Now I watch series without subtitles, and I only pause when someone talks very fast or uses a word I have never heard before." },
   { "id": "pt01", "idioma": "pt", "texto": "Choveu tanto ontem que a rua ficou alagada." },
   { "id": "pt02", "idioma": "pt", "texto": "O conserto do carro ficou mais caro do que o concerto de música." },
@@ -46,6 +46,6 @@
   { "id": "pt13", "idioma": "pt", "texto": "Meu avô e minha avó moram no interior." },
   { "id": "pt14", "idioma": "pt", "texto": "A tampa da panela caiu no chão da cozinha." },
   { "id": "pt15", "idioma": "pt", "texto": "O pato nadou até o prato de comida no lago." },
-  { "id": "pt16", "idioma": "pt", "texto": "No sábado passado fomos ao sítio dos meus tios. Choveu a manhã inteira, então ficamos jogando baralho e fazendo bolo. À tarde o tempo abriu e saímos para andar a cavalo perto do rio." },
+  { "id": "pt16", "idioma": "pt", "texto": "No sábado passado fomos ao sítio dos meus tios. Choveu a manhã inteira, então ficamos jogando baralho e fazendo bolo. À tarde o tempo abriu e saímos para andar a cavalo perto do rio.", "falado": "No sábado passado fomos no sítio dos meus tios. Choveu a manhã inteira, então ficamos jogando baralho e fazendo bolo. À tarde o tempo abriu e saímos para andar a cavalo perto do rio." },
   { "id": "pt17", "idioma": "pt", "texto": "Quando comecei a estudar inglês, eu tinha vergonha de falar. Hoje assisto séries sem legenda e só paro o vídeo quando alguém fala rápido demais ou usa uma palavra que eu nunca ouvi." }
 ]
