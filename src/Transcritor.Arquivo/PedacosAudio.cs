@@ -12,7 +12,7 @@ namespace Transcritor.Arquivo;
 internal static class PedacosAudio
 {
     /// <summary>Muda quando a regra de corte muda; entra na chave do cache.</summary>
-    public const int Versao = 2;
+    public const int Versao = 3;
 
     /// <summary>
     /// Frases que o Whisper inventa em trecho sem fala (aprendidas de vídeos com créditos de legenda). Comparadas sem
@@ -24,6 +24,35 @@ internal static class PedacosAudio
         "please subscribe", "subtitles by the amaraorg community", "obrigado por assistir", "obrigada por assistir",
         "legendas pela comunidade amaraorg", "legendas pela comunidade do amaraorg",
     };
+
+    /// <summary>
+    /// Acima disso o texto do pedaço é repetitivo demais (razão de compressão do zlib, o mesmo limite do Whisper):
+    /// loop, como "peraí, peraí, …" por 10 s quando a pessoa disse "peraí" três vezes.
+    /// </summary>
+    public const double RazaoCompressaoMaxima = 2.4;
+
+    /// <summary>Temperaturas das novas tentativas de um pedaço em loop, em ordem (as do Whisper original).</summary>
+    public static readonly IReadOnlyList<double> TemperaturasReserva = [0.2, 0.4, 0.6, 0.8, 1.0];
+
+    /// <summary>Bytes do texto (UTF-8) divididos pelos bytes comprimidos com zlib; 0 sem texto.</summary>
+    public static double RazaoCompressao(TranscricaoBruta bruta)
+    {
+        ArgumentNullException.ThrowIfNull(bruta);
+        var texto = string.Concat(bruta.Segmentos.Select(s => s.Texto)).Trim();
+        if (texto.Length == 0)
+        {
+            return 0;
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(texto);
+        using var saida = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(saida, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+        {
+            zlib.Write(bytes);
+        }
+
+        return bytes.Length / (double)saida.Length;
+    }
 
     /// <summary>Resolução da busca pelo silêncio.</summary>
     public const double PassoEnergia = 0.1;

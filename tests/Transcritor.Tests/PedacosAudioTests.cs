@@ -105,7 +105,7 @@ public sealed class PedacosAudioTests : IDisposable
         Assert.Equal(3, inicios.Count);
         Assert.Equal(0.2, inicios[0]);
         Assert.True(inicios[1] > 10 && inicios[2] > inicios[1] + 10);
-        Assert.Contains(".p2-15", transcritor.ChaveCache("abc"), StringComparison.Ordinal);
+        Assert.Contains(".p3-15", transcritor.ChaveCache("abc"), StringComparison.Ordinal);
 
         // O 1º pedaço vai sem dica; os seguintes levam as últimas palavras do anterior.
         Assert.Equal([null, "Hi.", "Hi."], motor.Contextos);
@@ -141,5 +141,78 @@ public sealed class PedacosAudioTests : IDisposable
         Assert.StartsWith("p10 ", contexto, StringComparison.Ordinal);
         Assert.EndsWith(" p49", contexto, StringComparison.Ordinal);
         Assert.Null(PedacosAudio.ContextoDoFim(new TranscricaoBruta("en", 1, [], [])));
+    }
+
+    private static TranscricaoBruta Texto(string texto) =>
+        new("pt", 30, [new SegmentoBruto(0, 30, texto)], texto.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select((w, i) => new Palavra(" " + w, i * 0.3, (i * 0.3) + 0.25)).ToList());
+
+    private static readonly TranscricaoBruta EmLoop = Texto(
+        "o gato gemeu, você me deu, compareceu, " + string.Concat(Enumerable.Repeat("peraí, ", 40)));
+
+    private static readonly TranscricaoBruta SemLoop = Texto(
+        "o gato gemeu, você me deu, compareceu, peraí, peraí, peraí, cara, eu tô gravando o áudio aqui, tu tá vendo?");
+
+    [Fact]
+    public void Razao_de_compressao_separa_loop_de_fala_com_repeticao_real()
+    {
+        Assert.True(PedacosAudio.RazaoCompressao(EmLoop) > PedacosAudio.RazaoCompressaoMaxima);
+        Assert.True(PedacosAudio.RazaoCompressao(SemLoop) < PedacosAudio.RazaoCompressaoMaxima);
+        Assert.Equal(0, PedacosAudio.RazaoCompressao(Texto("")));
+    }
+
+    /// <summary>Motor com temperatura: loop até a temperatura dada, sem loop a partir dela.</summary>
+    private sealed class MotorQueEntraEmLoop(double semLoopDesde) : Transcritor.Core.Contratos.IMotorTranscricao
+    {
+        public List<double> Temperaturas { get; } = [];
+
+        public string Identificador => "fake:loop";
+
+        public Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, CancellationToken cancellationToken) =>
+            TranscreverAsync(caminhoWav, idioma, null, 0, cancellationToken);
+
+        public Task<TranscricaoBruta> TranscreverAsync(
+            string caminhoWav, string? idioma, string? contexto, double temperatura, CancellationToken cancellationToken)
+        {
+            Temperaturas.Add(temperatura);
+            return Task.FromResult(temperatura >= semLoopDesde ? SemLoop : EmLoop);
+        }
+    }
+
+    private TranscritorArquivo Transcritor(Transcritor.Core.Contratos.IMotorTranscricao motor)
+    {
+        var opcoes = Opcoes.Arquivo(o =>
+        {
+            o.PastaCache = Path.Combine(_pasta.Caminho, "cache");
+            o.Idioma = "pt";
+            o.RepararTrechosSuspeitos = false;
+        });
+        return new TranscritorArquivo(
+            new FakeConversor(new InfoMidia(30, "wav", 1), ReparadorTrechosTests.Wav(16000 * 30)), motor, new CacheEmDisco(opcoes), opcoes);
+    }
+
+    [Fact]
+    public async Task Pedaco_em_loop_e_refeito_subindo_a_temperatura_ate_sair_sem_loop()
+    {
+        var motor = new MotorQueEntraEmLoop(semLoopDesde: 0.6);
+
+        var r = await Transcritor(motor).ProcessarAsync(_pasta.Arquivo("loop.wav", "x"), Saida.Portugues);
+
+        Assert.Equal([0, 0.2, 0.4, 0.6], motor.Temperaturas);
+        Assert.Contains("gravando o áudio aqui", string.Join(' ', r.Frases.Select(f => f.Texto)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pedaco_sem_loop_nao_e_refeito_e_motor_sem_temperatura_fica_com_o_que_tem()
+    {
+        var semLoop = new MotorQueEntraEmLoop(semLoopDesde: 0);
+        await Transcritor(semLoop).ProcessarAsync(_pasta.Arquivo("ok.wav", "x"), Saida.Portugues);
+        Assert.Equal([0], semLoop.Temperaturas);
+
+        // FakeMotor não implementa a temperatura: a implementação padrão recusa e a lib segue com o loop.
+        var semTemperatura = new FakeMotor(EmLoop);
+        var r = await Transcritor(semTemperatura).ProcessarAsync(_pasta.Arquivo("loop2.wav", "y"), Saida.Portugues);
+        Assert.Equal(1, semTemperatura.Chamadas);
+        Assert.Contains("peraí", r.Frases[0].Texto, StringComparison.Ordinal);
     }
 }

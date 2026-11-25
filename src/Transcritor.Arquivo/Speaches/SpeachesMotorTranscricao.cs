@@ -31,7 +31,11 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
     public Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, CancellationToken cancellationToken) =>
         TranscreverAsync(caminhoWav, idioma, null, cancellationToken);
 
-    public async Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, string? contexto, CancellationToken cancellationToken)
+    public Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, string? contexto, CancellationToken cancellationToken) =>
+        TranscreverAsync(caminhoWav, idioma, contexto, 0, cancellationToken);
+
+    public async Task<TranscricaoBruta> TranscreverAsync(
+        string caminhoWav, string? idioma, string? contexto, double temperatura, CancellationToken cancellationToken)
     {
         await using var arquivo = File.OpenRead(caminhoWav);
         using var conteudoArquivo = new StreamContent(arquivo);
@@ -44,7 +48,7 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
             { new StringContent("verbose_json"), "response_format" },
             { new StringContent("word"), "timestamp_granularities[]" },
             { new StringContent("segment"), "timestamp_granularities[]" },
-            { new StringContent("0"), "temperature" },
+            { new StringContent(temperatura.ToString(System.Globalization.CultureInfo.InvariantCulture)), "temperature" },
         };
         if (!string.IsNullOrWhiteSpace(idioma))
         {

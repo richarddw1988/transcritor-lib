@@ -416,6 +416,44 @@ public sealed class TranscritorArquivo(
     }
 
     /// <summary>
+    /// Transcreve um pedaço (até ~45 s) e, se o texto sair repetitivo demais (<see cref="PedacosAudio.RazaoCompressaoMaxima"/>,
+    /// loop), refaz com temperatura maior, como o Whisper original, até sair sem loop; fica com o menos repetitivo.
+    /// Na temperatura 0 o Whisper estica uma repetição real ("peraí" três vezes) por todo o resto do pedaço e perde o
+    /// que vem depois. Com temperatura o resultado varia de uma execução para outra (o cache guarda o primeiro).
+    /// </summary>
+    private async Task<TranscricaoBruta> TranscreverSemLoopAsync(string wav, string? idioma, string? dica, CancellationToken cancellationToken)
+    {
+        var melhor = await motor.TranscreverAsync(wav, idioma, dica, cancellationToken).ConfigureAwait(false);
+        var razao = PedacosAudio.RazaoCompressao(melhor);
+        foreach (var temperatura in PedacosAudio.TemperaturasReserva)
+        {
+            if (razao <= PedacosAudio.RazaoCompressaoMaxima)
+            {
+                break;
+            }
+
+            TranscricaoBruta nova;
+            try
+            {
+                nova = await motor.TranscreverAsync(wav, idioma, dica, temperatura, cancellationToken).ConfigureAwait(false);
+            }
+            catch (NotSupportedException)
+            {
+                break; // motor sem temperatura: fica com o que tem
+            }
+
+            var razaoNova = PedacosAudio.RazaoCompressao(nova);
+            if (nova.Palavras.Count > 0 && razaoNova < razao)
+            {
+                melhor = nova;
+                razao = razaoNova;
+            }
+        }
+
+        return melhor;
+    }
+
+    /// <summary>
     /// Transcreve o WAV inteiro em pedaços de <see cref="OpcoesArquivo.SegundosPorPedaco"/> (ver <see cref="PedacosAudio"/>),
     /// todos com o mesmo idioma e vocabulário; cada um leva como dica as últimas palavras do anterior. As frases que o
     /// Whisper inventa em trecho sem fala ("Thanks for watching!") saem. Áudio curto, opção desligada ou WAV
@@ -425,9 +463,14 @@ public sealed class TranscritorArquivo(
         string wav, double duracao, string? idioma, string? vocabulario, string pastaTemporaria, CancellationToken cancellationToken)
     {
         var tamanho = _opcoes.SegundosPorPedaco;
-        if (tamanho <= 0 || duracao <= tamanho * 1.5)
+        if (tamanho <= 0)
         {
             return await motor.TranscreverAsync(wav, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (duracao <= tamanho * 1.5)
+        {
+            return await TranscreverSemLoopAsync(wav, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
         }
 
         byte[] bytes;
@@ -453,7 +496,7 @@ public sealed class TranscritorArquivo(
                 await RecorteWav.RecortarAsync(bytes, recorte, inicio, fim, cancellationToken).ConfigureAwait(false);
                 var dica = Vocabulario.ComContexto(vocabulario, anterior);
                 var bruta = PedacosAudio.SemFrasesInventadas(
-                    await motor.TranscreverAsync(recorte, idioma, dica, cancellationToken).ConfigureAwait(false));
+                    await TranscreverSemLoopAsync(recorte, idioma, dica, cancellationToken).ConfigureAwait(false));
                 pedacos.Add((inicio, fim, bruta));
                 anterior = PedacosAudio.ContextoDoFim(bruta) ?? anterior;
             }

@@ -139,7 +139,8 @@ Opção `SegundosPorPedaco` (padrão 30). Medido em 2026-11-24 num filme de aç�
 | Pedaços de 2 min + lista | 25,0% | 72% | 542 s |
 | Pedaços de 2 min + lista + retranscrever buracos de 6 s+ sem palavras | 24,3% | 74% | não medido |
 | Pedaços de 30 s + lista | 16,1% | 81% | 573 s |
-| **Pedaços de 30 s + lista + dica das últimas palavras do pedaço anterior + filtro de frases inventadas** (adotado) | **15,6%** | **81%** | 556 s |
+| Pedaços de 30 s + lista + dica das últimas palavras do pedaço anterior + filtro de frases inventadas | 15,6% | 81% | 556 s |
+| **O mesmo + pedaço em loop refeito subindo a temperatura** (adotado, 2026-11-25) | **15,5%** | **81%** | 533 s |
 
 **O que acontecia no arquivo inteiro:**
 - **Loop.** O Whisper usa o texto anterior como dica e, a partir de 1 h 9 min, escreveu "no, no, no…" por ~15 min. Depois
@@ -154,7 +155,32 @@ Opção `SegundosPorPedaco` (padrão 30). Medido em 2026-11-24 num filme de aç�
 - Cada pedaço vai com o vocabulário e as últimas ~40 palavras do pedaço anterior como dica. Sem essa dica, alguns
   pedaços do audiolivro saíram sem pontuação nem maiúsculas.
 - Tira frases que o Whisper inventa em trecho sem fala. Foram 7 "Thanks for watching!" no filme; "He was watching." fica.
-- Áudio de até 45 s vai inteiro, então FLEURS, CORAA, AMI e as gravações do `avaliar-fala` não mudam.
+- Pedaço em loop é refeito com temperatura maior (abaixo, "Loop numa repetição real").
+- Áudio de até 45 s vai inteiro, então FLEURS, CORAA, AMI e as gravações do `avaliar-fala` não mudam, a não ser que
+  entrem em loop (não remedido depois da nova tentativa; não houve loop visto nessas bases).
+
+**Loop numa repetição real (2026-11-25).** Na gravação de 60 s do microfone (`teste-mic.wav`), a pessoa diz "que que
+que…" e "peraí, peraí, peraí", e o Whisper com temperatura 0 estica a repetição até o fim do pedaço ("peraí" ~50 vezes).
+Perde o resto: "Eu tô gravando o áudio aqui. Não tá vendo, não?". O tempo real (WhisperLiveKit) ouviu certo.
+- **A dica não é a causa:** sem as palavras do pedaço anterior, o loop fica pior ("que" mais de 100 vezes). Recortes menores
+  (12 a 24 s) com e sem dica também entraram em loop em 7 de 8 tentativas.
+- **O reparo de trechos não pegava:** cada "peraí," tem vírgula e tempo alinhado.
+- **A correção é a do Whisper original**, que a lib desligava ao mandar `temperature=0` fixo. Se a razão de compressão
+  do texto do pedaço (zlib) passa de 2,4, o pedaço é transcrito de novo a 0,2, 0,4, 0,6, 0,8 e 1,0, até sair abaixo.
+  A lib fica com o resultado menos repetitivo. O Speaches aceita uma temperatura por chamada e não tem penalidade de
+  repetição.
+
+| Temperatura (pedaço do loop, 3 vezes cada) | Sem loop, com a dica | Sem loop, sem a dica |
+|---|---|---|
+| 0 / 0,2 | 0 de 3 | 0 de 3 |
+| 0,4 | 0 de 3 | 1 de 3 |
+| 0,6 | 1 de 3 | 2 de 3 |
+| 0,8 / 1,0 | 3 de 3 | 3 de 3 |
+
+- **`teste-mic.wav` pela lib, duas rodadas:** o fim voltou nas duas ("…peraí cara, eu tô gravando o áudio aqui, tu tá
+  vendo?"). Com temperatura o texto varia entre as rodadas ("peraí"/"peraai", "águas"/"árvores"); o cache guarda o
+  primeiro resultado.
+- **Filme:** 15,5% (era 15,6%), nomes iguais, 533 s. Não foi contado quantos pedaços do filme foram refeitos.
 
 **Áudio limpo (audiolivro de 17 min, inglês), sem gabarito:**
 - 21 palavras diferentes em 2.340 entre o arquivo inteiro e os pedaços, tirando pontuação, metade para cada lado.

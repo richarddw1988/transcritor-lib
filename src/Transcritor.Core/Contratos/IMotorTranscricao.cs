@@ -18,6 +18,17 @@ public interface IMotorTranscricao
     Task<TranscricaoBruta> TranscreverAsync(string caminhoWav, string? idioma, string? contexto, CancellationToken cancellationToken) =>
         TranscreverAsync(caminhoWav, idioma, cancellationToken);
 
+    /// <summary>
+    /// O mesmo, com temperatura de amostragem (0 = sempre a palavra mais provável). A lib usa temperatura maior para
+    /// refazer um pedaço que entrou em loop. A implementação padrão só aceita 0 (lança <see cref="NotSupportedException"/>
+    /// com outra), e a lib então fica com o resultado que tem.
+    /// </summary>
+    Task<TranscricaoBruta> TranscreverAsync(
+        string caminhoWav, string? idioma, string? contexto, double temperatura, CancellationToken cancellationToken) =>
+        temperatura == 0
+            ? TranscreverAsync(caminhoWav, idioma, contexto, cancellationToken)
+            : throw new NotSupportedException("Este motor não aceita temperatura.");
+
     /// <summary>Identifica o motor e o modelo; entra na chave do cache.</summary>
     string Identificador { get; }
 }

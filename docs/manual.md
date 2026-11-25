@@ -150,8 +150,10 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
 - **Filme dublado** (mais de uma faixa de áudio): com `--idioma en` (ou `pt`), a lib transcreve a faixa marcada com esse
   idioma; sem `--idioma`, a primeira faixa.
 - O áudio é transcrito em pedaços de 30 s cortados no silêncio (`SegundosPorPedaco`, seção 6). No arquivo inteiro de
-  uma vez, o Whisper entrava em loop e pulava falas depois de música: num filme de 2 h o erro foi de 55% para 15,6%
-  (`docs/modelos.md`).
+  uma vez, o Whisper entrava em loop e pulava falas depois de música: num filme de 2 h o erro foi de 55% para 15,5%
+  (`docs/modelos.md`). Pedaço que ainda sai em loop (uma repetição real, "peraí, peraí", esticada até o fim do pedaço)
+  é transcrito de novo com temperatura maior, como no Whisper original; nesse caso o texto pode variar um pouco de uma
+  execução para outra (o cache guarda o primeiro).
 - **Nomes e termos do assunto** (pessoas, lugares, siglas, jargão): ponha um por linha (ou separados por vírgula) em
   `C:\videos\aula.mp4.vocabulario.txt`, ao lado da mídia, ou passe `--vocabulario termos.txt` para todos os arquivos
   da execução (os dois somam; linhas com `#` são comentário). A lista vai ao Whisper como dica. No FLEURS, com ~15
@@ -435,6 +437,8 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 - `IConversorMidia` ganhou `ConverterParaWavAsync(caminho, wav, faixa, aoAvancar, ct)` (faixa de áudio, 0 = a primeira) e
   `InfoMidia.IdiomasFaixas` ("pt", "en", outro código ou vazio, por faixa). Um conversor seu que não implementa a
   sobrecarga só aceita a faixa 0.
+- `IMotorTranscricao` ganhou `TranscreverAsync(wav, idioma, contexto, temperatura, ct)`, usada para refazer um pedaço
+  em loop. Um motor seu que não implementa só aceita temperatura 0, e a lib fica com o resultado em loop.
 - Em lote, `ProgressoProcessamento.Arquivo` e `TotalArquivos` dizem de qual arquivo é cada aviso de progresso.
 - `EtapaProcessamento.AguardandoGpu`: outro processamento de arquivo está com a vez na GPU, ou uma sessão de tempo real
   pediu a vez (seção 8); `ProgressoProcessamento.Detalhe` diz quem ("transcritor-lib (arquivo), processo 56892
@@ -740,6 +744,7 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 | Sessão de tempo real falha com "foi ligado mas o WhisperLiveKit não aceitou conexão" | O contêiner subiu mas não carregou o modelo a tempo | `docker logs whisperlivekit`; aumente `TempoMaximoSubida` na 1ª vez (baixa o modelo) |
 | Filme dublado transcrito na língua errada | A lib pega a 1ª faixa de áudio sem `--idioma` | `--idioma en` (ou `pt`) escolhe a faixa marcada com esse idioma |
 | Trecho longo de filme sem nenhuma fala no JSON, ou "no, no, no…" repetido | Loop do Whisper ou janela com música tratada como sem fala | Já tratado com `SegundosPorPedaco=30` (padrão); se aparecer com `0`, volte ao padrão |
+| Palavra repetida dezenas de vezes até o fim de um trecho ("peraí, peraí, …") e o resto da fala sumiu | O Whisper esticou uma repetição real (loop) | Já tratado: o pedaço é refeito com temperatura maior. Se sobrar, apague o cache do arquivo e rode de novo (sai diferente) |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |
