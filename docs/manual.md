@@ -430,6 +430,8 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
   `InfoMidia.IdiomasFaixas` ("pt", "en", outro código ou vazio, por faixa). Um conversor seu que não implementa a
   sobrecarga só aceita a faixa 0.
 - Em lote, `ProgressoProcessamento.Arquivo` e `TotalArquivos` dizem de qual arquivo é cada aviso de progresso.
+- `EtapaProcessamento.AguardandoGpu`: outro processamento de arquivo está com a vez na GPU (seção 8);
+  `ProgressoProcessamento.Detalhe` diz qual ("transcritor-lib, processo 56892 (transcritor), desde …").
   `ProcessarLoteAsync` tem implementação padrão no `ITranscritorArquivo` (um arquivo por vez), então quem implementa a
   interface não precisa escrever o lote.
 - Frase = sentença completa (não corta em "Mrs." nem no meio da sentença); `traducao` só quando a saída pede.
@@ -578,6 +580,11 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
 | `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
 | `DescarregarModelosEntreEtapas` | `true` | Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o modelo usado antes de a próxima carregar o seu (seção 8) |
+| `CoordenarGpu` | `true` | Um processamento de arquivo por vez na GPU da máquina: antes da primeira etapa que carrega modelo, a execução pega a vez (trava em `ArquivoTravaGpu`) e outra execução espera (seção 8). Tudo do cache não espera |
+| `ArquivoTravaGpu` | `%LOCALAPPDATA%\Transcritor\gpu.lock` | Arquivo da vez na GPU |
+| `PararTempoRealDuranteArquivo` | `true` | Se o contêiner do tempo real estiver no ar, para ele durante o arquivo e religa no fim. Sessões de tempo real abertas caem |
+| `ConteinerTempoReal` | `whisperlivekit` | Nome do contêiner do WhisperLiveKit |
+| `CaminhoDocker` | `docker` | Executável do docker; sem ele a lib segue sem mexer no tempo real |
 | `EsperaDescarregarTranscricao` | `00:00:20` | Quanto esperar o Whisper sair da GPU depois de pedir. Com a imagem original do Speaches 0.8 (sem o comando de descarregar), é o tempo máximo de espera pelo `WHISPER__TTL` |
 
 **`Transcritor:Traducao`**
@@ -667,6 +674,19 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 - O WhisperLiveKit (tempo real) segura ~2 GB enquanto está de pé, com ou sem sessão: carrega o modelo ao subir e não
   solta mais (reiniciar não adianta, ele carrega de novo). Para liberar: `liberar-gpu` (seção 4.9), que para o
   contêiner junto com o descarregar do Ollama e do Speaches; volta com `docker start whisperlivekit`.
+- **Um arquivo por vez na máquina** (`CoordenarGpu`): o descarregar acima vale dentro de uma execução. Duas execuções ao
+  mesmo tempo, ou o tempo real no ar, punham dois modelos na placa e o Docker Desktop travou (2026-11-24: o Whisper de
+  uma execução, o `translategemma:12b` de outra e o WhisperLiveKit). Agora:
+  - antes da primeira etapa que carrega modelo, a execução pega a vez travando `%LOCALAPPDATA%\Transcritor\gpu.lock`;
+    outra execução espera (progresso `AguardandoGpu`, com quem está com a vez) e o sistema solta a trava se o processo
+    morrer;
+  - se o contêiner `whisperlivekit` estiver no ar, ele é parado durante o arquivo e religado no fim
+    (`PararTempoRealDuranteArquivo`).
+  - Outro programa que use o Speaches ou o Ollama sem a lib (ex.: um script de dublagem) não entra na fila sozinho.
+    Para entrar, ele trava 1 byte na posição 1048576 (1 MiB) do mesmo arquivo enquanto usa os serviços. Em Python:
+    `f = open(caminho, "a+b"); f.seek(1 << 20); msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)`; para soltar, fechar
+    o arquivo (testado: o Cli esperou a vez até o script soltar). A linha 1 do arquivo diz quem está com a vez; o
+    script pode escrever ali o nome dele depois de travar, senão o aviso mostra o último dono gravado.
 - Ver o uso: `nvidia-smi` e `docker exec ollama ollama ps`.
 
 ## 9. Problemas comuns
@@ -684,6 +704,7 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 | Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` trava o Speaches 0.8 original | `docker restart speaches`; use a imagem do projeto (`docker compose build speaches`; `docker compose up -d speaches`) |
 | Tempo real começa em inglês na fala em português (ou o contrário) | Detecção automática, decidida nos 2 primeiros segundos de fala | `--idioma pt` |
 | Tempo real em outro idioma (ex.: espanhol) | WhisperLiveKit sem o arquivo corrigido montado | `docker compose up -d whisperlivekit` (o `docker-compose.yml` monta `docker/whisperlivekit/align_att_base.py`) |
+| Ollama "não respondeu dentro do tempo limite" ou Docker Desktop respondendo "500 Internal Server Error" | Dois modelos na GPU ao mesmo tempo: outro programa usando o Speaches ou o Ollama, ou o tempo real no ar | A lib já espera a vez e para o tempo real (seção 8); veja se outro programa está usando os serviços. Docker travado: reinicie o Docker Desktop |
 | Filme dublado transcrito na língua errada | A lib pega a 1ª faixa de áudio sem `--idioma` | `--idioma en` (ou `pt`) escolhe a faixa marcada com esse idioma |
 | Trecho longo de filme sem nenhuma fala no JSON, ou "no, no, no…" repetido | Loop do Whisper ou janela com música tratada como sem fala | Já tratado com `SegundosPorPedaco=30` (padrão); se aparecer com `0`, volte ao padrão |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |

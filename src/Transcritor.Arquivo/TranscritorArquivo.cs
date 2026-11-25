@@ -14,7 +14,8 @@ namespace Transcritor.Arquivo;
 /// e trocar só a <see cref="Saida"/> reaproveita a transcrição.
 /// Com <see cref="OpcoesArquivo.DescarregarModelosEntreEtapas"/>, o modelo de cada etapa sai da GPU antes de a próxima
 /// carregar o seu (<see cref="IDescarregavel"/>). Em lote (<see cref="ProcessarLoteAsync"/>), cada etapa roda para todos
-/// os arquivos antes da seguinte, e cada modelo é carregado uma vez por lote.
+/// os arquivos antes da seguinte, e cada modelo é carregado uma vez por lote. Com um <see cref="CoordenadorGpu"/>, a
+/// execução espera a vez na GPU antes da primeira etapa que carrega modelo e para o tempo real até o fim.
 /// </summary>
 public sealed class TranscritorArquivo(
     IConversorMidia conversor,
@@ -23,7 +24,8 @@ public sealed class TranscritorArquivo(
     IOptions<OpcoesArquivo> opcoes,
     ITradutor? tradutor = null,
     IAnalisadorSentido? analisador = null,
-    ICorretorTranscricao? corretor = null) : ITranscritorArquivo
+    ICorretorTranscricao? corretor = null,
+    CoordenadorGpu? coordenador = null) : ITranscritorArquivo
 {
     private readonly OpcoesArquivo _opcoes = opcoes.Value;
 
@@ -74,94 +76,129 @@ public sealed class TranscritorArquivo(
             item.TudoDoCache = item.Transcricao is not null;
         }
 
-        // Transcrição: o Whisper uma vez para todos. Modelos do Ollama que sobraram de outra execução (KeepAlive)
-        // disputariam a GPU com ele.
-        var transcrever = itens.Where(i => i.Transcricao is null).ToList();
-        if (transcrever.Count > 0)
+        // A vez na GPU (e o tempo real parado) só quando alguma etapa vai carregar modelo; tudo do cache não espera nada.
+        IAsyncDisposable? reserva = null;
+        async Task VezAsync()
         {
-            await DescarregarAsync([corretor, tradutor, analisador], cancellationToken).ConfigureAwait(false);
-            foreach (var item in transcrever)
+            if (reserva is not null || coordenador is null)
             {
-                item.Transcricao = await TranscreverAsync(item.Caminho, item.Hash, item.Vocabulario, item.Progresso, cancellationToken).ConfigureAwait(false);
-                await cache.GravarAsync(item.Chave, item.Transcricao, cancellationToken).ConfigureAwait(false);
+                return;
             }
 
-            await DescarregarAsync(motor, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Correção de palavras ouvidas errado (opcional): antes da tradução, que passa a usar o texto corrigido.
-        if (corretor is { Ativo: true })
-        {
-            await CorrigirLoteAsync(corretor, itens, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Tradução: o modelo das frases uma vez para todos.
-        var traduzir = new List<ItemLote>();
-        foreach (var item in itens)
-        {
-            item.Resultado = item.Transcricao;
-            item.Destino = RegraSaida.IdiomaDaTraducao(saida, item.Transcricao!.Arquivo.Idioma);
-            if (item.Destino is null)
-            {
-                continue;
-            }
-
-            var tradutorUsado = tradutor ?? throw new InvalidOperationException(
-                $"Saida.{saida} pede tradução para '{item.Destino}', mas nenhum ITradutor foi registrado. Chame services.AddTranscritorTraducao().");
-            item.ChaveTraducao = $"{item.Chave}.trad-{item.Destino}.{tradutorUsado.Identificador}".Replace('/', '_');
-            var traduzido = await cache.LerAsync(item.ChaveTraducao, cancellationToken).ConfigureAwait(false);
-            if (traduzido is null)
-            {
-                traduzir.Add(item);
-            }
-            else
-            {
-                item.Resultado = traduzido;
-            }
-        }
-
-        if (traduzir.Count > 0)
-        {
-            await DescarregarAsync([motor], cancellationToken).ConfigureAwait(false);
-            foreach (var item in traduzir)
-            {
-                item.TudoDoCache = false;
-                item.Resultado = await TraduzirAsync(tradutor!, item.Transcricao!, item.Destino!, item.Progresso, cancellationToken).ConfigureAwait(false);
-                await cache.GravarAsync(item.ChaveTraducao!, item.Resultado, cancellationToken).ConfigureAwait(false);
-            }
-
-            await DescarregarAsync(tradutor!, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Análise de sentido (opcional): precisa da tradução pronta.
-        if (analisador is { Ativo: true })
-        {
-            var analisar = new List<ItemLote>();
-            foreach (var item in itens.Where(i => i.Destino is not null))
-            {
-                item.ChaveAnalise = $"{item.ChaveTraducao}.sent.{analisador.Identificador}".Replace('/', '_');
-                var analisado = await cache.LerAsync(item.ChaveAnalise, cancellationToken).ConfigureAwait(false);
-                if (analisado is null)
+            reserva = await coordenador.ReservarAsync(
+                dono =>
                 {
-                    analisar.Add(item);
+                    foreach (var i in itens)
+                    {
+                        i.Progresso?.Report(new(EtapaProcessamento.AguardandoGpu, Detalhe: dono));
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            // Transcrição: o Whisper uma vez para todos. Modelos do Ollama que sobraram de outra execução (KeepAlive)
+            // disputariam a GPU com ele.
+            var transcrever = itens.Where(i => i.Transcricao is null).ToList();
+            if (transcrever.Count > 0)
+            {
+                await VezAsync().ConfigureAwait(false);
+                await DescarregarAsync([corretor, tradutor, analisador], cancellationToken).ConfigureAwait(false);
+                foreach (var item in transcrever)
+                {
+                    item.Transcricao = await TranscreverAsync(item.Caminho, item.Hash, item.Vocabulario, item.Progresso, cancellationToken).ConfigureAwait(false);
+                    await cache.GravarAsync(item.Chave, item.Transcricao, cancellationToken).ConfigureAwait(false);
+                }
+
+                await DescarregarAsync(motor, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Correção de palavras ouvidas errado (opcional): antes da tradução, que passa a usar o texto corrigido.
+            if (corretor is { Ativo: true })
+            {
+                await VezAsync().ConfigureAwait(false);
+                await CorrigirLoteAsync(corretor, itens, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Tradução: o modelo das frases uma vez para todos.
+            var traduzir = new List<ItemLote>();
+            foreach (var item in itens)
+            {
+                item.Resultado = item.Transcricao;
+                item.Destino = RegraSaida.IdiomaDaTraducao(saida, item.Transcricao!.Arquivo.Idioma);
+                if (item.Destino is null)
+                {
+                    continue;
+                }
+
+                var tradutorUsado = tradutor ?? throw new InvalidOperationException(
+                    $"Saida.{saida} pede tradução para '{item.Destino}', mas nenhum ITradutor foi registrado. Chame services.AddTranscritorTraducao().");
+                item.ChaveTraducao = $"{item.Chave}.trad-{item.Destino}.{tradutorUsado.Identificador}".Replace('/', '_');
+                var traduzido = await cache.LerAsync(item.ChaveTraducao, cancellationToken).ConfigureAwait(false);
+                if (traduzido is null)
+                {
+                    traduzir.Add(item);
                 }
                 else
                 {
-                    item.Resultado = analisado;
+                    item.Resultado = traduzido;
                 }
             }
 
-            if (analisar.Count > 0)
+            if (traduzir.Count > 0)
             {
+                await VezAsync().ConfigureAwait(false);
                 await DescarregarAsync([motor], cancellationToken).ConfigureAwait(false);
-                foreach (var item in analisar)
+                foreach (var item in traduzir)
                 {
                     item.TudoDoCache = false;
-                    item.Resultado = await AnalisarAsync(analisador, item.Resultado!, item.Destino!, item.Progresso, cancellationToken).ConfigureAwait(false);
-                    await cache.GravarAsync(item.ChaveAnalise!, item.Resultado, cancellationToken).ConfigureAwait(false);
+                    item.Resultado = await TraduzirAsync(tradutor!, item.Transcricao!, item.Destino!, item.Progresso, cancellationToken).ConfigureAwait(false);
+                    await cache.GravarAsync(item.ChaveTraducao!, item.Resultado, cancellationToken).ConfigureAwait(false);
                 }
 
-                await DescarregarAsync(analisador, cancellationToken).ConfigureAwait(false);
+                await DescarregarAsync(tradutor!, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Análise de sentido (opcional): precisa da tradução pronta.
+            if (analisador is { Ativo: true })
+            {
+                var analisar = new List<ItemLote>();
+                foreach (var item in itens.Where(i => i.Destino is not null))
+                {
+                    item.ChaveAnalise = $"{item.ChaveTraducao}.sent.{analisador.Identificador}".Replace('/', '_');
+                    var analisado = await cache.LerAsync(item.ChaveAnalise, cancellationToken).ConfigureAwait(false);
+                    if (analisado is null)
+                    {
+                        analisar.Add(item);
+                    }
+                    else
+                    {
+                        item.Resultado = analisado;
+                    }
+                }
+
+                if (analisar.Count > 0)
+                {
+                    await VezAsync().ConfigureAwait(false);
+                    await DescarregarAsync([motor], cancellationToken).ConfigureAwait(false);
+                    foreach (var item in analisar)
+                    {
+                        item.TudoDoCache = false;
+                        item.Resultado = await AnalisarAsync(analisador, item.Resultado!, item.Destino!, item.Progresso, cancellationToken).ConfigureAwait(false);
+                        await cache.GravarAsync(item.ChaveAnalise!, item.Resultado, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    await DescarregarAsync(analisador, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+        }
+        finally
+        {
+            if (reserva is not null)
+            {
+                await reserva.DisposeAsync().ConfigureAwait(false);
             }
         }
 

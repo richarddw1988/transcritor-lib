@@ -1079,6 +1079,7 @@ internal sealed class ProgressoConsole : IProgress<ProgressoProcessamento>
         _ultimoDecimo = decimo;
         var percentual = value.Percentual is { } q ? $" {q,5:F1}%" : string.Empty;
         var arquivo = value.TotalArquivos > 1 ? $"[{value.Arquivo}/{value.TotalArquivos}] " : string.Empty;
-        Console.Write($"\r{arquivo}{value.Etapa,-18}{percentual}");
+        var detalhe = value.Detalhe is null ? string.Empty : $" ({value.Detalhe})";
+        Console.Write($"\r{arquivo}{value.Etapa,-18}{percentual}{detalhe}");
     }
 }

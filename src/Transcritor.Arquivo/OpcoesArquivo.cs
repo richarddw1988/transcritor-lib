@@ -94,6 +94,28 @@ public sealed class OpcoesArquivo
     /// <summary>Intervalo entre as consultas ao Speaches enquanto espera o Whisper sair.</summary>
     internal TimeSpan IntervaloConsultaDescarregar { get; set; } = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// Um processamento de arquivo por vez na GPU da máquina: antes de carregar o primeiro modelo, a execução pega a vez
+    /// (trava em <see cref="ArquivoTravaGpu"/>) e outra execução espera, em vez de pôr um segundo modelo na placa junto.
+    /// </summary>
+    public bool CoordenarGpu { get; set; } = true;
+
+    /// <summary>Arquivo da vez na GPU (ver <see cref="CoordenadorGpu"/>).</summary>
+    public string ArquivoTravaGpu { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Transcritor", "gpu.lock");
+
+    /// <summary>
+    /// Se o contêiner do tempo real (<see cref="ConteinerTempoReal"/>) estiver no ar, para ele durante o arquivo e religa
+    /// no fim: ele segura o modelo dele (~2 GB) enquanto está de pé. Sessões de tempo real abertas caem.
+    /// </summary>
+    public bool PararTempoRealDuranteArquivo { get; set; } = true;
+
+    /// <summary>Nome do contêiner do WhisperLiveKit.</summary>
+    public string ConteinerTempoReal { get; set; } = "whisperlivekit";
+
+    /// <summary>Executável do docker (nome no PATH ou caminho completo).</summary>
+    public string CaminhoDocker { get; set; } = "docker";
+
     /// <summary>Tempo máximo de uma chamada de transcrição.</summary>
     public TimeSpan TimeoutTranscricao { get; set; } = TimeSpan.FromHours(1);
 

@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ConversorFfmpeg>();
         services.TryAddSingleton<IConversorMidia>(sp => sp.GetRequiredService<ConversorFfmpeg>());
         services.TryAddSingleton<ICacheResultado, CacheEmDisco>();
+        services.TryAddSingleton<CoordenadorGpu>();
 
         services.AddHttpClient<SpeachesMotorTranscricao>((sp, http) =>
         {

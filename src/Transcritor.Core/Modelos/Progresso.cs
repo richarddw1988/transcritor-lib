@@ -13,6 +13,9 @@ public enum EtapaProcessamento
     AnalisandoSentido,
     GravandoResultado,
     Concluido,
+
+    /// <summary>Esperando a vez na GPU: outro processamento de arquivo está com ela (ver <see cref="ProgressoProcessamento.Detalhe"/>).</summary>
+    AguardandoGpu,
 }
 
 /// <summary>Progresso do processamento de um arquivo.</summary>
@@ -21,5 +24,7 @@ public enum EtapaProcessamento
 /// <param name="DoCache">Verdadeiro quando o resultado veio do cache, sem chamar serviços.</param>
 /// <param name="Arquivo">Número do arquivo no lote (1 = o primeiro); 1 fora de lote.</param>
 /// <param name="TotalArquivos">Quantos arquivos o lote tem; 1 fora de lote.</param>
+/// <param name="Detalhe">Texto extra da etapa (em <see cref="EtapaProcessamento.AguardandoGpu"/>, quem está com a vez).</param>
 public sealed record ProgressoProcessamento(
-    EtapaProcessamento Etapa, double? Percentual = null, bool DoCache = false, int Arquivo = 1, int TotalArquivos = 1);
+    EtapaProcessamento Etapa, double? Percentual = null, bool DoCache = false, int Arquivo = 1, int TotalArquivos = 1,
+    string? Detalhe = null);
