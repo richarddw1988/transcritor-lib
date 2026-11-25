@@ -207,6 +207,39 @@ duas vezes: extraindo o canal à mão e pelo `.mkv` com a opção `UsarCanalCent
 - Risco não medido: filme mixado com diálogo fora do canal central (raro). Nesse caso, `UsarCanalCentral=false`.
 - Só a faixa inglesa foi medida; a dublagem em português não tem legenda de referência ao pé da letra.
 
+**Separação da voz (Demucs), testada em 2026-11-25, ainda não adotada.** Pesquisa e números publicados estão em
+"Ideias pesquisadas" abaixo. Teste: canal central do filme em 44,1 kHz → `htdemucs_ft` (Demucs 4.0.1, PyTorch 2.5.1
+CUDA 12.4, num contêiner `python:3.12-slim`) com `--two-stems vocals` → 16 kHz mono → lib.
+- O Demucs carrega o áudio inteiro: o filme de 2 h foi derrubado por falta de memória na VM do WSL. Em partes de 10 min
+  funcionou. Ele também não aceita mono (erro do próprio Demucs); foi preciso mandar o canal central como estéreo.
+- Tempo da separação: ~18 min para as 2 h na RTX 3060, fora a transcrição.
+
+| Entrada da transcrição (filme de 2 h, canal central) | WER | Nomes certos | Transcrição |
+|---|---|---|---|
+| Canal central (padrão atual) | 11,1% | 86% | 520 s |
+| **Só a voz separada** | **9,7%** | **88%** | 527 s |
+| Voz separada + o resto devolvido a −17,5 dB | 10,1% | 87% | 516 s |
+
+Não medido: o efeito em áudio limpo (audiolivro, FLEURS, CORAA). A pesquisa aponta que redutores de ruído de fala
+pioram o Whisper em fala limpa; por isso, se entrar, deve ser só para filmes ou com medição nesses conjuntos antes.
+
+### Ideias pesquisadas para chegar perto de 100% (2026-11-25)
+
+Pesquisa feita por um subagente com fontes primárias; os números são os publicados (quase sempre pelo fabricante) e
+não foram conferidos aqui, salvo onde dito.
+- **Separar música e efeitos antes do ASR:** DnR (ESPnet, não Whisper) 17,5% → 7,0% de WER; num pipeline de TV com
+  Demucs + VAD pyannote + Whisper large-v3, −34% de palavras omitidas (sem separar o ganho de cada parte). Redutores de
+  ruído de fala (não separadores de música) pioraram o Whisper large-v3 (15,4% → 22,8% no LibriSpeech com ruído).
+  Medido aqui: acima.
+- **Modelos mais novos:** no inglês espontâneo (AMI), Cohere Transcribe 03-2026 (8,15) e Granite 4.0 1B Speech (8,44)
+  contra 15,95 do Whisper large-v3, mas sem tempo por palavra (precisaria de alinhamento forçado depois). Em português
+  quase não há número publicado por idioma; o Whisper large-v3 empata em fala lida (FLEURS pt 3,9). Não medido aqui.
+- **Combinar sistemas (ROVER):** ~14–20% menos erro publicado com sistemas não-Whisper; 2–3× o tempo. Não medido.
+- **Correção por LLM com N hipóteses:** ~30% relativo publicado, mas o Speaches não devolve N hipóteses e o LLM não
+  recupera palavra que não foi ouvida. Não medido.
+- **Detecção de fala para gritos e falas curtas:** o Silero perde fala atípica (sussurro: 37% das janelas no limiar
+  padrão); WhisperX (VAD pyannote) subiu o recall de palavras no AMI de 52,1% para 60,3%. Não medido.
+
 ### Tradução do filme (2026-11-25)
 
 O mesmo filme, com `--idioma en --saida Ambos`. A transcrição veio do cache (pedaços de 30 s + lista de nomes) e o
