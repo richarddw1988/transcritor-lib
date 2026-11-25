@@ -51,9 +51,16 @@ internal sealed class FakeConversor(InfoMidia info, byte[]? conteudoWav = null) 
     public Task ConverterParaWavAsync(string caminhoArquivo, string caminhoWav, Action<double>? aoAvancar, CancellationToken cancellationToken) =>
         ConverterParaWavAsync(caminhoArquivo, caminhoWav, 0, aoAvancar, cancellationToken);
 
+    public int UltimaTaxa { get; private set; }
+
+    public Task ConverterParaWavAsync(
+        string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken) =>
+        ConverterParaWavAsync(caminhoArquivo, caminhoWav, faixa, 16000, aoAvancar, cancellationToken);
+
     public async Task ConverterParaWavAsync(
-        string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken)
+        string caminhoArquivo, string caminhoWav, int faixa, int taxa, Action<double>? aoAvancar, CancellationToken cancellationToken)
     {
+        UltimaTaxa = taxa;
         ChamadasConversao++;
         UltimaFaixa = faixa;
         UltimoWav = caminhoWav;

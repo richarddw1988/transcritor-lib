@@ -55,12 +55,14 @@ dotnet run --project src/Transcritor.Cli -- microfone --saida Ambos --idioma pt
 |---|---|---|---|
 | Speaches | 8000 | Transcrição de arquivo com tempo por palavra | `Systran/faster-whisper-large-v3` |
 | WhisperLiveKit | 8001 | Transcrição em tempo real (WebSocket) | `large-v3-turbo` |
+| Separador | 8002 | Separa a voz da música e dos efeitos nos filmes (5.1/7.1) antes da transcrição | Demucs `htdemucs_ft` |
 | Ollama | 11434 | Tradução, análise e correção | `translategemma:12b` (arquivo), `translategemma:4b` (tempo real), `gemma3:4b` (palavra), `gemma3:12b` (correção da transcrição e análise, as duas opcionais) |
 
 O Speaches roda numa imagem própria, a 0.8.3 oficial com uma linha corrigida ([docker/speaches](docker/speaches/Dockerfile)),
 para a lib poder tirar o Whisper da GPU entre as etapas; o `preparar-ambiente.ps1` constrói essa imagem. No
 WhisperLiveKit, um arquivo corrigido ([docker/whisperlivekit](docker/whisperlivekit/align_att_base.py)), montado pelo
-`docker-compose.yml`, faz a detecção de idioma escolher só entre português e inglês.
+`docker-compose.yml`, faz a detecção de idioma escolher só entre português e inglês. O separador de voz é uma imagem
+do projeto ([docker/separador](docker/separador/servidor.py)): Demucs atrás de uma API HTTP pequena.
 
 Por que esses modelos, o que mais foi testado e quanto cada um custa: [docs/modelos.md](docs/modelos.md).
 

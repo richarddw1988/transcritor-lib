@@ -3,6 +3,7 @@
 #   Speaches        -> http://localhost:8000   (arquivo, REST compatível com OpenAI)
 #   WhisperLiveKit  -> ws://localhost:8001/asr (tempo real)
 #   Ollama          -> http://localhost:11434  (tradução)
+#   Separador       -> http://localhost:8002   (voz separada da música e dos efeitos nos filmes; Demucs)
 #
 # Requisitos: Docker Desktop com WSL2 + suporte a GPU NVIDIA.
 # Preparação completa (imagens, modelos, conferência): .\scripts\preparar-ambiente.ps1
@@ -82,6 +83,26 @@ services:
               count: all
               capabilities: [gpu]
 
+  separador:
+    # Demucs (htdemucs_ft) atrás de uma API HTTP pequena; ver docker/separador. A lib manda o áudio dos filmes (faixa
+    # com canal central) em partes de 10 min e transcreve só a voz (OpcoesArquivo.SepararVoz).
+    build:
+      context: ./docker/separador
+    image: transcritor/separador:demucs-4.0.1
+    container_name: separador
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - separador-cache:/root/.cache/torch
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -109,4 +130,5 @@ services:
 volumes:
   hf-cache-speaches:
   hf-cache-wlk:
+  separador-cache:
   ollama:

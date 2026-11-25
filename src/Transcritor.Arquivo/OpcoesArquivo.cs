@@ -74,6 +74,23 @@ public sealed class OpcoesArquivo
     public bool UsarCanalCentral { get; set; } = true;
 
     /// <summary>
+    /// Separa a voz da música e dos efeitos antes de transcrever (serviço <c>separador</c>, Demucs). Padrão: só filmes
+    /// (faixa com canal central, 5.1/7.1). No filme de 2 h o erro caiu de 11,1% para 9,7–10,1% e os nomes certos de 86%
+    /// para 88%, com ~15 min a mais para as 2 h (docs/modelos.md). Em fala limpa não foi medido; a pesquisa indica que
+    /// pode piorar, por isso o padrão não separa estéreo nem mono.
+    /// </summary>
+    public ModoSeparacaoVoz SepararVoz { get; set; } = ModoSeparacaoVoz.Filmes;
+
+    /// <summary>URL do separador de voz.</summary>
+    public Uri SeparadorUrl { get; set; } = new("http://localhost:8002");
+
+    /// <summary>Tamanho das partes mandadas ao separador (o Demucs carrega a parte inteira na memória).</summary>
+    public double SegundosPorParteSeparacao { get; set; } = 600;
+
+    /// <summary>Tempo máximo para separar uma parte.</summary>
+    public TimeSpan TimeoutSeparacao { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
     /// Com a correção da transcrição ligada, confere cada troca no áudio: reouve a frase com a versão trocada como
     /// dica e só aceita se o Whisper ouvir a palavra nova (veja <see cref="LimiteConfiancaReouvir"/>).
     /// </summary>
@@ -130,4 +147,17 @@ public sealed class OpcoesArquivo
 
     /// <summary>Caminho do vocabulário lido ao lado da mídia (ex.: "aula.mp4.vocabulario.txt").</summary>
     public static string CaminhoVocabularioAoLado(string caminhoArquivo) => caminhoArquivo + ".vocabulario.txt";
+}
+
+/// <summary>Quando separar a voz da música e dos efeitos antes de transcrever.</summary>
+public enum ModoSeparacaoVoz
+{
+    /// <summary>Nunca separa.</summary>
+    Nunca,
+
+    /// <summary>Só faixa com canal central (5.1, 7.1…), o que na prática é filme ou série.</summary>
+    Filmes,
+
+    /// <summary>Todo arquivo (não medido em fala limpa).</summary>
+    Sempre,
 }

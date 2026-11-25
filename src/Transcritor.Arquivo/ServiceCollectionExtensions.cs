@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Transcritor.Arquivo.Cache;
 using Transcritor.Arquivo.Midia;
 using Transcritor.Core.Processos;
+using Transcritor.Arquivo.Separacao;
 using Transcritor.Arquivo.Speaches;
 using Transcritor.Core.Contratos;
 
@@ -38,10 +39,18 @@ public static class ServiceCollectionExtensions
             http.Timeout = o.TimeoutTranscricao;
         });
         services.TryAddTransient<IMotorTranscricao>(sp => sp.GetRequiredService<SpeachesMotorTranscricao>());
+        services.AddHttpClient<SeparadorDemucs>((sp, http) =>
+        {
+            var o = sp.GetRequiredService<IOptions<OpcoesArquivo>>().Value;
+            http.BaseAddress = ComBarraFinal(o.SeparadorUrl);
+            http.Timeout = o.TimeoutSeparacao;
+        });
+        services.TryAddTransient<ISeparadorVoz>(sp => sp.GetRequiredService<SeparadorDemucs>());
         services.TryAddTransient<ITranscritorArquivo, TranscritorArquivo>();
 
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<ConversorFfmpeg>());
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<SpeachesMotorTranscricao>());
+        services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<SeparadorDemucs>());
         return services;
     }
 

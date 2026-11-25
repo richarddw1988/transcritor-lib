@@ -16,6 +16,9 @@ public enum EtapaProcessamento
 
     /// <summary>Esperando a vez na GPU: outro processamento de arquivo está com ela (ver <see cref="ProgressoProcessamento.Detalhe"/>).</summary>
     AguardandoGpu,
+
+    /// <summary>Separando a voz da música e dos efeitos (filmes; ver <c>OpcoesArquivo.SepararVoz</c>).</summary>
+    SeparandoVoz,
 }
 
 /// <summary>Progresso do processamento de um arquivo.</summary>

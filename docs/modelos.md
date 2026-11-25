@@ -18,6 +18,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção pelo modelo; os casos duvidosos para o BERT podem ir ao `gemma3:12b` (`ConfirmarHomofonoComModelo`, desligada por padrão desde 2026-11-24) | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
+| Separação da voz (filmes: faixa 5.1/7.1) | Demucs `htdemucs_ft` | separador (imagem do projeto, `docker/separador`) | `Transcritor:Arquivo:SepararVoz` | ~320 MB; ~1,3 GB na GPU | filme de 2 h: erro 11,1% → 9,7–10,1%, nomes 86% → 88%; ~15 min a mais (1.425 s no total contra 520 s) |
 
 Imagens Docker: `transcritor/speaches:0.8.3-descarregar` (Speaches 0.8.3, `ghcr.io/speaches-ai/speaches:0.8.3-cuda-12.6.3`,
 com o `DELETE /api/ps` corrigido; ver [docker/speaches/Dockerfile](../docker/speaches/Dockerfile)), `ollama/ollama:latest`,
@@ -141,7 +142,8 @@ Opção `SegundosPorPedaco` (padrão 30). Medido em 2026-11-24 num filme de aç�
 | Pedaços de 30 s + lista | 16,1% | 81% | 573 s |
 | Pedaços de 30 s + lista + dica das últimas palavras do pedaço anterior + filtro de frases inventadas | 15,6% | 81% | 556 s |
 | O mesmo + pedaço em loop refeito subindo a temperatura (2026-11-25) | 15,5% | 81% | 533 s |
-| **O mesmo, só com o canal central do 5.1** (adotado, 2026-11-25) | **11,1%** | **86%** | 520 s |
+| O mesmo, só com o canal central do 5.1 (2026-11-25) | 11,1% | 86% | 520 s |
+| **O mesmo + voz separada pelo Demucs** (adotado, 2026-11-25) | **9,7–10,1%** | **88%** | 1.425 s (separação incluída) |
 
 **O que acontecia no arquivo inteiro:**
 - **Loop.** O Whisper usa o texto anterior como dica e, a partir de 1 h 9 min, escreveu "no, no, no…" por ~15 min. Depois
@@ -207,7 +209,7 @@ duas vezes: extraindo o canal à mão e pelo `.mkv` com a opção `UsarCanalCent
 - Risco não medido: filme mixado com diálogo fora do canal central (raro). Nesse caso, `UsarCanalCentral=false`.
 - Só a faixa inglesa foi medida; a dublagem em português não tem legenda de referência ao pé da letra.
 
-**Separação da voz (Demucs), testada em 2026-11-25, ainda não adotada.** Pesquisa e números publicados estão em
+**Separação da voz (Demucs), 2026-11-25, adotada para filmes (`SepararVoz = Filmes`).** Pesquisa e números publicados estão em
 "Ideias pesquisadas" abaixo. Teste: canal central do filme em 44,1 kHz → `htdemucs_ft` (Demucs 4.0.1, PyTorch 2.5.1
 CUDA 12.4, num contêiner `python:3.12-slim`) com `--two-stems vocals` → 16 kHz mono → lib.
 - O Demucs carrega o áudio inteiro: o filme de 2 h foi derrubado por falta de memória na VM do WSL. Em partes de 10 min
@@ -220,8 +222,14 @@ CUDA 12.4, num contêiner `python:3.12-slim`) com `--two-stems vocals` → 16 kH
 | **Só a voz separada** | **9,7%** | **88%** | 527 s |
 | Voz separada + o resto devolvido a −17,5 dB | 10,1% | 87% | 516 s |
 
-Não medido: o efeito em áudio limpo (audiolivro, FLEURS, CORAA). A pesquisa aponta que redutores de ruído de fala
-pioram o Whisper em fala limpa; por isso, se entrar, deve ser só para filmes ou com medição nesses conjuntos antes.
+Pela lib (serviço `separador`, `.mkv` → JSON): **10,1%**, nomes 88%, 1.425 s no total (separação + transcrição;
+520 s sem separar), pico de 6,7 GB em uso na GPU inteira (contando ~1,2 GB de outros programas).
+- **9,7% contra 10,1% é variação, não defeito do serviço:** o Demucs desloca o áudio ao acaso. Duas separações do
+  mesmo trecho pelo serviço diferiram tanto (SNR 17,8 dB) quanto o serviço contra a linha de comando (18,2 dB). Agora o
+  serviço fixa a semente: a mesma entrada dá a mesma saída (conferido byte a byte).
+- **Só filmes por padrão:** não medido em áudio limpo (audiolivro, FLEURS, CORAA). A pesquisa aponta que redutores de
+  ruído de fala pioram o Whisper em fala limpa. Estéreo e mono não passam pelo separador (`SepararVoz = Filmes`);
+  `Sempre` separa tudo, sem medição.
 
 ### Ideias pesquisadas para chegar perto de 100% (2026-11-25)
 
@@ -980,6 +988,8 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 
 Os serviços dividem a mesma GPU. Medido em 2026-11-21:
 - tempo real (WhisperLiveKit turbo) + `translategemma:4b` + Speaches ocioso: ~5–9 GB;
+- separador de voz (Demucs `htdemucs_ft`): ~1,3 GB com o modelo carregado; a lib o tira da GPU antes do Whisper. No
+  filme de 2 h, o pico da GPU inteira foi 6,7 GB (2026-11-25);
 - arquivo com análise de sentido: `translategemma:12b` e `gemma3:12b` (~8 GB cada) são usados um depois do outro;
   rode com o WhisperLiveKit parado se a GPU tiver 12 GB. Desde 2026-11-25 a lib faz isso sozinha: o tempo real fica
   parado até uma sessão abrir, e o arquivo espera a sessão fechar (manual, seção 8).

@@ -25,7 +25,8 @@ public sealed class TranscritorArquivo(
     ITradutor? tradutor = null,
     IAnalisadorSentido? analisador = null,
     ICorretorTranscricao? corretor = null,
-    CoordenadorGpu? coordenador = null) : ITranscritorArquivo
+    CoordenadorGpu? coordenador = null,
+    Separacao.ISeparadorVoz? separador = null) : ITranscritorArquivo
 {
     private readonly OpcoesArquivo _opcoes = opcoes.Value;
 
@@ -304,7 +305,10 @@ public sealed class TranscritorArquivo(
             ? $".p{PedacosAudio.Versao}-{_opcoes.SegundosPorPedaco.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             : string.Empty;
         var central = _opcoes.UsarCanalCentral ? ".fc" : string.Empty;
-        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}{pedacos}{central}".Replace('/', '_');
+        var separacao = separador is not null && _opcoes.SepararVoz != ModoSeparacaoVoz.Nunca
+            ? $".sv-{_opcoes.SepararVoz}-{separador.Identificador}"
+            : string.Empty;
+        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}{pedacos}{central}{separacao}".Replace('/', '_');
     }
 
     /// <summary>
@@ -536,6 +540,14 @@ public sealed class TranscritorArquivo(
         return 0;
     }
 
+    /// <summary>Se a faixa escolhida passa pelo separador de voz (<see cref="OpcoesArquivo.SepararVoz"/>).</summary>
+    private bool SepararVoz(InfoMidia info, int faixa) => _opcoes.SepararVoz switch
+    {
+        ModoSeparacaoVoz.Sempre => true,
+        ModoSeparacaoVoz.Filmes => info.LayoutsFaixas is { } layouts && faixa < layouts.Count && CanaisAudio.TemCanalCentral(layouts[faixa]),
+        _ => false,
+    };
+
     private async Task<ResultadoTranscricao> TranscreverAsync(
         string caminho, string hash, string? vocabulario, IProgress<ProgressoProcessamento>? progresso, CancellationToken cancellationToken)
     {
@@ -552,12 +564,34 @@ public sealed class TranscritorArquivo(
         try
         {
             progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, 0));
-            await conversor.ConverterParaWavAsync(
-                caminho,
-                wav,
-                EscolherFaixa(info, _opcoes.Idioma),
-                segundos => progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, Percentual(segundos, info.Duracao))),
-                cancellationToken).ConfigureAwait(false);
+            var faixa = EscolherFaixa(info, _opcoes.Idioma);
+            void AoConverter(double segundos) => progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, Percentual(segundos, info.Duracao)));
+            if (separador is not null && SepararVoz(info, faixa))
+            {
+                // O separador trabalha em 44,1 kHz; a voz volta em 16 kHz mono, pronta para o Whisper.
+                var wav44 = Path.Combine(pastaTemporaria, $"{hash}-{Guid.NewGuid():N}.44k.wav");
+                try
+                {
+                    await conversor.ConverterParaWavAsync(caminho, wav44, faixa, 44100, AoConverter, cancellationToken).ConfigureAwait(false);
+                    progresso?.Report(new(EtapaProcessamento.SeparandoVoz, 0));
+                    await separador.SepararAsync(
+                        wav44, wav, p => progresso?.Report(new(EtapaProcessamento.SeparandoVoz, p)), cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (File.Exists(wav44))
+                    {
+                        File.Delete(wav44);
+                    }
+                }
+
+                await DescarregarAsync(separador, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await conversor.ConverterParaWavAsync(caminho, wav, faixa, AoConverter, cancellationToken).ConfigureAwait(false);
+            }
+
             progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, 100));
 
             progresso?.Report(new(EtapaProcessamento.Transcrevendo));

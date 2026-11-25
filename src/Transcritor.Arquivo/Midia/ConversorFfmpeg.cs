@@ -33,10 +33,15 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
     public Task ConverterParaWavAsync(string caminhoArquivo, string caminhoWav, Action<double>? aoAvancar, CancellationToken cancellationToken) =>
         ConverterParaWavAsync(caminhoArquivo, caminhoWav, 0, aoAvancar, cancellationToken);
 
+    public Task ConverterParaWavAsync(
+        string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken) =>
+        ConverterParaWavAsync(caminhoArquivo, caminhoWav, faixa, 16000, aoAvancar, cancellationToken);
+
     public async Task ConverterParaWavAsync(
-        string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken)
+        string caminhoArquivo, string caminhoWav, int faixa, int taxa, Action<double>? aoAvancar, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(faixa);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(taxa);
         var faixaTexto = faixa.ToString(CultureInfo.InvariantCulture);
 
         // O filtro do canal central não reclama de faixa sem esse canal (estéreo sai mudo): só pelo layout conhecido.
@@ -48,7 +53,7 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
             "-i", caminhoArquivo,
             "-map", $"0:a:{faixaTexto}", "-vn",
             .. mono,
-            "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav",
+            "-ar", taxa.ToString(CultureInfo.InvariantCulture), "-c:a", "pcm_s16le", "-f", "wav",
             "-progress", "pipe:1", "-nostats",
             caminhoWav,
         ];
@@ -68,15 +73,7 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
         }
     }
 
-    /// <summary>Layouts de canais do ffmpeg que têm o canal central (FC). Mono não conta: o canal único já é tudo.</summary>
-    private static readonly HashSet<string> LayoutsComCentral = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "3.0", "3.0(back)", "3.1", "4.0", "4.1", "5.0", "5.0(side)", "5.1", "5.1(side)", "6.0", "6.1", "6.1(back)",
-        "7.0", "7.0(front)", "7.1", "7.1(wide)", "7.1(wide-side)", "7.1(top)", "5.1.2", "5.1.4", "7.1.2", "7.1.4",
-        "7.2.3", "9.1.4", "hexagonal", "octagonal", "22.2",
-    };
-
-    internal static bool TemCanalCentral(string? layout) => layout is not null && LayoutsComCentral.Contains(layout.Trim());
+    internal static bool TemCanalCentral(string? layout) => CanaisAudio.TemCanalCentral(layout);
 
     /// <summary>Layout de canais da faixa ("5.1", "stereo"…); nulo se o ffprobe não diz.</summary>
     private async Task<string?> LayoutAsync(string caminhoArquivo, string faixa, CancellationToken cancellationToken)
@@ -121,6 +118,7 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
 
         var faixasAudio = 0;
         var idiomas = new List<string>();
+        var layouts = new List<string>();
         if (raiz.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
         {
             foreach (var stream in streams.EnumerateArray())
@@ -146,11 +144,12 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
                     ? Idiomas.Normalizar(l.GetString()!)
                     : string.Empty;
                 idiomas.Add(idioma);
+                layouts.Add(stream.TryGetProperty("channel_layout", out var cl) && cl.ValueKind == JsonValueKind.String ? cl.GetString() ?? "" : "");
                 faixasAudio++;
             }
         }
 
-        return new InfoMidia(duracao, formato, faixasAudio, idiomas);
+        return new InfoMidia(duracao, formato, faixasAudio, idiomas, layouts);
     }
 
     /// <summary>Lê "out_time_us=..." da saída de -progress.</summary>

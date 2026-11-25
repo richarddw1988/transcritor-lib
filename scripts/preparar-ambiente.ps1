@@ -5,25 +5,30 @@
 .DESCRIPTION
     Idempotente: pode rodar quantas vezes quiser; só faz o que falta.
       1. Confere os pré-requisitos: .NET 10, Docker com GPU NVIDIA, ffmpeg/ffprobe, espaço do Docker e memória do WSL.
-      2. Constrói as imagens do Speaches (a oficial 0.8.3 com uma correção) e do WhisperLiveKit (não há imagem
-         publicada) e sobe os serviços do docker-compose.yml.
+      2. Constrói as imagens do Speaches (a oficial 0.8.3 com uma correção), do WhisperLiveKit (não há imagem
+         publicada) e do separador de voz (Demucs, para filmes) e sobe os serviços do docker-compose.yml.
       3. Espera cada serviço responder.
-      4. Baixa os modelos que faltam: Whisper no Speaches e os modelos de tradução no Ollama (e o da correção, com
-         -ComCorrecao).
+      4. Baixa os modelos que faltam: Whisper no Speaches, os modelos de tradução no Ollama (e o da correção, com
+         -ComCorrecao) e o do separador de voz (~320 MB).
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
       6. Baixa o Wiktionary (kaikki.org, ~600 MB) e as listas de frequência (~1,3 MB) e gera o dicionário local em
          dados/ (-SemDicionario pula).
       7. Converte para ONNX, dentro de um contêiner Docker, os dois BERT dos homófonos e da conferência da correção
          (dados/bert, ~1 GB; não precisa de Python nesta máquina; -SemHomofonos pula).
 
-    Primeira vez: baixa ~50 GB (imagens + modelos + dicionário + BERT; ~58 GB com -ComCorrecao, ~48 GB com
-    -SemDicionario -SemHomofonos) e leva de 20 a 60 minutos, conforme a internet.
+    Primeira vez: baixa ~53 GB (imagens + modelos + dicionário + BERT; ~61 GB com -ComCorrecao, ~51 GB com
+    -SemDicionario -SemHomofonos; o separador de voz soma ~3 GB, -SemSeparadorVoz pula) e leva de 20 a 60 minutos,
+    conforme a internet.
 
 .PARAMETER SoConferir
     Só confere pré-requisitos e serviços; não constrói, não sobe e não baixa nada.
 
 .PARAMETER SemTempoReal
     Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB). Arquivo e tradução continuam funcionando.
+
+.PARAMETER SemSeparadorVoz
+    Não constrói nem sobe o separador de voz (Demucs, ~3 GB). Sem ele, filmes (faixa 5.1/7.1) falham na transcrição
+    enquanto Transcritor:Arquivo:SepararVoz não for "Nunca" no appsettings.json.
 
 .PARAMETER ModeloTranscricao
     Modelo Whisper do Speaches (mesmo valor de Transcritor:Arquivo:ModeloTranscricao no appsettings.json).
@@ -85,6 +90,8 @@ param(
     [string] $ModeloCorrecao = 'gemma3:12b',
     [switch] $SemDicionario,
     [switch] $SemHomofonos,
+    [switch] $SemSeparadorVoz,
+    [string] $SeparadorUrl = 'http://localhost:8002',
     [string] $SpeachesUrl = 'http://localhost:8000',
     [string] $OllamaUrl = 'http://localhost:11434',
     [string] $WhisperLiveKitUrl = 'http://localhost:8001'
@@ -205,6 +212,7 @@ if ($problemas.Count -gt 0 -and -not $SoConferir) {
 # ---------------------------------------------------------------------------
 $servicos = @('speaches', 'ollama')
 if (-not $SemTempoReal) { $servicos += 'whisperlivekit' }
+if (-not $SemSeparadorVoz) { $servicos += 'separador' }
 
 if (-not $SoConferir -and $dockerOk) {
     Escrever-Etapa '2. Imagens e contêineres'
@@ -228,6 +236,17 @@ if (-not $SoConferir -and $dockerOk) {
         }
     }
 
+    if (-not $SemSeparadorVoz) {
+        $imagem = & docker images -q 'transcritor/separador:demucs-4.0.1'
+        if ($imagem) { Escrever-Ok 'Imagem do separador de voz já existe' }
+        else {
+            Write-Host '  Construindo a imagem do separador de voz (PyTorch + Demucs, ~3 GB na 1ª vez)...'
+            Rodar-Programa { docker compose build separador }
+            if ($LASTEXITCODE -ne 0) { Escrever-Falha 'Falhou o build do separador de voz (veja o log acima).'; exit 1 }
+            Escrever-Ok 'Imagem do separador de voz construída'
+        }
+    }
+
     Rodar-Programa { docker compose up -d @servicos }
     if ($LASTEXITCODE -ne 0) { Escrever-Falha 'docker compose up falhou (veja o log acima).'; exit 1 }
     Escrever-Ok "Contêineres no ar: $($servicos -join ', ')"
@@ -238,6 +257,7 @@ Escrever-Etapa '3. Serviços respondendo'
 $espera = if ($SoConferir) { 0 } else { 10 }
 $speachesNoAr = Aguardar-Servico 'Speaches' "$SpeachesUrl/health" $espera
 $ollamaNoAr = Aguardar-Servico 'Ollama' "$OllamaUrl/api/version" $espera
+$separadorNoAr = if ($SemSeparadorVoz) { $false } else { Aguardar-Servico 'Separador de voz' "$SeparadorUrl/health" $espera }
 $wlkParado = $SoConferir -and -not $SemTempoReal -and ((& docker inspect -f '{{.State.Running}}' whisperlivekit 2>$null) -eq 'false')
 if ($wlkParado) {
     # Normal: a lib liga o contêiner quando uma sessão de tempo real abre.
@@ -295,6 +315,23 @@ if ($speachesNoAr) {
     }
 }
 
+# Separador de voz: a 1ª separação baixa o modelo (htdemucs_ft, ~320 MB); 1 s de silêncio basta, e o modelo sai da GPU.
+if ($separadorNoAr -and -not $SoConferir) {
+    try {
+        $silencio = [byte[]]::new(44 + 88200)
+        [Text.Encoding]::ASCII.GetBytes('RIFF').CopyTo($silencio, 0); [BitConverter]::GetBytes([int](36 + 88200)).CopyTo($silencio, 4)
+        [Text.Encoding]::ASCII.GetBytes('WAVEfmt ').CopyTo($silencio, 8); [BitConverter]::GetBytes([int]16).CopyTo($silencio, 16)
+        [BitConverter]::GetBytes([int16]1).CopyTo($silencio, 20); [BitConverter]::GetBytes([int16]1).CopyTo($silencio, 22)
+        [BitConverter]::GetBytes([int]44100).CopyTo($silencio, 24); [BitConverter]::GetBytes([int]88200).CopyTo($silencio, 28)
+        [BitConverter]::GetBytes([int16]2).CopyTo($silencio, 32); [BitConverter]::GetBytes([int16]16).CopyTo($silencio, 34)
+        [Text.Encoding]::ASCII.GetBytes('data').CopyTo($silencio, 36); [BitConverter]::GetBytes([int]88200).CopyTo($silencio, 40)
+        Write-Host '  Separador de voz: baixando o modelo htdemucs_ft na 1ª vez (~320 MB)...'
+        $null = Invoke-WebRequest -Method Post -Uri "$SeparadorUrl/separar" -Body $silencio -ContentType 'audio/wav' -UseBasicParsing -TimeoutSec 900
+        $null = Invoke-WebRequest -Method Post -Uri "$SeparadorUrl/descarregar" -UseBasicParsing -TimeoutSec 60
+        Escrever-Ok 'Separador de voz: modelo htdemucs_ft pronto'
+    } catch { Escrever-Falha "O separador de voz não conseguiu separar: $($_.Exception.Message)" }
+}
+
 if ($ollamaNoAr) {
     $instalados = (Obter-Json "$OllamaUrl/api/tags").models.name
     $modelosOllama = @($ModeloFrases, $ModeloFrasesTempoReal, $ModeloPalavras)
@@ -335,6 +372,10 @@ if (-not $SoConferir -and $problemas.Count -eq 0) {
         } else {
             $env:TRANSCRITOR_Transcritor__Traducao__CorrigirTranscricao = 'false'
             $env:TRANSCRITOR_Transcritor__Traducao__ConfirmarHomofonoComModelo = 'false'
+        }
+        if ($SemSeparadorVoz) {
+            $env:TRANSCRITOR_Transcritor__Arquivo__SepararVoz = 'Nunca'
+            Escrever-Aviso 'Sem o separador de voz (-SemSeparadorVoz): ponha "SepararVoz": "Nunca" em Transcritor:Arquivo no appsettings.json, senão filmes 5.1 falham.'
         }
         Rodar-Programa { dotnet run --project "$raiz\src\Transcritor.Cli" --no-build -- servicos }
         if ($LASTEXITCODE -ne 0) { Escrever-Falha 'transcritor servicos apontou problemas (acima).' }

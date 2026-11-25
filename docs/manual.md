@@ -87,8 +87,8 @@ Precisa de Windows 10/11 com GPU NVIDIA (12 GB recomendado; ver [modelos.md](mod
 
 O script é idempotente (pode rodar quantas vezes quiser, só faz o que falta):
 1. confere .NET 10, ffmpeg/ffprobe, GPU e driver, Docker, espaço do disco do Docker e memória do WSL;
-2. constrói a imagem do Speaches (a oficial 0.8.3 com uma correção, ver seção 8) e a do WhisperLiveKit (não há
-   imagem publicada; ~22 GB, 20+ min na 1ª vez) e sobe os serviços;
+2. constrói a imagem do Speaches (a oficial 0.8.3 com uma correção, ver seção 8), a do WhisperLiveKit (não há
+   imagem publicada; ~22 GB, 20+ min na 1ª vez) e a do separador de voz (PyTorch + Demucs, ~3 GB) e sobe os serviços;
 3. espera cada serviço responder, confere se os contêineres enxergam a GPU e se o Speaches no ar é a imagem do
    projeto (aviso, se não for: a lib não consegue tirar o Whisper da GPU entre as etapas); depois para o WhisperLiveKit,
    que a lib liga sozinha quando uma sessão de tempo real abre (seção 8). Com `-SoConferir`, o WhisperLiveKit parado
@@ -110,6 +110,7 @@ Opções do script:
 |---|---|
 | `-SoConferir` | Só confere; não constrói, não sobe, não baixa |
 | `-SemTempoReal` | Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB); arquivo e tradução continuam |
+| `-SemSeparadorVoz` | Não constrói nem sobe o separador de voz (economiza ~3 GB). Ponha `"SepararVoz": "Nunca"` no `appsettings.json`, senão filmes 5.1/7.1 falham |
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
 | `-ComCorrecao` | Também baixa o `gemma3:12b` da correção de palavras ouvidas errado (~8 GB; o mesmo da análise) e confere os serviços com ela. A correção vem desligada desde 2026-11-24; para usá-la, ligue `CorrigirTranscricao` e `ConfirmarHomofonoComModelo` no `appsettings.json` (seção 6) ou passe `--corrigir` ao `arquivo` |
 | `-ModeloTranscricao`, `-ModeloFrases`, `-ModeloFrasesTempoReal`, `-ModeloPalavras`, `-ModeloAnalise`, `-ModeloCorrecao` | Usa outros modelos (ponha os mesmos no `appsettings.json` do seu app) |
@@ -133,7 +134,8 @@ isso. A configuração do Cli fica em `src/Transcritor.Cli/appsettings.json`.
 ```powershell
 dotnet run --project src/Transcritor.Cli -- servicos
 ```
-Mostra `[ OK ]` ou `[FALHA]` com o motivo para ffmpeg, Speaches, Ollama (e modelos) e WhisperLiveKit. O WhisperLiveKit
+Mostra `[ OK ]` ou `[FALHA]` com o motivo para ffmpeg, Speaches, separador de voz (só com `SepararVoz` diferente de
+`Nunca`), Ollama (e modelos) e WhisperLiveKit. O WhisperLiveKit
 parado aparece como `[ OK ] WhisperLiveKit: parado; liga sozinho quando uma sessão de tempo real abrir` (seção 8).
 Para tirar os modelos da GPU (ex.: antes de um jogo ou de outro programa pesado), veja a seção 4.9.
 
@@ -155,8 +157,10 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   é transcrito de novo com temperatura maior, como no Whisper original; nesse caso o texto pode variar um pouco de uma
   execução para outra (o cache guarda o primeiro).
 - **Filme com som 5.1 ou 7.1:** a lib transcreve só o canal central, onde fica o diálogo, sem a música e os efeitos dos
-  outros canais (`UsarCanalCentral`, seção 6). No filme de 2 h o erro caiu de 15,5% para 11,1%. Estéreo e mono não
-  mudam.
+  outros canais (`UsarCanalCentral`, seção 6), e ainda separa a voz do que sobrou de música e efeitos no serviço
+  `separador` (Demucs; `SepararVoz`, seção 6; progresso `SeparandoVoz`). No filme de 2 h o erro foi de 15,5% para
+  11,1% com o canal central e para 9,7–10,1% com a separação; a separação soma ~15 min por 2 h de filme. Estéreo e mono
+  não mudam.
 - **Nomes e termos do assunto** (pessoas, lugares, siglas, jargão): ponha um por linha (ou separados por vírgula) em
   `C:\videos\aula.mp4.vocabulario.txt`, ao lado da mídia, ou passe `--vocabulario termos.txt` para todos os arquivos
   da execução (os dois somam; linhas com `#` são comentário). A lista vai ao Whisper como dica. No FLEURS, com ~15
@@ -446,6 +450,11 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
 - `EtapaProcessamento.AguardandoGpu`: outro processamento de arquivo está com a vez na GPU, ou uma sessão de tempo real
   pediu a vez (seção 8); `ProgressoProcessamento.Detalhe` diz quem ("transcritor-lib (arquivo), processo 56892
   (transcritor), desde …" ou "uma sessão de tempo real, que tem prioridade").
+- `InfoMidia.LayoutsFaixas` traz o layout de canais de cada faixa ("5.1", "stereo"…); `CanaisAudio.TemCanalCentral`
+  diz se o layout tem canal central. `IConversorMidia` ganhou `ConverterParaWavAsync(caminho, wav, faixa, taxa, …)`
+  (o separador trabalha em 44,1 kHz); um conversor seu que não implementa só aceita 16 kHz.
+- `ISeparadorVoz` (`Transcritor.Arquivo.Separacao`) separa a voz; o padrão é `SeparadorDemucs` (serviço `separador`).
+  Registre outro antes de `AddTranscritorArquivo` para trocar. `EtapaProcessamento.SeparandoVoz` traz o percentual.
 - `IExecutorProcesso`, `ExecutorProcesso` e `ResultadoProcesso` ficam em `Transcritor.Core.Processos` (antes,
   `Transcritor.Arquivo.Processos`), junto com `ConteinerDocker`; a vez na GPU é `Transcritor.Core.Gpu.VezGpu`.
   `ProcessarLoteAsync` tem implementação padrão no `ITranscritorArquivo` (um arquivo por vez), então quem implementa a
@@ -600,6 +609,10 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `RepararTrechosSuspeitos` | `true` | Transcreve de novo, isolado, cada trecho em que o Whisper se perdeu na transcrição longa — 3+ palavras com duração zero (alucinação/repetição) ou 15 s+ sem nenhuma pontuação — e troca se o resultado for melhor |
 | `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
 | `SegundosPorPedaco` | `30` | Transcreve em pedaços deste tamanho, cortados no ponto mais silencioso perto de cada marca; cada pedaço leva como dica as últimas palavras do anterior e o vocabulário, e frases inventadas em trecho sem fala ("Thanks for watching!") saem. Áudio de até 1,5 pedaço vai inteiro. `0` = arquivo inteiro de uma vez (no filme de 2 h: 55% de erro contra 15,6%) |
+| `SepararVoz` | `Filmes` | Separa a voz da música e dos efeitos antes de transcrever (serviço `separador`, Demucs). `Filmes`: só faixa com canal central (5.1/7.1); `Sempre`: tudo (não medido em fala limpa); `Nunca`. No filme de 2 h: 11,1% → 9,7–10,1% de erro, ~15 min a mais |
+| `SeparadorUrl` | `http://localhost:8002` | Separador de voz |
+| `SegundosPorParteSeparacao` | `600` | Tamanho das partes mandadas ao separador (o Demucs carrega a parte inteira na memória; o filme inteiro derrubou a VM do WSL) |
+| `TimeoutSeparacao` | `00:15:00` | Tempo máximo por parte |
 | `UsarCanalCentral` | `true` | Faixa com canal central (5.1, 7.1…, pelo layout do ffprobe) vira só o canal central, onde fica o diálogo. No filme de 2 h: 15,5% → 11,1% de erro. Desligue se um filme tiver o diálogo fora do canal central |
 | `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
 | `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
@@ -726,6 +739,8 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
     `f = open(caminho, "a+b"); f.seek(1 << 20); msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)`; para soltar, fechar
     o arquivo (testado: o Cli esperou a vez até o script soltar). A linha 1 do arquivo diz quem está com a vez; o
     script pode escrever ali o nome dele depois de travar, senão o aviso mostra o último dono gravado.
+- O separador de voz (filmes) carrega o Demucs (~1,3 GB) na transcrição e a lib o tira da GPU antes do Whisper; no
+  filme de 2 h o pico da GPU inteira foi 6,7 GB.
 - Ver o uso: `nvidia-smi` e `docker exec ollama ollama ps`.
 
 ## 9. Problemas comuns
@@ -748,6 +763,7 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 | Sessão de tempo real falha com "foi ligado mas o WhisperLiveKit não aceitou conexão" | O contêiner subiu mas não carregou o modelo a tempo | `docker logs whisperlivekit`; aumente `TempoMaximoSubida` na 1ª vez (baixa o modelo) |
 | Filme dublado transcrito na língua errada | A lib pega a 1ª faixa de áudio sem `--idioma` | `--idioma en` (ou `pt`) escolhe a faixa marcada com esse idioma |
 | Trecho longo de filme sem nenhuma fala no JSON, ou "no, no, no…" repetido | Loop do Whisper ou janela com música tratada como sem fala | Já tratado com `SegundosPorPedaco=30` (padrão); se aparecer com `0`, volte ao padrão |
+| Filme 5.1 falha com "O Separador de voz não respondeu" | Contêiner `separador` parado ou não instalado (`-SemSeparadorVoz`) | `docker compose up -d separador`, ou `"SepararVoz": "Nunca"` no `appsettings.json` |
 | Filme 5.1 transcrito quase vazio | Diálogo fora do canal central (mixagem rara) | `UsarCanalCentral=false` |
 | Palavra repetida dezenas de vezes até o fim de um trecho ("peraí, peraí, …") e o resto da fala sumiu | O Whisper esticou uma repetição real (loop) | Já tratado: o pedaço é refeito com temperatura maior. Se sobrar, apague o cache do arquivo e rode de novo (sai diferente) |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |
