@@ -18,7 +18,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Escolha de homófonos ("cela" ↔ "sela"), ligada mesmo sem a correção pelo modelo; os casos duvidosos para o BERT podem ir ao `gemma3:12b` (`ConfirmarHomofonoComModelo`, desligada por padrão desde 2026-11-24) | `google-bert/bert-base-cased` (inglês) e `neuralmind/bert-base-portuguese-cased` (BERTimbau base), em ONNX | ONNX Runtime na CPU, dentro da lib | `Transcritor:Traducao:PastaModelosHomofonos` + `CorrigirHomofonos` | ~0,5 GB cada em disco; ~0,65 GB de RAM por idioma carregado | fala do usuário: "cela" → "sela", WER 6,3% → 6,2% sozinha (6,0% → 5,8% com a correção); audiolivro de 17 min: 0 trocas indevidas, ~24 s (ver "Homófonos") |
 | Análise de sentido (blocos e "o que quis dizer"), **opcional** | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloAnalise` + `AnalisarSentido=true` | 8,2 GB | ~10–13 s/frase; 99% das palavras cobertas por blocos |
 | Detecção de fala (VAD) | Silero VAD (embutido) | Speaches e WhisperLiveKit | — | — | ligado por padrão nos dois |
-| Separação da voz (filmes: faixa 5.1/7.1) | Demucs `htdemucs_ft` | separador (imagem do projeto, `docker/separador`) | `Transcritor:Arquivo:SepararVoz` | ~320 MB; ~1,3 GB na GPU | filme de 2 h: erro 11,1% → 9,7–10,1%, nomes 86% → 88%; ~15 min a mais (1.425 s no total contra 520 s) |
+| Separação da voz (filmes: faixa 5.1/7.1) | Demucs `htdemucs_ft` | separador (imagem do projeto, `docker/separador`) | `Transcritor:Arquivo:SepararVoz` | ~320 MB; ~1,3 GB na GPU | filme de 2 h: erro 11,1% → 9,7–10,7%, nomes 86% → 88%; ~15 min a mais (1.367–1.425 s no total contra 520 s); com a 2ª passada nas lacunas, 9,5% e 91% (2.059 s) |
 
 Imagens Docker: `transcritor/speaches:0.8.3-descarregar` (Speaches 0.8.3, `ghcr.io/speaches-ai/speaches:0.8.3-cuda-12.6.3`,
 com o `DELETE /api/ps` corrigido; ver [docker/speaches/Dockerfile](../docker/speaches/Dockerfile)), `ollama/ollama:latest`,
@@ -143,7 +143,8 @@ Opção `SegundosPorPedaco` (padrão 30). Medido em 2026-11-24 num filme de aç�
 | Pedaços de 30 s + lista + dica das últimas palavras do pedaço anterior + filtro de frases inventadas | 15,6% | 81% | 556 s |
 | O mesmo + pedaço em loop refeito subindo a temperatura (2026-11-25) | 15,5% | 81% | 533 s |
 | O mesmo, só com o canal central do 5.1 (2026-11-25) | 11,1% | 86% | 520 s |
-| **O mesmo + voz separada pelo Demucs** (adotado, 2026-11-25) | **9,7–10,1%** | **88%** | 1.425 s (separação incluída) |
+| O mesmo + voz separada pelo Demucs (2026-11-25; 9,7–10,7% conforme a semente) | 10,7% | 88% | 1.367 s (separação incluída) |
+| **O mesmo + 2ª passada nas lacunas** (adotado, 2026-11-25) | **9,5%** | **91%** | 2.059 s |
 
 **O que acontecia no arquivo inteiro:**
 - **Loop.** O Whisper usa o texto anterior como dica e, a partir de 1 h 9 min, escreveu "no, no, no…" por ~15 min. Depois
@@ -226,7 +227,21 @@ Pela lib (serviço `separador`, `.mkv` → JSON): **10,1%**, nomes 88%, 1.425 s 
 520 s sem separar), pico de 6,7 GB em uso na GPU inteira (contando ~1,2 GB de outros programas).
 - **9,7% contra 10,1% é variação, não defeito do serviço:** o Demucs desloca o áudio ao acaso. Duas separações do
   mesmo trecho pelo serviço diferiram tanto (SNR 17,8 dB) quanto o serviço contra a linha de comando (18,2 dB). Agora o
-  serviço fixa a semente: a mesma entrada dá a mesma saída (conferido byte a byte).
+  serviço fixa a semente: a mesma entrada dá a mesma saída (conferido byte a byte). Com a semente fixa, o filme deu
+  10,7% (1.367 s): a separação vale de 0,4 a 1,4 ponto conforme a semente.
+
+**2ª passada nas lacunas (2026-11-25), adotada com a voz separada (`PreencherLacunas`).** Na transcrição com a voz
+separada, 3,5% das palavras da legenda estavam em falas que sumiram inteiras (69 legendas, 111 s; "No!", "You yield.",
+gritos e o narrador de uma luta na TV, que parece não estar no canal central). A lib procura trechos de 0,5 s ou mais
+com a voz acima de −40 dB e sem palavra a menos de 0,3 s, transcreve cada um sozinho (0,5 s de folga de cada lado, com
+o vocabulário) e acrescenta as palavras que caem no trecho.
+- **Frases inventadas:** sem filtro entraram 135 trechos e o erro subiu (10,1% → 10,5%), quase tudo pedaços de
+  "Thank you for watching". Ficam de fora os pedaços dessas frases e os trechos com chance de silêncio do Whisper
+  (`no_speech_prob`) de 0,2 ou mais. Corte medido num protótipo: 0,1 → 9,2%; 0,15 → 8,9%; 0,2 → 9,0%; 0,25 → 9,2%;
+  0,3 → 9,4% (escolhido no mesmo filme; não há outro filme com legenda para conferir).
+- **Pela lib, mesma separação (semente fixa):** 10,7% → **9,5%**, nomes 88% → **91%**, 1.367 s → 2.059 s (476 trechos
+  retranscritos, ~11 min a mais).
+- Só com a voz separada: no áudio misturado a música também passa de −40 dB.
 - **Só filmes por padrão:** não medido em áudio limpo (audiolivro, FLEURS, CORAA). A pesquisa aponta que redutores de
   ruído de fala pioram o Whisper em fala limpa. Estéreo e mono não passam pelo separador (`SepararVoz = Filmes`);
   `Sempre` separa tudo, sem medição.

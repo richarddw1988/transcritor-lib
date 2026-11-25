@@ -75,11 +75,18 @@ public sealed class OpcoesArquivo
 
     /// <summary>
     /// Separa a voz da música e dos efeitos antes de transcrever (serviço <c>separador</c>, Demucs). Padrão: só filmes
-    /// (faixa com canal central, 5.1/7.1). No filme de 2 h o erro caiu de 11,1% para 9,7–10,1% e os nomes certos de 86%
+    /// (faixa com canal central, 5.1/7.1). No filme de 2 h o erro caiu de 11,1% para 9,7–10,7% e os nomes certos de 86%
     /// para 88%, com ~15 min a mais para as 2 h (docs/modelos.md). Em fala limpa não foi medido; a pesquisa indica que
     /// pode piorar, por isso o padrão não separa estéreo nem mono.
     /// </summary>
     public ModoSeparacaoVoz SepararVoz { get; set; } = ModoSeparacaoVoz.Filmes;
+
+    /// <summary>
+    /// Com a voz separada, transcreve de novo, sozinho, cada trecho em que a voz tem energia mas não saiu nenhuma
+    /// palavra (gritos, falas curtas). No filme de 2 h: erro 10,7% → 9,5%, nomes 88% → 91%, ~11 min a mais
+    /// (docs/modelos.md).
+    /// </summary>
+    public bool PreencherLacunas { get; set; } = true;
 
     /// <summary>URL do separador de voz.</summary>
     public Uri SeparadorUrl { get; set; } = new("http://localhost:8002");

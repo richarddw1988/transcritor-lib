@@ -158,9 +158,10 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   execução para outra (o cache guarda o primeiro).
 - **Filme com som 5.1 ou 7.1:** a lib transcreve só o canal central, onde fica o diálogo, sem a música e os efeitos dos
   outros canais (`UsarCanalCentral`, seção 6), e ainda separa a voz do que sobrou de música e efeitos no serviço
-  `separador` (Demucs; `SepararVoz`, seção 6; progresso `SeparandoVoz`). No filme de 2 h o erro foi de 15,5% para
-  11,1% com o canal central e para 9,7–10,1% com a separação; a separação soma ~15 min por 2 h de filme. Estéreo e mono
-  não mudam.
+  `separador` (Demucs; `SepararVoz`, seção 6; progresso `SeparandoVoz`). Com a voz separada, os trechos com voz e sem
+  nenhuma palavra (gritos, falas curtas) são transcritos de novo, sozinhos (`PreencherLacunas`). No filme de 2 h o erro
+  foi de 15,5% para 11,1% com o canal central, ~10,7% com a separação e 9,5% com a 2ª passada (nomes certos: 81% → 91%);
+  a separação soma ~15 min e a 2ª passada ~11 min por 2 h de filme. Estéreo e mono não mudam.
 - **Nomes e termos do assunto** (pessoas, lugares, siglas, jargão): ponha um por linha (ou separados por vírgula) em
   `C:\videos\aula.mp4.vocabulario.txt`, ao lado da mídia, ou passe `--vocabulario termos.txt` para todos os arquivos
   da execução (os dois somam; linhas com `#` são comentário). A lista vai ao Whisper como dica. No FLEURS, com ~15
@@ -455,6 +456,8 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
   (o separador trabalha em 44,1 kHz); um conversor seu que não implementa só aceita 16 kHz.
 - `ISeparadorVoz` (`Transcritor.Arquivo.Separacao`) separa a voz; o padrão é `SeparadorDemucs` (serviço `separador`).
   Registre outro antes de `AddTranscritorArquivo` para trocar. `EtapaProcessamento.SeparandoVoz` traz o percentual.
+- `SegmentoBruto.SemFala`: chance de o trecho ser silêncio segundo o motor (`no_speech_prob`); usada na 2ª passada. Um
+  motor seu que não informa (nulo) não tem lacuna preenchida.
 - `IExecutorProcesso`, `ExecutorProcesso` e `ResultadoProcesso` ficam em `Transcritor.Core.Processos` (antes,
   `Transcritor.Arquivo.Processos`), junto com `ConteinerDocker`; a vez na GPU é `Transcritor.Core.Gpu.VezGpu`.
   `ProcessarLoteAsync` tem implementação padrão no `ITranscritorArquivo` (um arquivo por vez), então quem implementa a
@@ -609,7 +612,8 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `RepararTrechosSuspeitos` | `true` | Transcreve de novo, isolado, cada trecho em que o Whisper se perdeu na transcrição longa — 3+ palavras com duração zero (alucinação/repetição) ou 15 s+ sem nenhuma pontuação — e troca se o resultado for melhor |
 | `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
 | `SegundosPorPedaco` | `30` | Transcreve em pedaços deste tamanho, cortados no ponto mais silencioso perto de cada marca; cada pedaço leva como dica as últimas palavras do anterior e o vocabulário, e frases inventadas em trecho sem fala ("Thanks for watching!") saem. Áudio de até 1,5 pedaço vai inteiro. `0` = arquivo inteiro de uma vez (no filme de 2 h: 55% de erro contra 15,6%) |
-| `SepararVoz` | `Filmes` | Separa a voz da música e dos efeitos antes de transcrever (serviço `separador`, Demucs). `Filmes`: só faixa com canal central (5.1/7.1); `Sempre`: tudo (não medido em fala limpa); `Nunca`. No filme de 2 h: 11,1% → 9,7–10,1% de erro, ~15 min a mais |
+| `SepararVoz` | `Filmes` | Separa a voz da música e dos efeitos antes de transcrever (serviço `separador`, Demucs). `Filmes`: só faixa com canal central (5.1/7.1); `Sempre`: tudo (não medido em fala limpa); `Nunca`. No filme de 2 h: 11,1% → 9,7–10,7% de erro, ~15 min a mais |
+| `PreencherLacunas` | `true` | Com a voz separada, transcreve de novo, sozinho, cada trecho em que a voz tem energia e não saiu palavra; só entra o que tiver chance de silêncio abaixo de 0,2 e não for frase inventada. No filme de 2 h: 10,7% → 9,5%, ~11 min a mais |
 | `SeparadorUrl` | `http://localhost:8002` | Separador de voz |
 | `SegundosPorParteSeparacao` | `600` | Tamanho das partes mandadas ao separador (o Demucs carrega a parte inteira na memória; o filme inteiro derrubou a VM do WSL) |
 | `TimeoutSeparacao` | `00:15:00` | Tempo máximo por parte |

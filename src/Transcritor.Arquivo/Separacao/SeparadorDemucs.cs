@@ -35,7 +35,8 @@ public sealed class SeparadorDemucs(HttpClient http, IOptions<OpcoesArquivo> opc
 
     public string NomeServico => Nome;
 
-    public string Identificador => "demucs-htdemucs_ft";
+    /// <summary>"-s0": semente fixa no serviço (a separação de antes variava de uma execução para outra).</summary>
+    public string Identificador => "demucs-htdemucs_ft-s0";
 
     private Uri Base => http.BaseAddress ?? _opcoes.SeparadorUrl;
 

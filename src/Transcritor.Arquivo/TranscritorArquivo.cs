@@ -306,7 +306,7 @@ public sealed class TranscritorArquivo(
             : string.Empty;
         var central = _opcoes.UsarCanalCentral ? ".fc" : string.Empty;
         var separacao = separador is not null && _opcoes.SepararVoz != ModoSeparacaoVoz.Nunca
-            ? $".sv-{_opcoes.SepararVoz}-{separador.Identificador}"
+            ? $".sv-{_opcoes.SepararVoz}-{separador.Identificador}{(_opcoes.PreencherLacunas ? $"-l{Lacunas.Versao}" : string.Empty)}"
             : string.Empty;
         return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}{pedacos}{central}{separacao}".Replace('/', '_');
     }
@@ -540,6 +540,50 @@ public sealed class TranscritorArquivo(
         return 0;
     }
 
+    /// <summary>Transcreve sozinho cada trecho com voz e sem palavra (<see cref="Lacunas"/>) e acrescenta o que for aceito.</summary>
+    private async Task<TranscricaoBruta> PreencherLacunasAsync(
+        string wav, TranscricaoBruta bruta, string pastaTemporaria, string? vocabulario, CancellationToken cancellationToken)
+    {
+        byte[] bytes;
+        double[] energia;
+        try
+        {
+            bytes = await File.ReadAllBytesAsync(wav, cancellationToken).ConfigureAwait(false);
+            energia = PedacosAudio.Energia(bytes);
+        }
+        catch (InvalidDataException)
+        {
+            return bruta;
+        }
+
+        var idioma = string.IsNullOrWhiteSpace(_opcoes.Idioma) ? bruta.Idioma : _opcoes.Idioma;
+        var duracao = energia.Length * PedacosAudio.PassoEnergia;
+        var recorte = Path.Combine(pastaTemporaria, $"{Guid.NewGuid():N}.lacuna.wav");
+        var novas = new List<TranscricaoBruta>();
+        try
+        {
+            foreach (var (inicio, fim) in Lacunas.Detectar(energia, bruta.Palavras))
+            {
+                var de = Math.Max(0, inicio - Lacunas.Contexto);
+                await RecorteWav.RecortarAsync(bytes, recorte, de, Math.Min(duracao, fim + Lacunas.Contexto), cancellationToken).ConfigureAwait(false);
+                var nova = await motor.TranscreverAsync(recorte, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+                if (Lacunas.Aceitar(nova, de, inicio, fim) is { } aceita)
+                {
+                    novas.Add(aceita);
+                }
+            }
+        }
+        finally
+        {
+            if (File.Exists(recorte))
+            {
+                File.Delete(recorte);
+            }
+        }
+
+        return Lacunas.Juntar(bruta, novas);
+    }
+
     /// <summary>Se a faixa escolhida passa pelo separador de voz (<see cref="OpcoesArquivo.SepararVoz"/>).</summary>
     private bool SepararVoz(InfoMidia info, int faixa) => _opcoes.SepararVoz switch
     {
@@ -566,7 +610,8 @@ public sealed class TranscritorArquivo(
             progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, 0));
             var faixa = EscolherFaixa(info, _opcoes.Idioma);
             void AoConverter(double segundos) => progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, Percentual(segundos, info.Duracao)));
-            if (separador is not null && SepararVoz(info, faixa))
+            var separou = separador is not null && SepararVoz(info, faixa);
+            if (separou)
             {
                 // O separador trabalha em 44,1 kHz; a voz volta em 16 kHz mono, pronta para o Whisper.
                 var wav44 = Path.Combine(pastaTemporaria, $"{hash}-{Guid.NewGuid():N}.44k.wav");
@@ -574,7 +619,7 @@ public sealed class TranscritorArquivo(
                 {
                     await conversor.ConverterParaWavAsync(caminho, wav44, faixa, 44100, AoConverter, cancellationToken).ConfigureAwait(false);
                     progresso?.Report(new(EtapaProcessamento.SeparandoVoz, 0));
-                    await separador.SepararAsync(
+                    await separador!.SepararAsync(
                         wav44, wav, p => progresso?.Report(new(EtapaProcessamento.SeparandoVoz, p)), cancellationToken).ConfigureAwait(false);
                 }
                 finally
@@ -599,6 +644,11 @@ public sealed class TranscritorArquivo(
             if (_opcoes.RepararTrechosSuspeitos)
             {
                 bruta = await RepararAsync(wav, bruta, pastaTemporaria, vocabulario, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (separou && _opcoes.PreencherLacunas)
+            {
+                bruta = await PreencherLacunasAsync(wav, bruta, pastaTemporaria, vocabulario, cancellationToken).ConfigureAwait(false);
             }
 
             progresso?.Report(new(EtapaProcessamento.MontandoFrases));

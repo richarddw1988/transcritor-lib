@@ -11,4 +11,9 @@ public sealed record TranscricaoBruta(
     IReadOnlyList<SegmentoBruto> Segmentos,
     IReadOnlyList<Palavra> Palavras);
 
-public sealed record SegmentoBruto(double Inicio, double Fim, string Texto);
+/// <summary>Trecho devolvido pelo motor.</summary>
+/// <param name="Inicio">Início em segundos.</param>
+/// <param name="Fim">Fim em segundos.</param>
+/// <param name="Texto">Texto do trecho.</param>
+/// <param name="SemFala">Chance de o trecho ser silêncio segundo o motor (no_speech_prob do Whisper); nulo se não informa.</param>
+public sealed record SegmentoBruto(double Inicio, double Fim, string Texto, double? SemFala = null);

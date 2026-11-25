@@ -166,7 +166,7 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
     internal static TranscricaoBruta Converter(RespostaVerbose corpo)
     {
         var segmentos = (corpo.Segments ?? [])
-            .Select(s => new SegmentoBruto(s.Start, s.End, s.Text ?? string.Empty))
+            .Select(s => new SegmentoBruto(s.Start, s.End, s.Text ?? string.Empty, s.NoSpeechProb))
             .ToList();
         var palavras = (corpo.Words ?? [])
             .Select(w => new Palavra(w.Word ?? string.Empty, w.Start, w.End, w.Probability is { } p ? Math.Round(p, 3) : null))
@@ -232,7 +232,8 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
     internal sealed record SegmentoVerbose(
         [property: JsonPropertyName("start")] double Start,
         [property: JsonPropertyName("end")] double End,
-        [property: JsonPropertyName("text")] string? Text);
+        [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("no_speech_prob")] double? NoSpeechProb = null);
 
     internal sealed record PalavraVerbose(
         [property: JsonPropertyName("word")] string? Word,

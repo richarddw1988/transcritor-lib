@@ -7,7 +7,7 @@ API (porta 8002):
   POST /descarregar -> tira o modelo da GPU (a lib chama antes do Whisper entrar).
 
 O modelo é carregado na primeira separação e fica na GPU até /descarregar. Uma separação por vez.
-Medido no filme de 2 h (canal central): erro da transcrição 11,1% -> 9,7-10,1% (docs/modelos.md).
+Medido no filme de 2 h (canal central): erro da transcrição 11,1% -> 9,7-10,7% (docs/modelos.md).
 """
 
 import gc

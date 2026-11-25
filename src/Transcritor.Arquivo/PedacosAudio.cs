@@ -150,6 +150,22 @@ internal static class PedacosAudio
         return Math.Round((melhor + (PassosJanela / 2.0)) * PassoEnergia, 3);
     }
 
+    /// <summary>
+    /// O texto é uma frase inventada ou um pedaço dela ("Thank you for", "you for watching!"), como sai quando o recorte
+    /// corta a frase; "Thank you." sozinho também conta (no recorte sem fala é quase sempre invenção).
+    /// </summary>
+    public static bool PedacoDeFraseInventada(string texto)
+    {
+        var t = Normalizar(texto);
+        if (t.Length == 0 || t is "thank you" or "thanks" or "you" or "thank you so much")
+        {
+            return true;
+        }
+
+        return FrasesInventadas.Any(f => f.Contains(t, StringComparison.Ordinal) && t.Contains(' ', StringComparison.Ordinal))
+            || FrasesInventadas.Any(f => t.Contains(f, StringComparison.Ordinal));
+    }
+
     /// <summary>Tira as frases inventadas inteiras (<see cref="FrasesInventadas"/>): os segmentos e as palavras deles.</summary>
     public static TranscricaoBruta SemFrasesInventadas(TranscricaoBruta bruta)
     {
