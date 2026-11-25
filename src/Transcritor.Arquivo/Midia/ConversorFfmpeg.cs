@@ -8,7 +8,10 @@ using Transcritor.Core.Erros;
 
 namespace Transcritor.Arquivo.Midia;
 
-/// <summary>Usa ffprobe para ler a mídia e ffmpeg para gerar WAV PCM 16 kHz mono.</summary>
+/// <summary>
+/// Usa ffprobe para ler a mídia e ffmpeg para gerar WAV PCM 16 kHz mono. Com <see cref="OpcoesArquivo.UsarCanalCentral"/>,
+/// faixa com canal central (5.1, 7.1…) vira só o canal central, onde fica o diálogo; as outras são misturadas.
+/// </summary>
 public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesArquivo> opcoes) : IConversorMidia, IServicoVerificavel
 {
     private readonly OpcoesArquivo _opcoes = opcoes.Value;
@@ -34,12 +37,18 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
         string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(faixa);
+        var faixaTexto = faixa.ToString(CultureInfo.InvariantCulture);
+
+        // O filtro do canal central não reclama de faixa sem esse canal (estéreo sai mudo): só pelo layout conhecido.
+        var central = _opcoes.UsarCanalCentral && TemCanalCentral(await LayoutAsync(caminhoArquivo, faixaTexto, cancellationToken).ConfigureAwait(false));
+        string[] mono = central ? ["-af", "pan=mono|c0=FC"] : ["-ac", "1"];
         string[] argumentos =
         [
             "-hide_banner", "-nostdin", "-y",
             "-i", caminhoArquivo,
-            "-map", $"0:a:{faixa.ToString(CultureInfo.InvariantCulture)}", "-vn",
-            "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav",
+            "-map", $"0:a:{faixaTexto}", "-vn",
+            .. mono,
+            "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav",
             "-progress", "pipe:1", "-nostats",
             caminhoWav,
         ];
@@ -57,6 +66,25 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
         {
             throw new FerramentaExternaException($"O ffmpeg falhou ao converter '{caminhoArquivo}': {Resumir(resultado.Erro)}");
         }
+    }
+
+    /// <summary>Layouts de canais do ffmpeg que têm o canal central (FC). Mono não conta: o canal único já é tudo.</summary>
+    private static readonly HashSet<string> LayoutsComCentral = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "3.0", "3.0(back)", "3.1", "4.0", "4.1", "5.0", "5.0(side)", "5.1", "5.1(side)", "6.0", "6.1", "6.1(back)",
+        "7.0", "7.0(front)", "7.1", "7.1(wide)", "7.1(wide-side)", "7.1(top)", "5.1.2", "5.1.4", "7.1.2", "7.1.4",
+        "7.2.3", "9.1.4", "hexagonal", "octagonal", "22.2",
+    };
+
+    internal static bool TemCanalCentral(string? layout) => layout is not null && LayoutsComCentral.Contains(layout.Trim());
+
+    /// <summary>Layout de canais da faixa ("5.1", "stereo"…); nulo se o ffprobe não diz.</summary>
+    private async Task<string?> LayoutAsync(string caminhoArquivo, string faixa, CancellationToken cancellationToken)
+    {
+        string[] argumentos = ["-v", "error", "-select_streams", $"a:{faixa}", "-show_entries", "stream=channel_layout", "-of", "csv=p=0", caminhoArquivo];
+        var resultado = await executor.ExecutarAsync(_opcoes.CaminhoFfprobe, argumentos, null, cancellationToken).ConfigureAwait(false);
+        var layout = resultado.CodigoSaida == 0 ? resultado.Saida.Trim() : string.Empty;
+        return layout.Length == 0 ? null : layout;
     }
 
     public async Task VerificarAsync(CancellationToken cancellationToken)

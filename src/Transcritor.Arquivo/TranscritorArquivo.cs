@@ -303,7 +303,8 @@ public sealed class TranscritorArquivo(
         var pedacos = _opcoes.SegundosPorPedaco > 0
             ? $".p{PedacosAudio.Versao}-{_opcoes.SegundosPorPedaco.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             : string.Empty;
-        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}{pedacos}".Replace('/', '_');
+        var central = _opcoes.UsarCanalCentral ? ".fc" : string.Empty;
+        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}{pedacos}{central}".Replace('/', '_');
     }
 
     /// <summary>

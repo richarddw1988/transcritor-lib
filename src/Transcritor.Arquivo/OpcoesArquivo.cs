@@ -67,6 +67,13 @@ public sealed class OpcoesArquivo
     public double SegundosPorPedaco { get; set; } = 30;
 
     /// <summary>
+    /// Áudio de filme com canal central (5.1, 7.1 e afins): transcreve só o canal central, onde fica o diálogo, em vez de
+    /// misturar música e efeitos dos outros canais. Num filme de 2 h o erro caiu de 15,5% para 11,1% (docs/modelos.md).
+    /// Estéreo e mono não mudam.
+    /// </summary>
+    public bool UsarCanalCentral { get; set; } = true;
+
+    /// <summary>
     /// Com a correção da transcrição ligada, confere cada troca no áudio: reouve a frase com a versão trocada como
     /// dica e só aceita se o Whisper ouvir a palavra nova (veja <see cref="LimiteConfiancaReouvir"/>).
     /// </summary>

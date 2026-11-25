@@ -63,8 +63,9 @@ public sealed class FaixaAudioTests : IDisposable
 
         await conversor.ConverterParaWavAsync("filme.mkv", "out.wav", 1, null, CancellationToken.None);
 
-        var args = executor.Chamadas[0].Argumentos.ToList();
+        var args = executor.Chamadas[^1].Argumentos.ToList();
         Assert.Equal("0:a:1", args[args.IndexOf("-map") + 1]);
+        Assert.Contains("a:1", executor.Chamadas[0].Argumentos); // o layout consultado é o da faixa pedida
     }
 
     [Fact]

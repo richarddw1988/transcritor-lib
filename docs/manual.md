@@ -154,6 +154,9 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   (`docs/modelos.md`). Pedaço que ainda sai em loop (uma repetição real, "peraí, peraí", esticada até o fim do pedaço)
   é transcrito de novo com temperatura maior, como no Whisper original; nesse caso o texto pode variar um pouco de uma
   execução para outra (o cache guarda o primeiro).
+- **Filme com som 5.1 ou 7.1:** a lib transcreve só o canal central, onde fica o diálogo, sem a música e os efeitos dos
+  outros canais (`UsarCanalCentral`, seção 6). No filme de 2 h o erro caiu de 15,5% para 11,1%. Estéreo e mono não
+  mudam.
 - **Nomes e termos do assunto** (pessoas, lugares, siglas, jargão): ponha um por linha (ou separados por vírgula) em
   `C:\videos\aula.mp4.vocabulario.txt`, ao lado da mídia, ou passe `--vocabulario termos.txt` para todos os arquivos
   da execução (os dois somam; linhas com `#` são comentário). A lista vai ao Whisper como dica. No FLEURS, com ~15
@@ -597,6 +600,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `RepararTrechosSuspeitos` | `true` | Transcreve de novo, isolado, cada trecho em que o Whisper se perdeu na transcrição longa — 3+ palavras com duração zero (alucinação/repetição) ou 15 s+ sem nenhuma pontuação — e troca se o resultado for melhor |
 | `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
 | `SegundosPorPedaco` | `30` | Transcreve em pedaços deste tamanho, cortados no ponto mais silencioso perto de cada marca; cada pedaço leva como dica as últimas palavras do anterior e o vocabulário, e frases inventadas em trecho sem fala ("Thanks for watching!") saem. Áudio de até 1,5 pedaço vai inteiro. `0` = arquivo inteiro de uma vez (no filme de 2 h: 55% de erro contra 15,6%) |
+| `UsarCanalCentral` | `true` | Faixa com canal central (5.1, 7.1…, pelo layout do ffprobe) vira só o canal central, onde fica o diálogo. No filme de 2 h: 15,5% → 11,1% de erro. Desligue se um filme tiver o diálogo fora do canal central |
 | `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
 | `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
 | `DescarregarModelosEntreEtapas` | `true` | Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o modelo usado antes de a próxima carregar o seu (seção 8) |
@@ -744,6 +748,7 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 | Sessão de tempo real falha com "foi ligado mas o WhisperLiveKit não aceitou conexão" | O contêiner subiu mas não carregou o modelo a tempo | `docker logs whisperlivekit`; aumente `TempoMaximoSubida` na 1ª vez (baixa o modelo) |
 | Filme dublado transcrito na língua errada | A lib pega a 1ª faixa de áudio sem `--idioma` | `--idioma en` (ou `pt`) escolhe a faixa marcada com esse idioma |
 | Trecho longo de filme sem nenhuma fala no JSON, ou "no, no, no…" repetido | Loop do Whisper ou janela com música tratada como sem fala | Já tratado com `SegundosPorPedaco=30` (padrão); se aparecer com `0`, volte ao padrão |
+| Filme 5.1 transcrito quase vazio | Diálogo fora do canal central (mixagem rara) | `UsarCanalCentral=false` |
 | Palavra repetida dezenas de vezes até o fim de um trecho ("peraí, peraí, …") e o resto da fala sumiu | O Whisper esticou uma repetição real (loop) | Já tratado: o pedaço é refeito com temperatura maior. Se sobrar, apague o cache do arquivo e rode de novo (sai diferente) |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |

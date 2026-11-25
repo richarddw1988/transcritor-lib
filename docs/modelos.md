@@ -9,7 +9,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 
 | Função | Modelo | Serviço | Onde configurar | Tamanho | Desempenho medido (RTX 3060 12 GB) |
 |---|---|---|---|---|---|
-| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo); filme de 2 h (inglês, contra a legenda SDH): 15,6% em pedaços de 30 s com lista de nomes, 55% transcrevendo o arquivo inteiro de uma vez (loops e falas puladas; ver "Áudio longo em pedaços") |
+| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo); filme de 2 h (inglês, contra a legenda SDH): 11,1% em pedaços de 30 s com lista de nomes e só o canal central do 5.1 (15,5% misturando os canais), 55% transcrevendo o arquivo inteiro de uma vez (loops e falas puladas; ver "Áudio longo em pedaços") |
 | Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s; fica parado e a lib liga na 1ª sessão: ~33 s do `docker start` à primeira palavra (2026-11-25) |
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b; filme de 2 h: 878 frases em 1.507 s (~1,7 s/frase), chrF 66,3 contra a legenda oficial onde a transcrição saiu boa (ver "Tradução do filme") |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
@@ -140,7 +140,8 @@ Opção `SegundosPorPedaco` (padrão 30). Medido em 2026-11-24 num filme de aç�
 | Pedaços de 2 min + lista + retranscrever buracos de 6 s+ sem palavras | 24,3% | 74% | não medido |
 | Pedaços de 30 s + lista | 16,1% | 81% | 573 s |
 | Pedaços de 30 s + lista + dica das últimas palavras do pedaço anterior + filtro de frases inventadas | 15,6% | 81% | 556 s |
-| **O mesmo + pedaço em loop refeito subindo a temperatura** (adotado, 2026-11-25) | **15,5%** | **81%** | 533 s |
+| O mesmo + pedaço em loop refeito subindo a temperatura (2026-11-25) | 15,5% | 81% | 533 s |
+| **O mesmo, só com o canal central do 5.1** (adotado, 2026-11-25) | **11,1%** | **86%** | 520 s |
 
 **O que acontecia no arquivo inteiro:**
 - **Loop.** O Whisper usa o texto anterior como dica e, a partir de 1 h 9 min, escreveu "no, no, no…" por ~15 min. Depois
@@ -195,6 +196,16 @@ desse tipo; nenhum saiu com outra grafia.
 
 **Faixa de áudio.** O arquivo tem dublagem em português (1ª faixa) e áudio em inglês (2ª). A lib sempre convertia a 1ª;
 agora, com `Idioma` forçado, converte a faixa marcada com esse idioma.
+
+**Canal central (2026-11-25).** As duas faixas do filme são 5.1, e a lib misturava os seis canais em um, com música e
+efeitos junto da fala. Em filme o diálogo fica no canal central (FC). Transcrevendo só ele (`pan=mono|c0=FC` no
+ffmpeg), o erro caiu de 15,5% para 11,1% e os nomes certos foram de 81% para 86%; o tempo ficou igual (520 s). Medido
+duas vezes: extraindo o canal à mão e pelo `.mkv` com a opção `UsarCanalCentral` (mesmo resultado, 11,06%).
+- Não achei medição publicada disso; só um relato informal de ganho na detecção de fala.
+- A lib só usa o canal central quando o ffprobe diz um layout que tem esse canal (5.1, 7.1 e afins). Em estéreo o
+  filtro do ffmpeg não dá erro e sai mudo, por isso não dá para tentar e ver.
+- Risco não medido: filme mixado com diálogo fora do canal central (raro). Nesse caso, `UsarCanalCentral=false`.
+- Só a faixa inglesa foi medida; a dublagem em português não tem legenda de referência ao pé da letra.
 
 ### Tradução do filme (2026-11-25)
 

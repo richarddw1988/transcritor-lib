@@ -57,14 +57,34 @@ public class ConversorFfmpegTests
 
         await conversor.ConverterParaWavAsync("in.mp3", "out.wav", avancos.Add, CancellationToken.None);
 
-        var args = executor.Chamadas[0].Argumentos;
-        Assert.Equal("ffmpeg", executor.Chamadas[0].Executavel);
+        var args = executor.Chamadas[^1].Argumentos;
+        Assert.Equal("ffmpeg", executor.Chamadas[^1].Executavel);
         Assert.Equal("16000", args[args.ToList().IndexOf("-ar") + 1]);
         Assert.Equal("1", args[args.ToList().IndexOf("-ac") + 1]);
         Assert.Equal("pcm_s16le", args[args.ToList().IndexOf("-c:a") + 1]);
         Assert.Equal("in.mp3", args[args.ToList().IndexOf("-i") + 1]);
         Assert.Equal("out.wav", args[^1]);
         Assert.Equal([5.0], avancos);
+    }
+
+    [Theory]
+    [InlineData("5.1 ", true, true)]
+    [InlineData("7.1", true, true)]
+    [InlineData("stereo", true, false)]
+    [InlineData("mono", true, false)]
+    [InlineData("", true, false)]
+    [InlineData("5.1", false, false)]
+    public async Task Faixa_com_canal_central_vira_so_o_canal_central(string layout, bool opcao, bool esperaCentral)
+    {
+        var executor = new FakeExecutorProcesso((exe, _, _) => new ResultadoProcesso(0, exe == "ffprobe" ? layout : "", ""));
+        var conversor = new ConversorFfmpeg(executor, Opcoes.Arquivo(o => o.UsarCanalCentral = opcao));
+
+        await conversor.ConverterParaWavAsync("filme.mkv", "out.wav", null, CancellationToken.None);
+
+        var args = executor.Chamadas[^1].Argumentos.ToList();
+        Assert.Equal(esperaCentral, args.Contains("pan=mono|c0=FC"));
+        Assert.Equal(!esperaCentral, args.Contains("-ac"));
+        Assert.Equal(opcao ? 2 : 1, executor.Chamadas.Count);
     }
 
     [Fact]
