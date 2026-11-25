@@ -144,6 +144,11 @@ dotnet run --project src/Transcritor.Cli -- arquivo C:\videos\aula.mp4 --saida A
   (`ConferirIdioma`, seção 6). Com sotaque, a detecção sozinha às vezes erra e devolve a fala já traduzida.
 - `--idioma pt` força o idioma (pula a detecção e a conferência); `--json saida.json` grava uma cópia (só com um
   arquivo); `--modelo` troca o Whisper.
+- **Filme dublado** (mais de uma faixa de áudio): com `--idioma en` (ou `pt`), a lib transcreve a faixa marcada com esse
+  idioma; sem `--idioma`, a primeira faixa.
+- O áudio é transcrito em pedaços de 30 s cortados no silêncio (`SegundosPorPedaco`, seção 6). No arquivo inteiro de
+  uma vez, o Whisper entrava em loop e pulava falas depois de música: num filme de 2 h o erro foi de 55% para 15,6%
+  (`docs/modelos.md`).
 - **Nomes e termos do assunto** (pessoas, lugares, siglas, jargão): ponha um por linha (ou separados por vírgula) em
   `C:\videos\aula.mp4.vocabulario.txt`, ao lado da mídia, ou passe `--vocabulario termos.txt` para todos os arquivos
   da execução (os dois somam; linhas com `#` são comentário). A lista vai ao Whisper como dica. No FLEURS, com ~15
@@ -421,6 +426,9 @@ O JSON (contrato estável; ler com `JsonTranscricao.LerAsync`):
   ]
 }
 ```
+- `IConversorMidia` ganhou `ConverterParaWavAsync(caminho, wav, faixa, aoAvancar, ct)` (faixa de áudio, 0 = a primeira) e
+  `InfoMidia.IdiomasFaixas` ("pt", "en", outro código ou vazio, por faixa). Um conversor seu que não implementa a
+  sobrecarga só aceita a faixa 0.
 - Em lote, `ProgressoProcessamento.Arquivo` e `TotalArquivos` dizem de qual arquivo é cada aviso de progresso.
   `ProcessarLoteAsync` tem implementação padrão no `ITranscritorArquivo` (um arquivo por vez), então quem implementa a
   interface não precisa escrever o lote.
@@ -566,6 +574,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `TimeoutTranscricao` | `01:00:00` | Tempo máximo de uma transcrição |
 | `RepararTrechosSuspeitos` | `true` | Transcreve de novo, isolado, cada trecho em que o Whisper se perdeu na transcrição longa — 3+ palavras com duração zero (alucinação/repetição) ou 15 s+ sem nenhuma pontuação — e troca se o resultado for melhor |
 | `MaximoTrechosReparados` | `30` | Limite de trechos refeitos por arquivo (cada um é uma chamada a mais ao Speaches) |
+| `SegundosPorPedaco` | `30` | Transcreve em pedaços deste tamanho, cortados no ponto mais silencioso perto de cada marca; cada pedaço leva como dica as últimas palavras do anterior e o vocabulário, e frases inventadas em trecho sem fala ("Thanks for watching!") saem. Áudio de até 1,5 pedaço vai inteiro. `0` = arquivo inteiro de uma vez (no filme de 2 h: 55% de erro contra 15,6%) |
 | `ConferirCorrecaoNoAudio` | `true` | Com `CorrigirTranscricao`, transcreve de novo a frase de cada troca proposta, com a versão trocada como dica, e só aceita se o Whisper ouvir a palavra nova (seção 5.5) |
 | `LimiteConfiancaReouvir` | `0.2` | Confiança mínima da palavra nova na frase reouvida |
 | `DescarregarModelosEntreEtapas` | `true` | Ao fim de cada etapa (transcrição, propostas da correção, conferência no áudio, tradução, análise), tira da GPU o modelo usado antes de a próxima carregar o seu (seção 8) |
@@ -675,6 +684,8 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 | Transcrição para de responder depois de descarregar o Whisper à mão | `DELETE /api/ps/...` trava o Speaches 0.8 original | `docker restart speaches`; use a imagem do projeto (`docker compose build speaches`; `docker compose up -d speaches`) |
 | Tempo real começa em inglês na fala em português (ou o contrário) | Detecção automática, decidida nos 2 primeiros segundos de fala | `--idioma pt` |
 | Tempo real em outro idioma (ex.: espanhol) | WhisperLiveKit sem o arquivo corrigido montado | `docker compose up -d whisperlivekit` (o `docker-compose.yml` monta `docker/whisperlivekit/align_att_base.py`) |
+| Filme dublado transcrito na língua errada | A lib pega a 1ª faixa de áudio sem `--idioma` | `--idioma en` (ou `pt`) escolhe a faixa marcada com esse idioma |
+| Trecho longo de filme sem nenhuma fala no JSON, ou "no, no, no…" repetido | Loop do Whisper ou janela com música tratada como sem fala | Já tratado com `SegundosPorPedaco=30` (padrão); se aparecer com `0`, volte ao padrão |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |
 | Muitas palavras erradas no microfone | Ruído, música, várias vozes, microfone baixo | `captura` para ver o nível; `--idioma pt`; `--contexto` com nomes |
 | Nada aparece no `sistema` | Nada está tocando (o Windows não manda áudio no silêncio) | Toque algo; confira o dispositivo de saída padrão |

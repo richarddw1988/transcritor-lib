@@ -272,7 +272,10 @@ public sealed class TranscritorArquivo(
             : _opcoes.ConferirIdioma ? $"auto-c{ConferenciaIdioma.Versao}" : "auto";
         var reparo = _opcoes.RepararTrechosSuspeitos ? $".r{ReparadorTrechos.Versao}" : string.Empty;
         var dica = vocabulario is null ? string.Empty : $".v{Vocabulario.Chave(vocabulario)}";
-        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}".Replace('/', '_');
+        var pedacos = _opcoes.SegundosPorPedaco > 0
+            ? $".p{PedacosAudio.Versao}-{_opcoes.SegundosPorPedaco.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            : string.Empty;
+        return $"{hash}.{motor.Identificador}.{idioma}.m{MontadorFrases.Versao}{reparo}{dica}{pedacos}".Replace('/', '_');
     }
 
     /// <summary>
@@ -334,7 +337,7 @@ public sealed class TranscritorArquivo(
     {
         if (!string.IsNullOrWhiteSpace(_opcoes.Idioma) || !_opcoes.ConferirIdioma)
         {
-            return await motor.TranscreverAsync(wav, _opcoes.Idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+            return await TranscreverEmPedacosAsync(wav, duracao, _opcoes.Idioma, vocabulario, pastaTemporaria, cancellationToken).ConfigureAwait(false);
         }
 
         var cabeNaAmostra = duracao > 0 && duracao <= _opcoes.SegundosConferirIdioma;
@@ -349,7 +352,7 @@ public sealed class TranscritorArquivo(
                 }
                 catch (InvalidDataException)
                 {
-                    return await motor.TranscreverAsync(wav, null, vocabulario, cancellationToken).ConfigureAwait(false);
+                    return await TranscreverEmPedacosAsync(wav, duracao, null, vocabulario, pastaTemporaria, cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -372,7 +375,7 @@ public sealed class TranscritorArquivo(
 
             // O idioma vai forçado também quando a detecção ganhou: o arquivo inteiro sai no idioma conferido.
             var idioma = outro is null ? null : Idiomas.Normalizar(escolhida.Idioma);
-            var final = await motor.TranscreverAsync(wav, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+            var final = await TranscreverEmPedacosAsync(wav, duracao, idioma, vocabulario, pastaTemporaria, cancellationToken).ConfigureAwait(false);
             return idioma is null && cabeNaAmostra ? final with { Idioma = escolhida.Idioma } : final;
         }
         finally
@@ -382,6 +385,83 @@ public sealed class TranscritorArquivo(
                 File.Delete(amostra);
             }
         }
+    }
+
+    /// <summary>
+    /// Transcreve o WAV inteiro em pedaços de <see cref="OpcoesArquivo.SegundosPorPedaco"/> (ver <see cref="PedacosAudio"/>),
+    /// todos com o mesmo idioma e vocabulário; cada um leva como dica as últimas palavras do anterior. As frases que o
+    /// Whisper inventa em trecho sem fala ("Thanks for watching!") saem. Áudio curto, opção desligada ou WAV
+    /// ilegível: uma chamada só.
+    /// </summary>
+    private async Task<TranscricaoBruta> TranscreverEmPedacosAsync(
+        string wav, double duracao, string? idioma, string? vocabulario, string pastaTemporaria, CancellationToken cancellationToken)
+    {
+        var tamanho = _opcoes.SegundosPorPedaco;
+        if (tamanho <= 0 || duracao <= tamanho * 1.5)
+        {
+            return await motor.TranscreverAsync(wav, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+        }
+
+        byte[] bytes;
+        double[] energia;
+        try
+        {
+            bytes = await File.ReadAllBytesAsync(wav, cancellationToken).ConfigureAwait(false);
+            energia = PedacosAudio.Energia(bytes);
+        }
+        catch (InvalidDataException)
+        {
+            return await motor.TranscreverAsync(wav, idioma, vocabulario, cancellationToken).ConfigureAwait(false);
+        }
+
+        var limites = PedacosAudio.Limites(energia, duracao, tamanho, busca: Math.Min(30, tamanho / 4));
+        var recorte = Path.Combine(pastaTemporaria, $"{Guid.NewGuid():N}.pedaco.wav");
+        try
+        {
+            var pedacos = new List<(double, double, TranscricaoBruta)>(limites.Count);
+            string? anterior = null;
+            foreach (var (inicio, fim) in limites)
+            {
+                await RecorteWav.RecortarAsync(bytes, recorte, inicio, fim, cancellationToken).ConfigureAwait(false);
+                var dica = Vocabulario.ComContexto(vocabulario, anterior);
+                var bruta = PedacosAudio.SemFrasesInventadas(
+                    await motor.TranscreverAsync(recorte, idioma, dica, cancellationToken).ConfigureAwait(false));
+                pedacos.Add((inicio, fim, bruta));
+                anterior = PedacosAudio.ContextoDoFim(bruta) ?? anterior;
+            }
+
+            return PedacosAudio.Juntar(pedacos, duracao);
+        }
+        finally
+        {
+            if (File.Exists(recorte))
+            {
+                File.Delete(recorte);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Faixa de áudio a converter: com <see cref="OpcoesArquivo.Idioma"/> forçado, a primeira marcada com esse idioma
+    /// (filme dublado com "por" e "eng"); sem idioma, ou sem faixa marcada com ele, a primeira.
+    /// </summary>
+    internal static int EscolherFaixa(InfoMidia info, string? idioma)
+    {
+        if (string.IsNullOrWhiteSpace(idioma) || info.IdiomasFaixas is not { Count: > 1 } idiomas)
+        {
+            return 0;
+        }
+
+        var procurado = Idiomas.Normalizar(idioma);
+        for (var i = 0; i < idiomas.Count; i++)
+        {
+            if (idiomas[i] == procurado)
+            {
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     private async Task<ResultadoTranscricao> TranscreverAsync(
@@ -403,6 +483,7 @@ public sealed class TranscritorArquivo(
             await conversor.ConverterParaWavAsync(
                 caminho,
                 wav,
+                EscolherFaixa(info, _opcoes.Idioma),
                 segundos => progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, Percentual(segundos, info.Duracao))),
                 cancellationToken).ConfigureAwait(false);
             progresso?.Report(new(EtapaProcessamento.ConvertendoAudio, 100));
@@ -518,7 +599,9 @@ public sealed class TranscritorArquivo(
                         if (!wavPronto)
                         {
                             Directory.CreateDirectory(pastaTemporaria);
-                            await conversor.ConverterParaWavAsync(caminho, wav, null, cancellationToken).ConfigureAwait(false);
+                            var info = await conversor.ObterInfoAsync(caminho, cancellationToken).ConfigureAwait(false);
+                            await conversor.ConverterParaWavAsync(
+                                caminho, wav, EscolherFaixa(info, _opcoes.Idioma), null, cancellationToken).ConfigureAwait(false);
                             wavPronto = true;
                         }
 

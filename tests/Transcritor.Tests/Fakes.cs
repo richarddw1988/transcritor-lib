@@ -40,6 +40,7 @@ internal sealed class FakeConversor(InfoMidia info, byte[]? conteudoWav = null) 
     public int ChamadasInfo { get; private set; }
     public int ChamadasConversao { get; private set; }
     public string? UltimoWav { get; private set; }
+    public int UltimaFaixa { get; private set; }
 
     public Task<InfoMidia> ObterInfoAsync(string caminhoArquivo, CancellationToken cancellationToken)
     {
@@ -47,9 +48,14 @@ internal sealed class FakeConversor(InfoMidia info, byte[]? conteudoWav = null) 
         return Task.FromResult(info);
     }
 
-    public async Task ConverterParaWavAsync(string caminhoArquivo, string caminhoWav, Action<double>? aoAvancar, CancellationToken cancellationToken)
+    public Task ConverterParaWavAsync(string caminhoArquivo, string caminhoWav, Action<double>? aoAvancar, CancellationToken cancellationToken) =>
+        ConverterParaWavAsync(caminhoArquivo, caminhoWav, 0, aoAvancar, cancellationToken);
+
+    public async Task ConverterParaWavAsync(
+        string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken)
     {
         ChamadasConversao++;
+        UltimaFaixa = faixa;
         UltimoWav = caminhoWav;
         await File.WriteAllBytesAsync(caminhoWav, conteudoWav ?? [1, 2, 3], cancellationToken);
         aoAvancar?.Invoke(info.Duracao / 2);

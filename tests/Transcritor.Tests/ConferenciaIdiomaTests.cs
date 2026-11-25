@@ -47,6 +47,7 @@ public sealed class ConferenciaIdiomaTests : IDisposable
         {
             o.PastaCache = Path.Combine(_pasta.Caminho, "cache");
             o.RepararTrechosSuspeitos = false;
+            o.SegundosPorPedaco = 0; // aqui só a conferência do idioma
             ajustar?.Invoke(o);
         });
         var conversor = new FakeConversor(new InfoMidia(duracao, "wav", 1), ReparadorTrechosTests.Wav((int)(16000 * duracao)));

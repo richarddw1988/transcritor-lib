@@ -9,7 +9,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 
 | Função | Modelo | Serviço | Onde configurar | Tamanho | Desempenho medido (RTX 3060 12 GB) |
 |---|---|---|---|---|---|
-| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo) |
+| Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo); filme de 2 h (inglês, contra a legenda SDH): 15,6% em pedaços de 30 s com lista de nomes, 55% transcrevendo o arquivo inteiro de uma vez (loops e falas puladas; ver "Áudio longo em pedaços") |
 | Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s |
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
@@ -119,6 +119,56 @@ som parecido, palavras raras e quatro falas de 20–25 s; `docs/avaliacao/frases
   - A en19 ("I think the thing on the table is mine") continua saindo em português; para ela, só `--idioma en`.
   - A linha "Detected language" que o arquivo grava com as probabilidades de pt e en não aparece no log do contêiner
     (o nível do log desse módulo fica acima de INFO); a correção em si funciona (a en13 saiu em inglês nas 3 rodadas).
+
+### Áudio longo em pedaços (filme de 2 h)
+
+Opção `SegundosPorPedaco` (padrão 30). Medido em 2026-11-24 num filme de ação de 1 h 56 min com áudio duplo.
+- **Referência:** a legenda inglesa SDH do próprio arquivo. Ela é quase palavra por palavra, mas encurta falas e não
+  traz tudo, então o WER tem um piso que não foi medido.
+- **Comparação:** trecho a trecho pelo tempo das legendas, sem as descrições de som (`[música]`, `[Jerrod]`) nem as
+  letras de música, em minúsculas e sem pontuação.
+- **Nomes:** 27 nomes de personagens e lugares, os que alguém tiraria da página do filme. Eles aparecem 214 vezes na
+  legenda.
+- RTX 3060, `large-v3`, `--idioma en`.
+
+| Como transcreve | WER | Nomes certos | Tempo |
+|---|---|---|---|
+| Arquivo inteiro de uma vez (como era), sem lista de nomes | 55% | 47% | 1.026 s |
+| Pedaços de 10 min, sem lista | 28,6% | 62% | 589 s |
+| Pedaços de 10 min + lista | 26,6% | 71% | 568 s |
+| Pedaços de 2 min + lista | 25,0% | 72% | 542 s |
+| Pedaços de 2 min + lista + retranscrever buracos de 6 s+ sem palavras | 24,3% | 74% | não medido |
+| Pedaços de 30 s + lista | 16,1% | 81% | 573 s |
+| **Pedaços de 30 s + lista + dica das últimas palavras do pedaço anterior + filtro de frases inventadas** (adotado) | **15,6%** | **81%** | 556 s |
+
+**O que acontecia no arquivo inteiro:**
+- **Loop.** O Whisper usa o texto anterior como dica e, a partir de 1 h 9 min, escreveu "no, no, no…" por ~15 min. Depois
+  repetiu "Because I have petitioned the Elder Gods for the tournament to begin." por vários minutos. Cerca de 35 min de
+  diálogo sumiram. Transcrito sozinho, o mesmo trecho de 20 min não entrou em loop e teve 27,7% de WER.
+- **Falas puladas.** Mesmo sem loop, falas inteiras sumiam. Uma janela de 30 s que começa com música ou luta é tratada
+  como sem fala e pulada com o diálogo junto. Recortes de 40 s com essas falas, transcritos sozinhos, saíram certos.
+- O `vad_filter` do Speaches 0.8.3 não mudou nada no trecho do loop (mesmas 911 palavras).
+
+**Como a lib faz agora:**
+- Corta no ponto mais silencioso (janela de 0,5 s) a até 7,5 s de cada marca de 30 s.
+- Cada pedaço vai com o vocabulário e as últimas ~40 palavras do pedaço anterior como dica. Sem essa dica, alguns
+  pedaços do audiolivro saíram sem pontuação nem maiúsculas.
+- Tira frases que o Whisper inventa em trecho sem fala. Foram 7 "Thanks for watching!" no filme; "He was watching." fica.
+- Áudio de até 45 s vai inteiro, então FLEURS, CORAA, AMI e as gravações do `avaliar-fala` não mudam.
+
+**Áudio limpo (audiolivro de 17 min, inglês), sem gabarito:**
+- 21 palavras diferentes em 2.340 entre o arquivo inteiro e os pedaços, tirando pontuação, metade para cada lado.
+  - Melhor nos pedaços: "Why," e "But", que faltavam.
+  - Pior nos pedaços: "jug full" (era "jugful") e "35" (era "thirty-five").
+- 175 frases contra 179; nenhuma frase sem pontuação.
+- Tempo: 204 s contra 223 s.
+
+**Ainda erra:** falas que não saem, como gritos, chamados da multidão ("Kitana, our queen!" três vezes) e a primeira
+palavra da fala ("Kitana, you're my daughter now" saiu "are my daughter now"). Os 7 "Kitana" que faltam são todos
+desse tipo; nenhum saiu com outra grafia.
+
+**Faixa de áudio.** O arquivo tem dublagem em português (1ª faixa) e áudio em inglês (2ª). A lib sempre convertia a 1ª;
+agora, com `Idioma` forçado, converte a faixa marcada com esse idioma.
 
 ### Vocabulário do assunto (dica ao Whisper)
 

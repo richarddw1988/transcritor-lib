@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Transcritor.Arquivo.Processos;
+using Transcritor.Core;
 using Transcritor.Core.Contratos;
 using Transcritor.Core.Erros;
 
@@ -26,13 +27,18 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
         return InterpretarFfprobe(resultado.Saida);
     }
 
-    public async Task ConverterParaWavAsync(string caminhoArquivo, string caminhoWav, Action<double>? aoAvancar, CancellationToken cancellationToken)
+    public Task ConverterParaWavAsync(string caminhoArquivo, string caminhoWav, Action<double>? aoAvancar, CancellationToken cancellationToken) =>
+        ConverterParaWavAsync(caminhoArquivo, caminhoWav, 0, aoAvancar, cancellationToken);
+
+    public async Task ConverterParaWavAsync(
+        string caminhoArquivo, string caminhoWav, int faixa, Action<double>? aoAvancar, CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(faixa);
         string[] argumentos =
         [
             "-hide_banner", "-nostdin", "-y",
             "-i", caminhoArquivo,
-            "-map", "0:a:0", "-vn",
+            "-map", $"0:a:{faixa.ToString(CultureInfo.InvariantCulture)}", "-vn",
             "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav",
             "-progress", "pipe:1", "-nostats",
             caminhoWav,
@@ -86,6 +92,7 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
         }
 
         var faixasAudio = 0;
+        var idiomas = new List<string>();
         if (raiz.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
         {
             foreach (var stream in streams.EnumerateArray())
@@ -106,11 +113,16 @@ public sealed class ConversorFfmpeg(IExecutorProcesso executor, IOptions<OpcoesA
                     duracao = duracaoAudio;
                 }
 
+                var idioma = stream.TryGetProperty("tags", out var tags) && tags.TryGetProperty("language", out var l)
+                    && l.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(l.GetString()) && l.GetString() != "und"
+                    ? Idiomas.Normalizar(l.GetString()!)
+                    : string.Empty;
+                idiomas.Add(idioma);
                 faixasAudio++;
             }
         }
 
-        return new InfoMidia(duracao, formato, faixasAudio);
+        return new InfoMidia(duracao, formato, faixasAudio, idiomas);
     }
 
     /// <summary>Lê "out_time_us=..." da saída de -progress.</summary>

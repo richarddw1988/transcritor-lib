@@ -9,6 +9,13 @@ internal static class RecorteWav
     public static async Task RecortarAsync(string origem, string destino, double inicio, double fim, CancellationToken cancellationToken)
     {
         var bytes = await File.ReadAllBytesAsync(origem, cancellationToken).ConfigureAwait(false);
+        await RecortarAsync(bytes, destino, inicio, fim, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Recorta de um WAV já lido (para vários recortes do mesmo arquivo sem lê-lo de novo).</summary>
+    /// <exception cref="InvalidDataException">Os bytes não são um WAV PCM legível.</exception>
+    public static async Task RecortarAsync(byte[] bytes, string destino, double inicio, double fim, CancellationToken cancellationToken)
+    {
         var (formato, dados, tamanhoDados) = LerChunks(bytes);
 
         var canais = BinaryPrimitives.ReadUInt16LittleEndian(formato.AsSpan(2));
@@ -44,7 +51,7 @@ internal static class RecorteWav
         await File.WriteAllBytesAsync(destino, saida, cancellationToken).ConfigureAwait(false);
     }
 
-    private static (byte[] Formato, int InicioDados, long TamanhoDados) LerChunks(byte[] bytes)
+    internal static (byte[] Formato, int InicioDados, long TamanhoDados) LerChunks(byte[] bytes)
     {
         if (bytes.Length < 12 || !bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) || !bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8))
         {

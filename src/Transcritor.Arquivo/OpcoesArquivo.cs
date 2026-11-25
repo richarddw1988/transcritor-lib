@@ -58,6 +58,15 @@ public sealed class OpcoesArquivo
     public int MaximoTrechosReparados { get; set; } = 30;
 
     /// <summary>
+    /// Transcreve o áudio em pedaços deste tamanho, cortados no ponto mais silencioso perto de cada marca. Cada pedaço
+    /// leva como dica só a última frase do anterior (e o vocabulário). No arquivo inteiro, o Whisper entrava em loop
+    /// ("no, no, no…") e pulava janelas de 30 s que começavam com música, levando a fala junto: num filme de 2 h, o
+    /// erro caiu de 55% para ~16% com pedaços de 30 s (docs/modelos.md). Áudio de até 1,5 pedaço vai inteiro.
+    /// 0 = arquivo inteiro de uma vez.
+    /// </summary>
+    public double SegundosPorPedaco { get; set; } = 30;
+
+    /// <summary>
     /// Com a correção da transcrição ligada, confere cada troca no áudio: reouve a frase com a versão trocada como
     /// dica e só aceita se o Whisper ouvir a palavra nova (veja <see cref="LimiteConfiancaReouvir"/>).
     /// </summary>
