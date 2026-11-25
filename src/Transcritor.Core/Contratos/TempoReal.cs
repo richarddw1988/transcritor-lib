@@ -7,6 +7,12 @@ public enum TipoEvento
 
     /// <summary>Trecho final. Não muda mais, exceto para ganhar a tradução (mesmo <see cref="EventoTempoReal.Id"/>).</summary>
     Confirmado,
+
+    /// <summary>
+    /// A sessão ainda não começou a ouvir: está esperando a vez na GPU ou o reconhecimento ligar. O
+    /// <see cref="EventoTempoReal.Texto"/> diz o motivo; Id 0, sem idioma nem tempos.
+    /// </summary>
+    Aguardando,
 }
 
 /// <summary>Evento do tempo real.</summary>

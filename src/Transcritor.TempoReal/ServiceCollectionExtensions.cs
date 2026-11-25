@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Transcritor.Core.Contratos;
+using Transcritor.Core.Processos;
 using Transcritor.TempoReal.WebSockets;
 using Transcritor.TempoReal.WhisperLiveKit;
 
@@ -11,7 +12,8 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registra <see cref="ITranscritorTempoReal"/> e o motor WhisperLiveKit. Para microfone e som do sistema,
     /// registre também uma <see cref="IFabricaFonteAudio"/> (AddTranscritorCaptura no Windows); para traduzir,
-    /// AddTranscritorTraducao.
+    /// AddTranscritorTraducao. O <see cref="GerenciadorTempoReal"/> (singleton) liga o WhisperLiveKit quando uma sessão
+    /// abre e o desliga depois de um tempo sem sessão.
     /// </summary>
     public static IServiceCollection AddTranscritorTempoReal(this IServiceCollection services, Action<OpcoesTempoReal>? configurar = null)
     {
@@ -25,6 +27,8 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IFabricaConexaoWebSocket, FabricaClientWebSocket>();
         services.TryAddTransient<MotorWhisperLiveKit>();
+        services.TryAddSingleton<IExecutorProcesso, ExecutorProcesso>();
+        services.TryAddSingleton<GerenciadorTempoReal>();
         services.TryAddTransient<IMotorTempoReal>(sp => sp.GetRequiredService<MotorWhisperLiveKit>());
         services.TryAddTransient<ITranscritorTempoReal, TranscritorTempoReal>();
         services.AddTransient<IServicoVerificavel>(sp => sp.GetRequiredService<MotorWhisperLiveKit>());

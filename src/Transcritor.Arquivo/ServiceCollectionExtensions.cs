@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Transcritor.Arquivo.Cache;
 using Transcritor.Arquivo.Midia;
-using Transcritor.Arquivo.Processos;
+using Transcritor.Core.Processos;
 using Transcritor.Arquivo.Speaches;
 using Transcritor.Core.Contratos;
 

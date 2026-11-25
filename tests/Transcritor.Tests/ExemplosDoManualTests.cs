@@ -77,8 +77,17 @@ public class ExemplosDoManualTests
         var sessao = new OpcoesSessaoTempoReal(Idioma: "pt", Contexto: "Dona Chica, Luis Barcellos");
         await foreach (var e in tempoReal.IniciarAsync(Fonte.Microfone, Saida.Ambos, sessao, parar.Token))
         {
+            if (e.Tipo == TipoEvento.Aguardando)
+            {
+                Console.WriteLine($"Aguarde: {e.Texto}");
+                continue;
+            }
+
             Console.WriteLine($"{e.Tipo} #{e.Id} {e.Texto} {e.Traducao}");
         }
+
+        bool? noAr = await sp.GetRequiredService<GerenciadorTempoReal>().ConteinerNoArAsync(parar.Token);
+        Console.WriteLine(noAr);
 
         await using var wav = new FonteAudioWav(@"C:\teste.wav");
         await foreach (var e in tempoReal.IniciarAsync(wav, Saida.Portugues, sessao, parar.Token))

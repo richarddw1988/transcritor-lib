@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using Transcritor.Arquivo.Processos;
+using Transcritor.Core.Processos;
 using Transcritor.Core;
 using Transcritor.Core.Contratos;
 using Transcritor.Core.Erros;

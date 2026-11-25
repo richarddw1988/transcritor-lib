@@ -1,9 +1,10 @@
 using Transcritor.Arquivo;
 using Transcritor.Arquivo.Cache;
 using Transcritor.Arquivo.Midia;
-using Transcritor.Arquivo.Processos;
+using Transcritor.Core.Processos;
 using Transcritor.Core;
 using Transcritor.Core.Erros;
+using Transcritor.Core.Gpu;
 using Transcritor.Core.Modelos;
 
 namespace Transcritor.Tests;
@@ -29,6 +30,13 @@ public sealed class CoordenadorGpuTests : IDisposable
         {
             IntervaloEspera = TimeSpan.FromMilliseconds(20),
         };
+
+    internal static string Dono(string caminho)
+    {
+        using var leitura = new FileStream(caminho, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var texto = new StreamReader(leitura);
+        return texto.ReadLine() ?? "";
+    }
 
     private static List<string> Comandos(FakeExecutorProcesso executor) =>
         executor.Chamadas.Select(c => string.Join(' ', c.Argumentos)).ToList();
@@ -61,7 +69,7 @@ public sealed class CoordenadorGpuTests : IDisposable
     }
 
     [Fact]
-    public async Task Para_o_tempo_real_no_ar_e_religa_ao_soltar()
+    public async Task Para_o_tempo_real_ocioso_e_nao_religa_ao_soltar()
     {
         var docker = Docker(tempoRealNoAr: true);
 
@@ -69,9 +77,34 @@ public sealed class CoordenadorGpuTests : IDisposable
         Assert.Equal(["inspect -f {{.State.Running}} whisperlivekit", "stop whisperlivekit"], Comandos(docker));
 
         await reserva.DisposeAsync();
-        await reserva.DisposeAsync(); // soltar duas vezes não religa duas vezes
-        Assert.Equal("start whisperlivekit", Comandos(docker)[^1]);
-        Assert.Equal(3, docker.Chamadas.Count);
+        await reserva.DisposeAsync();
+        Assert.Equal(2, docker.Chamadas.Count); // a próxima sessão de tempo real é que liga
+    }
+
+    [Fact]
+    public async Task Arquivo_cede_a_vez_ao_tempo_real_que_pediu_antes()
+    {
+        var caminho = Path.Combine(_pasta.Caminho, "gpu.lock");
+        var intervalo = TimeSpan.FromMilliseconds(20);
+        var arquivo1 = await VezGpu.PegarAsync(caminho, "arquivo 1", prioridade: false, null, intervalo, CancellationToken.None);
+
+        var tempoReal = VezGpu.PegarAsync(caminho, "tempo real", prioridade: true, null, intervalo, CancellationToken.None);
+        await Task.Delay(100);
+        string? motivo = null;
+        var arquivo2 = VezGpu.PegarAsync(caminho, "arquivo 2", prioridade: false, m => motivo = m, intervalo, CancellationToken.None);
+        await Task.Delay(100);
+        Assert.False(tempoReal.IsCompleted);
+        Assert.False(arquivo2.IsCompleted);
+        Assert.Contains("tempo real", motivo, StringComparison.Ordinal);
+
+        await arquivo1.DisposeAsync(); // fim da etapa: quem pegou foi o tempo real, não o outro arquivo
+        var vezTempoReal = await tempoReal.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(100);
+        Assert.False(arquivo2.IsCompleted);
+        Assert.StartsWith("tempo real", Dono(caminho), StringComparison.Ordinal);
+
+        await vezTempoReal.DisposeAsync();
+        await using var vezArquivo2 = await arquivo2.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -108,10 +141,10 @@ public sealed class CoordenadorGpuTests : IDisposable
         var midia = _pasta.Arquivo("a.wav", "x");
 
         await transcritor.ProcessarAsync(midia, Saida.Ingles);
-        Assert.Equal(["inspect -f {{.State.Running}} whisperlivekit", "stop whisperlivekit", "start whisperlivekit"], Comandos(docker));
+        Assert.Equal(["inspect -f {{.State.Running}} whisperlivekit", "stop whisperlivekit"], Comandos(docker));
 
         await transcritor.ProcessarAsync(midia, Saida.Ingles);
-        Assert.Equal(3, docker.Chamadas.Count);
+        Assert.Equal(2, docker.Chamadas.Count);
         Assert.Equal(1, motor.Chamadas);
     }
 

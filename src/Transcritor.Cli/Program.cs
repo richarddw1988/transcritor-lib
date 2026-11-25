@@ -229,6 +229,14 @@ cmdServicos.SetAction(async (_, ct) =>
         }
         catch (TranscritorException ex)
         {
+            // O tempo real fica parado até uma sessão abrir (o GerenciadorTempoReal liga e desliga o contêiner).
+            if (servico is Transcritor.TempoReal.WhisperLiveKit.MotorWhisperLiveKit
+                && await sp.GetRequiredService<GerenciadorTempoReal>().ConteinerNoArAsync(ct) == false)
+            {
+                Console.WriteLine($"[ OK  ] {servico.NomeServico}: parado; liga sozinho quando uma sessão de tempo real abrir");
+                continue;
+            }
+
             falhas++;
             Console.WriteLine($"[FALHA] {servico.NomeServico}: {ex.Message}");
         }
@@ -253,7 +261,7 @@ var cmdLiberarGpu = new Command(
 cmdLiberarGpu.SetAction(async (resultado, ct) => await Executar(async () =>
 {
     using var sp = CriarServicos(null);
-    var executor = sp.GetRequiredService<Transcritor.Arquivo.Processos.IExecutorProcesso>();
+    var executor = sp.GetRequiredService<Transcritor.Core.Processos.IExecutorProcesso>();
     var antes = await MemoriaGpuAsync(executor, ct);
 
     // Ollama: todos os modelos carregados, não só os da configuração.
@@ -290,18 +298,18 @@ cmdLiberarGpu.SetAction(async (resultado, ct) => await Executar(async () =>
     {
         var conteiner = resultado.GetValue(optConteinerWlk)!;
         var relogio = Stopwatch.StartNew();
-        Transcritor.Arquivo.Processos.ResultadoProcesso r;
+        Transcritor.Core.Processos.ResultadoProcesso r;
         try
         {
             r = await executor.ExecutarAsync("docker", ["stop", conteiner], null, ct);
         }
         catch (FerramentaExternaException)
         {
-            r = new Transcritor.Arquivo.Processos.ResultadoProcesso(-1, string.Empty, "docker não encontrado no PATH");
+            r = new Transcritor.Core.Processos.ResultadoProcesso(-1, string.Empty, "docker não encontrado no PATH");
         }
 
         Console.WriteLine(r.CodigoSaida == 0
-            ? $"WhisperLiveKit: parado ({relogio.Elapsed.TotalSeconds:F1} s); para o tempo real voltar: docker start {conteiner}"
+            ? $"WhisperLiveKit: parado ({relogio.Elapsed.TotalSeconds:F1} s); liga sozinho na próxima sessão de tempo real"
             : $"WhisperLiveKit: não parou ({r.Erro.Trim()})");
     }
 
@@ -935,6 +943,12 @@ static async Task MostrarEventos(IAsyncEnumerable<EventoTempoReal> eventos)
     await foreach (var e in eventos)
     {
         var quando = $"{relogio.Elapsed.TotalSeconds,6:F1}s";
+        if (e.Tipo == TipoEvento.Aguardando)
+        {
+            Console.WriteLine($"{quando} {e.Texto}");
+            continue;
+        }
+
         if (e.Tipo == TipoEvento.Provisorio)
         {
             provisorios++;
@@ -1013,7 +1027,7 @@ static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar, Action<Opco
 }
 
 /// <summary>Memória usada na GPU em MiB (nvidia-smi), ou null se não der para ler.</summary>
-static async Task<int?> MemoriaGpuAsync(Transcritor.Arquivo.Processos.IExecutorProcesso executor, CancellationToken ct)
+static async Task<int?> MemoriaGpuAsync(Transcritor.Core.Processos.IExecutorProcesso executor, CancellationToken ct)
 {
     try
     {

@@ -71,7 +71,7 @@ Por que esses modelos, o que mais foi testado e quanto cada um custa: [docs/mode
 | `Transcritor.Core` | Contratos (`ITranscritorArquivo`, `ITradutor`, `ITranscritorTempoReal`, ...), modelos do JSON e erros. Sem dependências. |
 | `Transcritor.Arquivo` | ffprobe/ffmpeg → WAV 16 kHz mono → Speaches → frases e palavras → tradução → análise → JSON, com cache. |
 | `Transcritor.Traducao` | Tradução pt ↔ en pelo sentido via Ollama (frase com as vizinhas como contexto, palavra com a frase), análise de sentido e correção da transcrição (homófonos por BERT em ONNX, na CPU). |
-| `Transcritor.TempoReal` | Cliente WebSocket do WhisperLiveKit: eventos `Provisorio`/`Confirmado` como `IAsyncEnumerable`, tradução dos trechos. |
+| `Transcritor.TempoReal` | Cliente WebSocket do WhisperLiveKit: eventos `Provisorio`/`Confirmado` como `IAsyncEnumerable`, tradução dos trechos. Liga o contêiner quando uma sessão abre e desliga depois de 5 min sem uso; a sessão tem prioridade na GPU sobre o processamento de arquivo. |
 | `Transcritor.Captura` | Windows (WASAPI/NAudio): microfone e som do sistema em PCM 16 kHz mono. |
 | `Transcritor.Cli` | Console para testar tudo: `arquivo`, `traduzir`, `palavra`, `microfone`, `sistema`, `simular`, `captura`, `servicos`, `liberar-gpu`, `dicionario`, `avaliar-fala`, `avaliar-homofonos`. |
 | `Transcritor.Tests` | Testes unitários com fakes de HTTP, WebSocket e processo (não precisam dos serviços). |

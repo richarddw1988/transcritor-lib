@@ -1,7 +1,7 @@
 using Transcritor.Arquivo;
 using Transcritor.Arquivo.Cache;
 using Transcritor.Arquivo.Midia;
-using Transcritor.Arquivo.Processos;
+using Transcritor.Core.Processos;
 using Transcritor.Core;
 using Transcritor.Core.Modelos;
 

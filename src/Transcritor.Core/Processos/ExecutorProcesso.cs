@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using Transcritor.Core.Erros;
 
-namespace Transcritor.Arquivo.Processos;
+namespace Transcritor.Core.Processos;
 
 /// <summary>Implementação com <see cref="Process"/>.</summary>
 public sealed class ExecutorProcesso : IExecutorProcesso

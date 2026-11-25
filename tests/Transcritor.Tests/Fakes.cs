@@ -3,7 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Transcritor.Arquivo;
 using Transcritor.Arquivo.Midia;
-using Transcritor.Arquivo.Processos;
+using Transcritor.Core.Processos;
 using Transcritor.Core.Contratos;
 using Transcritor.Core.Modelos;
 

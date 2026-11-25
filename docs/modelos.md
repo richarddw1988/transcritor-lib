@@ -10,7 +10,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 | Função | Modelo | Serviço | Onde configurar | Tamanho | Desempenho medido (RTX 3060 12 GB) |
 |---|---|---|---|---|---|
 | Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo); filme de 2 h (inglês, contra a legenda SDH): 15,6% em pedaços de 30 s com lista de nomes, 55% transcrevendo o arquivo inteiro de uma vez (loops e falas puladas; ver "Áudio longo em pedaços") |
-| Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s |
+| Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s; fica parado e a lib liga na 1ª sessão: ~33 s do `docker start` à primeira palavra (2026-11-25) |
 | Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b; filme de 2 h: 878 frases em 1.507 s (~1,7 s/frase), chrF 66,3 contra a legenda oficial onde a transcrição saiu boa (ver "Tradução do filme") |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
@@ -911,7 +911,8 @@ audiolivro de 17 min (179 frases, Whisper quase sem erro, onde toda troca é dan
 Os serviços dividem a mesma GPU. Medido em 2026-11-21:
 - tempo real (WhisperLiveKit turbo) + `translategemma:4b` + Speaches ocioso: ~5–9 GB;
 - arquivo com análise de sentido: `translategemma:12b` e `gemma3:12b` (~8 GB cada) são usados um depois do outro;
-  rode com o WhisperLiveKit parado (`docker stop whisperlivekit`) se a GPU tiver 12 GB.
+  rode com o WhisperLiveKit parado se a GPU tiver 12 GB. Desde 2026-11-25 a lib faz isso sozinha: o tempo real fica
+  parado até uma sessão abrir, e o arquivo espera a sessão fechar (manual, seção 8).
 
 Medido em 2026-11-23, 1.500 frases do `avaliar-homofonos --com-modelo` (31 min) com o `gemma3:12b` e o WhisperLiveKit
 no ar, VM do WSL com 12 GB:

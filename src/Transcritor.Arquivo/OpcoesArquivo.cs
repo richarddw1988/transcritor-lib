@@ -100,13 +100,12 @@ public sealed class OpcoesArquivo
     /// </summary>
     public bool CoordenarGpu { get; set; } = true;
 
-    /// <summary>Arquivo da vez na GPU (ver <see cref="CoordenadorGpu"/>).</summary>
-    public string ArquivoTravaGpu { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Transcritor", "gpu.lock");
+    /// <summary>Arquivo da vez na GPU (ver <see cref="CoordenadorGpu"/>); o mesmo do tempo real.</summary>
+    public string ArquivoTravaGpu { get; set; } = Transcritor.Core.Gpu.VezGpu.CaminhoPadrao;
 
     /// <summary>
-    /// Se o contêiner do tempo real (<see cref="ConteinerTempoReal"/>) estiver no ar, para ele durante o arquivo e religa
-    /// no fim: ele segura o modelo dele (~2 GB) enquanto está de pé. Sessões de tempo real abertas caem.
+    /// Se o contêiner do tempo real (<see cref="ConteinerTempoReal"/>) estiver no ar sem sessão (ocioso), para ele antes
+    /// de cada etapa: ele segura o modelo dele (~2 GB) enquanto está de pé. A próxima sessão de tempo real o liga de novo.
     /// </summary>
     public bool PararTempoRealDuranteArquivo { get; set; } = true;
 

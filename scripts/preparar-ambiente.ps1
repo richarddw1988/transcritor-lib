@@ -238,7 +238,12 @@ Escrever-Etapa '3. Serviços respondendo'
 $espera = if ($SoConferir) { 0 } else { 10 }
 $speachesNoAr = Aguardar-Servico 'Speaches' "$SpeachesUrl/health" $espera
 $ollamaNoAr = Aguardar-Servico 'Ollama' "$OllamaUrl/api/version" $espera
-if (-not $SemTempoReal) {
+$wlkParado = $SoConferir -and -not $SemTempoReal -and ((& docker inspect -f '{{.State.Running}}' whisperlivekit 2>$null) -eq 'false')
+if ($wlkParado) {
+    # Normal: a lib liga o contêiner quando uma sessão de tempo real abre.
+    Escrever-Ok 'WhisperLiveKit parado (liga sozinho quando uma sessão de tempo real abrir)'
+}
+elseif (-not $SemTempoReal) {
     # Na 1ª subida o WhisperLiveKit baixa o modelo (~1,5 GB) e aquece antes de responder.
     $null = Aguardar-Servico 'WhisperLiveKit' "$WhisperLiveKitUrl/health" ($(if ($SoConferir) { 0 } else { 15 }))
 }
@@ -257,6 +262,7 @@ if ($speachesNoAr) {
 
 # A GPU precisa aparecer dentro dos contêineres; sem isso os modelos rodariam em CPU (ou nem subiriam).
 foreach ($servico in $servicos) {
+    if ($servico -eq 'whisperlivekit' -and $wlkParado) { continue }
     # Captura tudo antes de olhar o código de saída (cortar o pipeline no meio dá código de erro falso).
     $nomeGpu = $null
     try { $nomeGpu = @(& docker exec $servico nvidia-smi --query-gpu=name --format=csv,noheader 2>$null) } catch { $nomeGpu = $null }
@@ -265,6 +271,13 @@ foreach ($servico in $servicos) {
         Escrever-Falha ("O contêiner $servico não enxerga a GPU. Confira: driver NVIDIA atualizado, Docker Desktop com backend WSL2 " +
             "e 'docker run --rm --gpus all ubuntu nvidia-smi' funcionando.")
     }
+}
+
+# O tempo real fica parado até uma sessão abrir: a lib liga o contêiner sob demanda e o desliga depois de 5 min sem
+# sessão (GerenciadorTempoReal). Conferido acima que ele sobe e enxerga a GPU, sai da placa (~2 GB).
+if (-not $SemTempoReal -and -not $SoConferir) {
+    $null = & docker stop whisperlivekit 2>$null
+    if ($LASTEXITCODE -eq 0) { Escrever-Ok 'WhisperLiveKit parado; liga sozinho quando uma sessão de tempo real abrir' }
 }
 
 # ---------------------------------------------------------------------------

@@ -11,12 +11,15 @@ namespace Transcritor.TempoReal;
 /// Liga fonte de áudio → motor de tempo real → tradução. Os eventos do motor passam direto; cada Confirmado
 /// que precisa de tradução é traduzido em segundo plano (em ordem, com os trechos anteriores como contexto) e
 /// reemitido com o mesmo Id e a tradução preenchida. A tradução nunca atrasa os eventos de reconhecimento.
+/// Com um <see cref="GerenciadorTempoReal"/>, a sessão primeiro pega a vez na GPU e liga o WhisperLiveKit se ele estiver
+/// parado; enquanto isso saem eventos <see cref="TipoEvento.Aguardando"/> e a captura ainda não começou.
 /// </summary>
 public sealed class TranscritorTempoReal(
     IMotorTempoReal motor,
     IOptions<OpcoesTempoReal> opcoes,
     IFabricaFonteAudio? fabricaFontes = null,
-    ITradutor? tradutor = null) : ITranscritorTempoReal
+    ITradutor? tradutor = null,
+    GerenciadorTempoReal? gerenciador = null) : ITranscritorTempoReal
 {
     private readonly OpcoesTempoReal _opcoes = opcoes.Value;
 
@@ -55,11 +58,7 @@ public sealed class TranscritorTempoReal(
         }).ConfigureAwait(false);
 
         var saidaEventos = Channel.CreateUnbounded<EventoTempoReal>(new UnboundedChannelOptions { SingleReader = true });
-        var paraTraduzir = Channel.CreateUnbounded<EventoTempoReal>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
-
-        var reconhecimento = Task.Run(() => ReconhecerAsync(fonte, sessao, saidaEventos.Writer, paraTraduzir.Writer, parar, abortar.Token), CancellationToken.None);
-        var traducao = Task.Run(() => TraduzirAsync(saida, paraTraduzir.Reader, saidaEventos.Writer, abortar.Token), CancellationToken.None);
-        var tudo = Task.WhenAll(reconhecimento, traducao).ContinueWith(
+        var tudo = Task.Run(() => SessaoAsync(fonte, saida, sessao, saidaEventos.Writer, parar, abortar.Token), CancellationToken.None).ContinueWith(
             t => saidaEventos.Writer.TryComplete(t.Exception?.InnerExceptions.FirstOrDefault(e => e is not OperationCanceledException)),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
@@ -79,6 +78,46 @@ public sealed class TranscritorTempoReal(
             if (descartarFonte)
             {
                 await fonte.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>Vez na GPU e WhisperLiveKit no ar (se houver gerenciador), depois reconhecimento e tradução.</summary>
+    private async Task SessaoAsync(
+        IFonteAudio fonte,
+        Saida saida,
+        OpcoesSessaoTempoReal sessao,
+        ChannelWriter<EventoTempoReal> eventos,
+        CancellationToken parar,
+        CancellationToken abortar)
+    {
+        IAsyncDisposable? aberta = null;
+        if (gerenciador is not null)
+        {
+            try
+            {
+                aberta = await gerenciador.AbrirSessaoAsync(
+                    motivo => eventos.TryWrite(new EventoTempoReal(TipoEvento.Aguardando, 0, motivo, null, null, 0, 0)),
+                    parar).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (parar.IsCancellationRequested)
+            {
+                return; // parou antes de começar a ouvir
+            }
+        }
+
+        try
+        {
+            var paraTraduzir = Channel.CreateUnbounded<EventoTempoReal>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+            var reconhecimento = Task.Run(() => ReconhecerAsync(fonte, sessao, eventos, paraTraduzir.Writer, parar, abortar), CancellationToken.None);
+            var traducao = Task.Run(() => TraduzirAsync(saida, paraTraduzir.Reader, eventos, abortar), CancellationToken.None);
+            await Task.WhenAll(reconhecimento, traducao).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (aberta is not null)
+            {
+                await aberta.DisposeAsync().ConfigureAwait(false);
             }
         }
     }

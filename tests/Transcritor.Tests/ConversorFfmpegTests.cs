@@ -1,5 +1,5 @@
 using Transcritor.Arquivo.Midia;
-using Transcritor.Arquivo.Processos;
+using Transcritor.Core.Processos;
 using Transcritor.Core.Erros;
 
 namespace Transcritor.Tests;

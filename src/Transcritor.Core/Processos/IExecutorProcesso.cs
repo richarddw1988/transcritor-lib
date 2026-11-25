@@ -1,4 +1,4 @@
-namespace Transcritor.Arquivo.Processos;
+namespace Transcritor.Core.Processos;
 
 public sealed record ResultadoProcesso(int CodigoSaida, string Saida, string Erro);
 
