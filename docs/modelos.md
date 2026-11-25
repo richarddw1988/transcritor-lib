@@ -1,6 +1,6 @@
 # Especificação: modelos de IA usados e testados
 
-Última atualização: 2026-11-24. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
+Última atualização: 2026-11-25. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
 configuração ou uma medição mudar (ver [CLAUDE.md](../CLAUDE.md)).
 
 Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum dado sai da máquina.
@@ -11,7 +11,7 @@ Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum da
 |---|---|---|---|---|---|
 | Transcrição de arquivo (tempo por palavra) | `Systran/faster-whisper-large-v3` | Speaches | `Transcritor:Arquivo:ModeloTranscricao` | ~3 GB | audiolivro de 17 min (inglês): ~2 min 45 s de transcrição + ~15 s de reparo de 6 trechos; amostras em português sem erros relevantes; FLEURS `dev` (fala lida): WER 4,1% em português e 5,8% em inglês; fala espontânea: CORAA 19,2% (português), AMI 20,2% (reunião, inglês), boa parte por formas faladas ("pra", "wanna") e hesitações que o Whisper limpa. Na transcrição longa às vezes repete frase ou perde a pontuação — tratado pelo reparo de trechos (ver abaixo); filme de 2 h (inglês, contra a legenda SDH): 15,6% em pedaços de 30 s com lista de nomes, 55% transcrevendo o arquivo inteiro de uma vez (loops e falas puladas; ver "Áudio longo em pedaços") |
 | Transcrição em tempo real | `large-v3-turbo` (faster-whisper, política SimulStreaming) | WhisperLiveKit | `command` do serviço `whisperlivekit` no `docker-compose.yml` | ~1,6 GB | Confirmado ~3–3,5 s depois da fala; WER 25,5% (com `--idioma pt`) numa gravação difícil de 60 s |
-| Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b |
+| Tradução das frases do arquivo | `translategemma:12b` | Ollama | `Transcritor:Traducao:ModeloFrases` | 8,1 GB | 6,7 s/frase; melhor gramática e sentido que o 4b; filme de 2 h: 878 frases em 1.507 s (~1,7 s/frase), chrF 66,3 contra a legenda oficial onde a transcrição saiu boa (ver "Tradução do filme") |
 | Tradução das frases no tempo real (e comando `traduzir`) | `translategemma:4b` | Ollama | `Transcritor:Traducao:ModeloFrasesTempoReal` | 3,3 GB | 0,5–2,5 s/frase com o modelo carregado |
 | Tradução de palavra solta (no contexto da frase) | `gemma3:4b` | Ollama | `Transcritor:Traducao:ModeloPalavras` | 3,4 GB | ~2,5 s/palavra; resultado fica em cache |
 | Correção de palavras ouvidas errado, **opcional, desligada por padrão desde 2026-11-24** (`--corrigir` no Cli liga) | `gemma3:12b` | Ollama | `Transcritor:Traducao:ModeloCorrecao` + `CorrigirTranscricao` | 8,2 GB | cada troca conferida pelo BERT e no áudio pelo Whisper; nas 49 frases do usuário WER 6,3% → 5,5% (5 certas, 0 erradas, com os homófonos e o gemma nos duvidosos); no audiolivro de 17 min só uma grafia trocada; no FLEURS, no CORAA e no AMI o WER não muda e custa de 9 a 33 s por frase (ver "4ª rodada") |
@@ -169,6 +169,37 @@ desse tipo; nenhum saiu com outra grafia.
 
 **Faixa de áudio.** O arquivo tem dublagem em português (1ª faixa) e áudio em inglês (2ª). A lib sempre convertia a 1ª;
 agora, com `Idioma` forçado, converte a faixa marcada com esse idioma.
+
+### Tradução do filme (2026-11-25)
+
+O mesmo filme, com `--idioma en --saida Ambos`. A transcrição veio do cache (pedaços de 30 s + lista de nomes) e o
+`translategemma:12b` traduziu as 878 frases em 1.507 s (~1,7 s/frase), na RTX 3060, sem outro programa usando a GPU.
+- **Referência:** a legenda oficial em português do arquivo. Ela é tradução de legenda, encurtada e livre ("Thanks,
+  man. I appreciate it." → "Valeu, cara. Obrigado."), então o chrF tem um teto bem abaixo de 100, que não foi medido.
+- **Comparação:** chrF2 (caracteres, ordem 6) somado no corpus. As legendas em português com menos de 2 s entre si
+  formam um trecho (292 trechos), e cada trecho pega as frases da lib cujo meio cai nele.
+
+| Recorte | Trechos | chrF |
+|---|---|---|
+| Inglês sem traduzir contra o português (piso) | 300 primeiros | 21,6 |
+| Todos os trechos (63 sem tradução porque a fala não foi transcrita) | 292 | 60,2 |
+| Só onde a transcrição saiu boa (WER ≤ 10% contra a legenda inglesa) | 124 | **66,3** |
+
+Lendo as 5 primeiras frases e 25 trechos sorteados entre os 124: quase tudo com o sentido certo; a maior parte da
+diferença é estilo de legenda ("você sabe que..., certo?" × "sabe que..., né?"; a lib é mais formal e suaviza
+palavrão). Erros vistos:
+- **Sentido:** "Father" (pai) virou "Padre"; "Snug." (encaixou) virou "Aconchegante."; "And I will." virou "E eu farei
+  o mesmo."
+- **Gênero:** "essa pêssego".
+- **Palavrão deixado em inglês:** `Johnny "fucking" Cage`.
+- **Termos do universo do filme:** a legenda usa "Exoterra" e "Plano Terreno" e deixa "Finish him!" em inglês; a lib
+  deixou "Outworld", traduziu "Reino da Terra" e "Acabem com ele!". O glossário do usuário (abaixo) fixa esses termos.
+- **Erros que vieram da transcrição:** "When the sand is gone" saiu "sound" e foi traduzido "Quando o silêncio...";
+  a fala "Nine times we have been challenged..." saiu em duas frases ("Nine" às 20:00, o resto 8 s depois) e a
+  segunda, traduzida sozinha, virou "Em diversas ocasiões, enfrentamos desafios".
+
+Os 63 trechos sem tradução e o chrF menor em todos os trechos (60,2) vêm das falas que a transcrição perdeu, não da
+tradução.
 
 ### Vocabulário do assunto (dica ao Whisper)
 
