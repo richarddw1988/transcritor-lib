@@ -1043,8 +1043,13 @@ com a GPU livre, duas vezes cada:
 | separador | 6,0 s | 3,9 s | `/health` |
 
 A carga do modelo vem depois e não mudou (Whisper ~5–9 s; modelo de 4 GB do Ollama ~4 s). Parar os três juntos levou
-4,0 s. Com tudo parado, o `servicos` do Cli levou 36,6 s (liga os três, confere e para). Um áudio de 9 s com correção e
-tradução levou 164 s; o mesmo pedido com os contêineres já no ar não foi medido.
+4,0 s. Com tudo parado, o `servicos` do Cli levou 36,6 s (liga os três, confere e para). O mesmo áudio de 9 s
+(`en02.wav`, `--saida Ambos`, cache vazio) levou 65,8 s com Speaches e Ollama parados e 49,7 s com os dois já no ar
+(sem modelo carregado nos dois casos): a subida custou ~16 s por comando do Cli. No tempo real, a sessão liga o Ollama
+enquanto espera a vez e o WhisperLiveKit sobe (~33 s), e com `Saida.Ambos` já carrega o modelo das frases. Medido
+com o `simular` (áudio de 9 s, tudo parado no começo): na 2ª sessão cada tradução chegou 0,5–1,0 s depois da frase
+confirmada; na 1ª (Ollama recém-ligado, modelo lido do disco) a primeira tradução só chegou 3,8 s depois da terceira
+confirmação.
 
 ### Um modelo por vez no processamento de arquivo (`DescarregarModelosEntreEtapas`)
 

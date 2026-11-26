@@ -80,6 +80,23 @@ internal sealed class ClienteOllama(HttpClient http, IOptions<OpcoesTraducao> op
         }
     }
 
+    /// <summary>Chamada leve (GET /api/version) que liga o contêiner, se estiver parado.</summary>
+    internal async Task LigarAsync(CancellationToken cancellationToken)
+    {
+        using var versao = await EnviarAsync(() => http.GetAsync(new Uri("api/version", UriKind.Relative), cancellationToken), cancellationToken)
+            .ConfigureAwait(false);
+        await GarantirSucessoAsync(versao, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Põe o modelo na GPU sem gerar nada (POST /api/generate sem prompt), por <see cref="OpcoesTraducao.KeepAlive"/>.</summary>
+    internal async Task CarregarAsync(string modelo, CancellationToken cancellationToken)
+    {
+        using var resposta = await EnviarAsync(
+            () => http.PostAsJsonAsync(new Uri("api/generate", UriKind.Relative), new PedidoCarregar(modelo, _opcoes.KeepAlive), Json, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        await GarantirSucessoAsync(resposta, modelo, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Confere se o Ollama responde e se os modelos estão instalados.</summary>
     internal async Task VerificarAsync(IEnumerable<string> modelos, CancellationToken cancellationToken)
     {
@@ -156,6 +173,10 @@ internal sealed class ClienteOllama(HttpClient http, IOptions<OpcoesTraducao> op
     private sealed record PedidoDescarregar(
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("keep_alive")] int KeepAlive);
+
+    private sealed record PedidoCarregar(
+        [property: JsonPropertyName("model")] string Model,
+        [property: JsonPropertyName("keep_alive")] string KeepAlive);
 
     private sealed record OpcoesModelo(
         [property: JsonPropertyName("temperature")] double Temperature,

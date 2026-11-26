@@ -66,6 +66,45 @@ internal sealed class FakeTradutorComContexto : ITradutor
         throw new NotSupportedException();
 }
 
+/// <summary>Tradutor que registra os preparos pedidos pelo tempo real.</summary>
+internal sealed class FakeTradutorPreparavel(bool falhar = false) : ITradutor, IPreparavelTempoReal
+{
+    private readonly object _trava = new();
+    private readonly List<bool> _preparos = [];
+
+    public IReadOnlyList<bool> Preparos
+    {
+        get
+        {
+            lock (_trava)
+            {
+                return [.. _preparos];
+            }
+        }
+    }
+
+    public string Identificador => "fake";
+
+    public Task PrepararTempoRealAsync(bool carregarModelo, CancellationToken cancellationToken)
+    {
+        lock (_trava)
+        {
+            _preparos.Add(carregarModelo);
+        }
+
+        return falhar ? throw new Transcritor.Core.Erros.ServicoIndisponivelException("fora do ar") : Task.CompletedTask;
+    }
+
+    public Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken) =>
+        Task.FromResult("traduzido");
+
+    public Task<IReadOnlyList<string>> TraduzirFrasesAsync(IReadOnlyList<string> frases, string origem, string destino, IProgress<double>? progresso, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task<string> TraduzirPalavraAsync(PedidoTraducaoPalavra pedido, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+}
+
 public class TranscritorTempoRealTests
 {
     private static EventoTempoReal Prov(long id, string texto) => new(TipoEvento.Provisorio, id, texto, null, "en", 0, 1);
@@ -109,6 +148,40 @@ public class TranscritorTempoRealTests
 
         // A tradução de um trecho vem depois do próprio trecho.
         Assert.True(eventos.FindIndex(e => e.Id == 2 && e.Traducao is null) < eventos.FindIndex(e => e.Id == 2 && e.Traducao is not null));
+    }
+
+    private static async Task<IReadOnlyList<bool>> EsperarPreparos(FakeTradutorPreparavel tradutor, int quantos)
+    {
+        for (var i = 0; i < 200 && tradutor.Preparos.Count < quantos; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        return tradutor.Preparos;
+    }
+
+    [Fact]
+    public async Task Ambos_liga_o_tradutor_e_carrega_o_modelo_ao_abrir_a_sessao()
+    {
+        var tradutor = new FakeTradutorPreparavel();
+        await Coletar(Criar(new FakeMotorTempoReal(Conf(1, "Hi.")), tradutor).IniciarAsync(new FakeFonte(1), Saida.Ambos));
+
+        var preparos = await EsperarPreparos(tradutor, 2);
+        Assert.Equal(2, preparos.Count);
+        Assert.Contains(false, preparos); // liga o contêiner
+        Assert.Contains(true, preparos);  // carrega o modelo
+    }
+
+    [Fact]
+    public async Task Saida_num_idioma_so_liga_o_tradutor_e_falha_no_preparo_nao_derruba_a_sessao()
+    {
+        var tradutor = new FakeTradutorPreparavel(falhar: true);
+        var eventos = await Coletar(Criar(new FakeMotorTempoReal(Conf(1, "Oi.", idioma: "pt")), tradutor).IniciarAsync(new FakeFonte(1), Saida.Ingles));
+
+        Assert.Equal("traduzido", eventos.Single(e => e.Traducao is not null).Traducao);
+        await EsperarPreparos(tradutor, 1);
+        await Task.Delay(50);
+        Assert.Equal([false], tradutor.Preparos);
     }
 
     [Fact]

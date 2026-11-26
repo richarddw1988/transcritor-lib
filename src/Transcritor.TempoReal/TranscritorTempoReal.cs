@@ -91,6 +91,11 @@ public sealed class TranscritorTempoReal(
         CancellationToken parar,
         CancellationToken abortar)
     {
+        // O Ollama liga enquanto a sessão espera a vez e o WhisperLiveKit sobe (não usa a GPU); o modelo só entra
+        // depois de a sessão pegar a vez, e só com Saida.Ambos (com Portugues/Ingles, só traduz se a fala vier no outro
+        // idioma: não vale ocupar a GPU à toa).
+        var preparavel = tradutor as IPreparavelTempoReal;
+        Adiantar(preparavel, carregarModelo: false, abortar);
         IAsyncDisposable? aberta = null;
         if (gerenciador is not null)
         {
@@ -104,6 +109,11 @@ public sealed class TranscritorTempoReal(
             {
                 return; // parou antes de começar a ouvir
             }
+        }
+
+        if (saida == Saida.Ambos)
+        {
+            Adiantar(preparavel, carregarModelo: true, abortar);
         }
 
         try
@@ -120,6 +130,28 @@ public sealed class TranscritorTempoReal(
                 await aberta.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>Prepara o tradutor em segundo plano; erro aqui é ignorado (a tradução de verdade o mostra).</summary>
+    private static void Adiantar(IPreparavelTempoReal? preparavel, bool carregarModelo, CancellationToken cancellationToken)
+    {
+        if (preparavel is null)
+        {
+            return;
+        }
+
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await preparavel.PrepararTempoRealAsync(carregarModelo, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is TranscritorException or HttpRequestException or OperationCanceledException or ObjectDisposedException)
+                {
+                }
+            },
+            CancellationToken.None);
     }
 
     private async Task ReconhecerAsync(

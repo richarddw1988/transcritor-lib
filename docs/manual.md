@@ -530,6 +530,10 @@ await foreach (var e in tempoReal.IniciarAsync(Fonte.Microfone, Saida.Ambos, ses
   `TipoEvento.Aguardando` e a captura ainda não começou; mostre o `Texto` ao usuário. Ao descartar o
   `ServiceProvider` (fim do programa), um desligamento pendente é feito na hora.
 - `GerenciadorTempoReal.ConteinerNoArAsync` diz se o contêiner está no ar (false: parado, liga na próxima sessão).
+- Com tradução registrada, a sessão também adianta o Ollama: liga o contêiner enquanto espera a vez e o WhisperLiveKit
+  sobe e, com `Saida.Ambos`, carrega o modelo das frases do tempo real (`ModeloFrasesTempoReal`) assim que pega a vez
+  na GPU. Assim a primeira frase não paga a subida do Ollama. Um tradutor seu ganha isso implementando
+  `IPreparavelTempoReal`; falha no preparo é ignorada (a tradução de verdade mostra o erro).
 - Cancelar o token para a captura; a sessão termina sem exceção depois de confirmar e traduzir o que faltava.
 - Outra fonte de áudio (PCM s16le 16 kHz mono): implemente `IFonteAudio` e use `IniciarAsync(fonte, …)`;
   para testes há `FonteAudioWav`.
@@ -781,7 +785,8 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
   contêiner na primeira chamada ao serviço e espera ele responder: medido em 2026-11-25, 6–17 s o Speaches, 8–17 s o
   Ollama e 4–6 s o separador (a 1ª subida depois de um tempo é a mais lenta), mais a carga do modelo. Depois de 5 min
   sem uso de nenhum programa (`DesligarAposOcioso`) ele é desligado; o programa que fecha desliga na hora o que usou,
-  se ninguém mais estiver usando. Por isso cada comando do Cli paga a subida dos serviços que usa. Um programa só
+  se ninguém mais estiver usando. Por isso cada comando do Cli paga a subida dos serviços que usa (medido: ~16 s num
+  áudio curto com tradução, 65,8 s contra 49,7 s com tudo no ar). Um programa só
   desliga um contêiner se nenhum outro programa da máquina estiver usando nem tiver usado nos últimos 5 min (marcas em
   `%LOCALAPPDATA%\Transcritor\conteineres`). Chamadas que só tiram o modelo da GPU não ligam o contêiner. Se alguém
   parar o contêiner à mão no meio do uso, a próxima chamada o liga de novo;

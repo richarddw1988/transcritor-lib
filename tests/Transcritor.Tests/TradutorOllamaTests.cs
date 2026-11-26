@@ -46,6 +46,22 @@ public sealed class TradutorOllamaTests : IDisposable
     }
 
     [Fact]
+    public async Task Preparar_o_tempo_real_liga_o_ollama_e_carrega_o_modelo_das_frases_do_tempo_real()
+    {
+        var (tradutor, http) = Criar((_, _) => FakeHttpHandler.Json("{}"), o => o.ModeloFrasesTempoReal = "translategemma:4b");
+
+        await tradutor.PrepararTempoRealAsync(carregarModelo: false, CancellationToken.None);
+        await tradutor.PrepararTempoRealAsync(carregarModelo: true, CancellationToken.None);
+
+        Assert.Equal("/api/version", http.Recebidas[0].Requisicao.RequestUri!.AbsolutePath);
+        Assert.Equal("/api/generate", http.Recebidas[1].Requisicao.RequestUri!.AbsolutePath);
+        using var corpo = System.Text.Json.JsonDocument.Parse(http.Recebidas[1].Corpo);
+        Assert.Equal("translategemma:4b", corpo.RootElement.GetProperty("model").GetString());
+        Assert.Equal("10m", corpo.RootElement.GetProperty("keep_alive").GetString());
+        Assert.False(corpo.RootElement.TryGetProperty("prompt", out _)); // só carrega, não gera
+    }
+
+    [Fact]
     public async Task TranslateGemma_recebe_vizinhas_e_a_frase_entre_tags_e_devolve_so_a_frase()
     {
         var (tradutor, http) = Criar((_, _) => RespostaChat("We talked about the square. <t>The bench was painted blue.</t> Kids sit on it."));

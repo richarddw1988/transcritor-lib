@@ -19,7 +19,7 @@ namespace Transcritor.Traducao;
 /// </summary>
 internal sealed class TradutorOllama(
     ClienteOllama ollama, ICachePalavras cachePalavras, IOptions<OpcoesTraducao> opcoes, FonteDicionario? fonteDicionario = null)
-    : ITradutor, IServicoVerificavel, IDescarregavel
+    : ITradutor, IServicoVerificavel, IDescarregavel, IPreparavelTempoReal
 {
     private readonly OpcoesTraducao _opcoes = opcoes.Value;
 
@@ -39,6 +39,10 @@ internal sealed class TradutorOllama(
 
     public Task<string> TraduzirFraseAsync(PedidoTraducaoFrase pedido, CancellationToken cancellationToken) =>
         TraduzirComModeloAsync(pedido, ModeloTempoReal, dicaRaras: false, cancellationToken);
+
+    /// <summary>Liga o Ollama (contêiner sob demanda) e, se pedido, carrega o modelo das frases do tempo real.</summary>
+    public Task PrepararTempoRealAsync(bool carregarModelo, CancellationToken cancellationToken) =>
+        carregarModelo ? ollama.CarregarAsync(ModeloTempoReal, cancellationToken) : ollama.LigarAsync(cancellationToken);
 
     /// <summary>Modelo da frase avulsa; vazio na configuração = mesmo modelo do arquivo.</summary>
     private string ModeloTempoReal =>
