@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Transcritor.Core.Contratos;
+using Transcritor.Core.Processos;
 using Transcritor.Traducao.Cache;
 using Transcritor.Traducao.Dicionario;
 using Transcritor.Traducao.Ollama;
@@ -26,7 +27,12 @@ public static class ServiceCollectionExtensions
             var o = sp.GetRequiredService<IOptions<OpcoesTraducao>>().Value;
             http.BaseAddress = o.OllamaUrl.AbsoluteUri.EndsWith('/') ? o.OllamaUrl : new Uri(o.OllamaUrl.AbsoluteUri + "/");
             http.Timeout = o.Timeout;
-        });
+        }).AddHttpMessageHandler(sp => new ConteinerSobDemanda(
+            sp.GetRequiredService<GerenciadorConteineres>(), sp.GetRequiredService<IOptions<OpcoesTraducao>>().Value.ConteinerOllama, "api/version"));
+        services.TryAddSingleton<IExecutorProcesso, ExecutorProcesso>();
+        services.AddOptions<OpcoesConteineres>();
+        services.TryAddSingleton(sp => new GerenciadorConteineres(
+            sp.GetRequiredService<IExecutorProcesso>(), sp.GetRequiredService<IOptions<OpcoesConteineres>>().Value));
         services.TryAddSingleton<ICachePalavras, CachePalavrasEmDisco>();
         services.TryAddSingleton<FonteDicionario>();
         services.TryAddTransient<TradutorOllama>();

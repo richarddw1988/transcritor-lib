@@ -7,7 +7,8 @@
       1. Confere os pré-requisitos: .NET 10, Docker com GPU NVIDIA, ffmpeg/ffprobe, espaço do Docker e memória do WSL.
       2. Constrói as imagens do Speaches (a oficial 0.8.3 com uma correção), do WhisperLiveKit (não há imagem
          publicada) e do separador de voz (Demucs, para filmes) e sobe os serviços do docker-compose.yml.
-      3. Espera cada serviço responder.
+      3. Espera cada serviço responder. No fim, deixa Speaches, Ollama, separador e WhisperLiveKit parados: a lib
+         liga cada um quando for usá-lo e o desliga depois de 5 min sem uso.
       4. Baixa os modelos que faltam: Whisper no Speaches, os modelos de tradução no Ollama (e o da correção, com
          -ComCorrecao) e o do separador de voz (~320 MB).
       5. Compila a solução e roda "transcritor servicos" para confirmar tudo.
@@ -21,7 +22,8 @@
     conforme a internet.
 
 .PARAMETER SoConferir
-    Só confere pré-requisitos e serviços; não constrói, não sobe e não baixa nada.
+    Só confere pré-requisitos e serviços; não constrói e não baixa nada. Serviços parados (o normal) são ligados só
+    para a conferência e parados de novo no fim.
 
 .PARAMETER SemTempoReal
     Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB). Arquivo e tradução continuam funcionando.
@@ -254,7 +256,21 @@ if (-not $SoConferir -and $dockerOk) {
 
 # ---------------------------------------------------------------------------
 Escrever-Etapa '3. Serviços respondendo'
-$espera = if ($SoConferir) { 0 } else { 10 }
+# Speaches, Ollama e separador ficam parados até a lib precisar deles (GerenciadorConteineres liga na hora do uso e
+# desliga depois de 5 min sem uso): para conferir, liga os que estiverem parados e os para de novo no fim.
+$gerenciados = @('speaches', 'ollama')
+if (-not $SemSeparadorVoz) { $gerenciados += 'separador' }
+$ligados = @()
+if ($dockerOk) {
+    foreach ($c in $gerenciados) {
+        if ((& docker inspect -f '{{.State.Running}}' $c 2>$null) -eq 'false') {
+            $null = & docker start $c 2>$null
+            if ($LASTEXITCODE -eq 0) { $ligados += $c }
+        }
+    }
+    if ($ligados) { Escrever-Ok "Ligados para conferir: $($ligados -join ', ')" }
+}
+$espera = if ($SoConferir -and -not $ligados) { 0 } else { 10 }
 $speachesNoAr = Aguardar-Servico 'Speaches' "$SpeachesUrl/health" $espera
 $ollamaNoAr = Aguardar-Servico 'Ollama' "$OllamaUrl/api/version" $espera
 $separadorNoAr = if ($SemSeparadorVoz) { $false } else { Aguardar-Servico 'Separador de voz' "$SeparadorUrl/health" $espera }
@@ -470,6 +486,13 @@ else {
 }
 
 # ---------------------------------------------------------------------------
+# A lib liga cada serviço quando for usá-lo; parados, não ocupam memória.
+if ($dockerOk) {
+    $paraParar = if ($SoConferir) { $ligados } else { $gerenciados }
+    foreach ($c in $paraParar) { $null = & docker stop $c 2>$null }
+    if ($paraParar) { Escrever-Ok "Parados até a lib precisar: $($paraParar -join ', ')" }
+}
+
 Write-Host ''
 if ($problemas.Count -eq 0) {
     Write-Host 'Ambiente pronto.' -ForegroundColor Green

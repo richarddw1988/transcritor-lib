@@ -1013,6 +1013,7 @@ static ServiceProvider CriarServicos(Action<OpcoesArquivo>? ajustar, Action<Opco
     services.Configure<OpcoesArquivo>(config.GetSection("Transcritor:Arquivo"));
     services.Configure<OpcoesTraducao>(config.GetSection("Transcritor:Traducao"));
     services.Configure<OpcoesTempoReal>(config.GetSection("Transcritor:TempoReal"));
+    services.Configure<Transcritor.Core.Processos.OpcoesConteineres>(config.GetSection("Transcritor:Conteineres"));
     if (ajustar is not null)
     {
         services.PostConfigure(ajustar);

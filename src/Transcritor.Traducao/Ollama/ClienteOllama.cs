@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Transcritor.Core.Erros;
+using Transcritor.Core.Processos;
 
 namespace Transcritor.Traducao.Ollama;
 
@@ -67,8 +68,9 @@ internal sealed class ClienteOllama(HttpClient http, IOptions<OpcoesTraducao> op
 
         try
         {
-            using var resposta = await http.PostAsJsonAsync(
-                new Uri("api/generate", UriKind.Relative), new PedidoDescarregar(modelo, 0), Json, cancellationToken).ConfigureAwait(false);
+            using var pedido = ConteinerSobDemanda.MensagemSemLigar(
+                HttpMethod.Post, new Uri("api/generate", UriKind.Relative), JsonContent.Create(new PedidoDescarregar(modelo, 0), options: Json));
+            using var resposta = await http.SendAsync(pedido, cancellationToken).ConfigureAwait(false);
         }
         catch (HttpRequestException)
         {

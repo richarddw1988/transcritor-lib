@@ -6,6 +6,12 @@ public sealed class OpcoesArquivo
     /// <summary>URL base do Speaches.</summary>
     public Uri SpeachesUrl { get; set; } = new("http://localhost:8000");
 
+    /// <summary>
+    /// Contêiner do Speaches, ligado quando há o que transcrever e desligado depois de um tempo sem uso
+    /// (<see cref="Core.Processos.OpcoesConteineres"/>). Vazio: a lib não liga nem desliga, só chama.
+    /// </summary>
+    public string ConteinerSpeaches { get; set; } = "speaches";
+
     /// <summary>Modelo Whisper instalado no Speaches.</summary>
     public string ModeloTranscricao { get; set; } = "Systran/faster-whisper-large-v3";
 
@@ -90,6 +96,12 @@ public sealed class OpcoesArquivo
 
     /// <summary>URL do separador de voz.</summary>
     public Uri SeparadorUrl { get; set; } = new("http://localhost:8002");
+
+    /// <summary>
+    /// Contêiner do separador de voz, ligado só quando um arquivo vai ser separado e desligado depois de um tempo sem uso
+    /// (<see cref="Core.Processos.OpcoesConteineres"/>). Vazio: a lib não liga nem desliga, só chama.
+    /// </summary>
+    public string ConteinerSeparador { get; set; } = "separador";
 
     /// <summary>Tamanho das partes mandadas ao separador (o Demucs carrega a parte inteira na memória).</summary>
     public double SegundosPorParteSeparacao { get; set; } = 600;

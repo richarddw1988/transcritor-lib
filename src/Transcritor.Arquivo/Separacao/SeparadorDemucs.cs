@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Options;
 using Transcritor.Arquivo.Midia;
+using Transcritor.Core.Processos;
 using Transcritor.Core.Contratos;
 using Transcritor.Core.Erros;
 
@@ -138,7 +139,8 @@ public sealed class SeparadorDemucs(HttpClient http, IOptions<OpcoesArquivo> opc
     {
         try
         {
-            using var resposta = await http.PostAsync(new Uri("descarregar", UriKind.Relative), null, cancellationToken).ConfigureAwait(false);
+            using var pedido = ConteinerSobDemanda.MensagemSemLigar(HttpMethod.Post, new Uri("descarregar", UriKind.Relative));
+            using var resposta = await http.SendAsync(pedido, cancellationToken).ConfigureAwait(false);
         }
         catch (HttpRequestException)
         {

@@ -31,20 +31,25 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IConversorMidia>(sp => sp.GetRequiredService<ConversorFfmpeg>());
         services.TryAddSingleton<ICacheResultado, CacheEmDisco>();
         services.TryAddSingleton<CoordenadorGpu>();
+        services.AddOptions<OpcoesConteineres>();
+        services.TryAddSingleton(sp => new GerenciadorConteineres(
+            sp.GetRequiredService<IExecutorProcesso>(), sp.GetRequiredService<IOptions<OpcoesConteineres>>().Value));
 
         services.AddHttpClient<SpeachesMotorTranscricao>((sp, http) =>
         {
             var o = sp.GetRequiredService<IOptions<OpcoesArquivo>>().Value;
             http.BaseAddress = ComBarraFinal(o.SpeachesUrl);
             http.Timeout = o.TimeoutTranscricao;
-        });
+        }).AddHttpMessageHandler(sp => new ConteinerSobDemanda(
+            sp.GetRequiredService<GerenciadorConteineres>(), sp.GetRequiredService<IOptions<OpcoesArquivo>>().Value.ConteinerSpeaches, "health"));
         services.TryAddTransient<IMotorTranscricao>(sp => sp.GetRequiredService<SpeachesMotorTranscricao>());
         services.AddHttpClient<SeparadorDemucs>((sp, http) =>
         {
             var o = sp.GetRequiredService<IOptions<OpcoesArquivo>>().Value;
             http.BaseAddress = ComBarraFinal(o.SeparadorUrl);
             http.Timeout = o.TimeoutSeparacao;
-        });
+        }).AddHttpMessageHandler(sp => new ConteinerSobDemanda(
+            sp.GetRequiredService<GerenciadorConteineres>(), sp.GetRequiredService<IOptions<OpcoesArquivo>>().Value.ConteinerSeparador, "health"));
         services.TryAddTransient<ISeparadorVoz>(sp => sp.GetRequiredService<SeparadorDemucs>());
         services.TryAddTransient<ITranscritorArquivo, TranscritorArquivo>();
 

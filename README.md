@@ -64,13 +64,16 @@ WhisperLiveKit, um arquivo corrigido ([docker/whisperlivekit](docker/whisperlive
 `docker-compose.yml`, faz a detecção de idioma escolher só entre português e inglês. O separador de voz é uma imagem
 do projeto ([docker/separador](docker/separador/servidor.py)): Demucs atrás de uma API HTTP pequena.
 
+Os quatro contêineres ficam parados até a lib precisar deles: ela liga cada um na hora do uso e o desliga depois de
+5 min sem uso (o WhisperLiveKit quando a sessão de tempo real abre; os outros na primeira chamada ao serviço).
+
 Por que esses modelos, o que mais foi testado e quanto cada um custa: [docs/modelos.md](docs/modelos.md).
 
 ## Projetos
 
 | Projeto | Papel |
 |---|---|
-| `Transcritor.Core` | Contratos (`ITranscritorArquivo`, `ITradutor`, `ITranscritorTempoReal`, ...), modelos do JSON e erros. Sem dependências. |
+| `Transcritor.Core` | Contratos (`ITranscritorArquivo`, `ITradutor`, `ITranscritorTempoReal`, ...), modelos do JSON, erros, a vez na GPU e o liga-desliga dos contêineres sob demanda. Sem dependências. |
 | `Transcritor.Arquivo` | ffprobe/ffmpeg → WAV 16 kHz mono → Speaches → frases e palavras → tradução → análise → JSON, com cache. |
 | `Transcritor.Traducao` | Tradução pt ↔ en pelo sentido via Ollama (frase com as vizinhas como contexto, palavra com a frase), análise de sentido e correção da transcrição (homófonos por BERT em ONNX, na CPU). |
 | `Transcritor.TempoReal` | Cliente WebSocket do WhisperLiveKit: eventos `Provisorio`/`Confirmado` como `IAsyncEnumerable`, tradução dos trechos. Liga o contêiner quando uma sessão abre e desliga depois de 5 min sem uso; a sessão tem prioridade na GPU sobre o processamento de arquivo. |

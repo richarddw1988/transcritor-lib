@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
+using Transcritor.Core.Processos;
 using Transcritor.Core;
 using Transcritor.Core.Contratos;
 using Transcritor.Core.Erros;
@@ -87,7 +88,8 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
             if (await AceitaDescarregarAsync(cancellationToken).ConfigureAwait(false))
             {
                 var modelo = Uri.EscapeDataString(_opcoes.ModeloTranscricao).Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
-                using var resposta = await http.DeleteAsync(new Uri($"api/ps/{modelo}", UriKind.Relative), cancellationToken).ConfigureAwait(false);
+                using var pedido = ConteinerSobDemanda.MensagemSemLigar(HttpMethod.Delete, new Uri($"api/ps/{modelo}", UriKind.Relative));
+                using var resposta = await http.SendAsync(pedido, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (HttpRequestException)
@@ -104,7 +106,8 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
 
     private async Task<bool> AceitaDescarregarAsync(CancellationToken cancellationToken)
     {
-        using var saude = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken).ConfigureAwait(false);
+        using var pedido = ConteinerSobDemanda.MensagemSemLigar(HttpMethod.Get, new Uri("health", UriKind.Relative));
+        using var saude = await http.SendAsync(pedido, cancellationToken).ConfigureAwait(false);
         return saude.IsSuccessStatusCode && saude.Headers.Contains(CabecalhoDescarregar);
     }
 
@@ -116,7 +119,8 @@ public sealed class SpeachesMotorTranscricao(HttpClient http, IOptions<OpcoesArq
         {
             try
             {
-                using var resposta = await http.GetAsync(new Uri("api/ps", UriKind.Relative), cancellationToken).ConfigureAwait(false);
+                using var pedido = ConteinerSobDemanda.MensagemSemLigar(HttpMethod.Get, new Uri("api/ps", UriKind.Relative));
+                using var resposta = await http.SendAsync(pedido, cancellationToken).ConfigureAwait(false);
                 var lista = resposta.IsSuccessStatusCode
                     ? await resposta.Content.ReadFromJsonAsync<ModelosCarregados>(cancellationToken).ConfigureAwait(false)
                     : null;

@@ -2,4 +2,7 @@
   <PropertyGroup>
     <Description>Contratos e modelos da Transcritor lib. Sem dependências externas.</Description>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Transcritor.Tests" />
+  </ItemGroup>
 </Project>

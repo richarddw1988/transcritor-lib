@@ -1024,6 +1024,23 @@ O Ollama descarrega um modelo depois de 10 min sem uso (`KeepAlive`), e o Speach
 `docker-compose.yml`; até 2026-11-22 o arquivo usava `STT_MODEL_TTL`, nome que a v0.8 ignora, e valia o padrão de 300 s
 do mesmo jeito). No processamento de arquivo a lib não espera esses tempos (abaixo).
 
+### Contêineres ligados sob demanda (2026-11-25)
+
+Parados sem modelo carregado, os contêineres ainda ocupavam RAM da VM do WSL: Speaches ~0,8 GB, Ollama ~0,7 GB e
+separador ~0,3 GB (`docker stats`). Agora ficam parados, e a lib liga cada um na primeira chamada e o desliga depois
+de 5 min sem uso (`Transcritor:Conteineres`, manual seção 8). Tempo do `docker start` até o serviço responder, medido
+com a GPU livre, duas vezes cada:
+
+| Contêiner | 1ª subida | 2ª subida | Rota conferida |
+|---|---|---|---|
+| speaches | 16,8 s | 5,8 s | `/health` |
+| ollama | 16,5 s | 7,6 s | `/api/version` |
+| separador | 6,0 s | 3,9 s | `/health` |
+
+A carga do modelo vem depois e não mudou (Whisper ~5–9 s; modelo de 4 GB do Ollama ~4 s). Parar os três juntos levou
+4,0 s. Com tudo parado, o `servicos` do Cli levou 36,6 s (liga os três, confere e para). Um áudio de 9 s com correção e
+tradução levou 164 s; o mesmo pedido com os contêineres já no ar não foi medido.
+
 ### Um modelo por vez no processamento de arquivo (`DescarregarModelosEntreEtapas`)
 
 Ao fim de cada etapa a lib tira o modelo usado da GPU antes de a próxima carregar o seu, e antes de cada etapa tira

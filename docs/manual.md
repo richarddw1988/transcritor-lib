@@ -92,13 +92,16 @@ O script é idempotente (pode rodar quantas vezes quiser, só faz o que falta):
 3. espera cada serviço responder, confere se os contêineres enxergam a GPU e se o Speaches no ar é a imagem do
    projeto (aviso, se não for: a lib não consegue tirar o Whisper da GPU entre as etapas); depois para o WhisperLiveKit,
    que a lib liga sozinha quando uma sessão de tempo real abre (seção 8). Com `-SoConferir`, o WhisperLiveKit parado
-   conta como certo;
+   conta como certo, e Speaches, Ollama e separador parados são ligados só para a conferência;
 4. baixa os modelos que faltam (Whisper no Speaches; translategemma 12b e 4b, gemma3 4b e, para a correção, gemma3
    12b no Ollama);
 5. compila a solução e roda `transcritor servicos`;
 6. baixa o Wiktionary e as listas de frequência e gera o dicionário (`dados/dicionario.db`; `-SemDicionario` pula);
 7. converte para ONNX, num contêiner, os dois BERT dos homófonos e da conferência da correção (`dados/bert`;
    `-SemHomofonos` pula). Sem eles, a correção pelo modelo não roda (5.5).
+
+No fim, Speaches, Ollama e separador também ficam parados: a lib liga cada contêiner na hora em que vai usá-lo e o
+desliga depois de 5 min sem uso (seção 8).
 
 A pasta `dados/` fica dentro do clone: um clone novo precisa dos passos 6 e 7 de novo (o resto fica no Docker).
 
@@ -108,7 +111,7 @@ Opções do script:
 
 | Opção | Efeito |
 |---|---|
-| `-SoConferir` | Só confere; não constrói, não sobe, não baixa |
+| `-SoConferir` | Só confere; não constrói, não baixa (liga os serviços parados só para conferir) |
 | `-SemTempoReal` | Não constrói nem sobe o WhisperLiveKit (economiza ~22 GB); arquivo e tradução continuam |
 | `-SemSeparadorVoz` | Não constrói nem sobe o separador de voz (economiza ~3 GB). Ponha `"SepararVoz": "Nunca"` no `appsettings.json`, senão filmes 5.1/7.1 falham |
 | `-ComAnaliseDeSentido` | Também baixa o `gemma3:12b` (análise de sentido, ~8 GB) |
@@ -137,6 +140,8 @@ dotnet run --project src/Transcritor.Cli -- servicos
 Mostra `[ OK ]` ou `[FALHA]` com o motivo para ffmpeg, Speaches, separador de voz (só com `SepararVoz` diferente de
 `Nunca`), Ollama (e modelos) e WhisperLiveKit. O WhisperLiveKit
 parado aparece como `[ OK ] WhisperLiveKit: parado; liga sozinho quando uma sessão de tempo real abrir` (seção 8).
+Speaches, Ollama e separador parados são ligados para a conferência (a lib liga cada um quando vai usá-lo) e parados
+de novo quando o comando termina.
 Para tirar os modelos da GPU (ex.: antes de um jogo ou de outro programa pesado), veja a seção 4.9.
 
 ### 4.2 Transcrever (e traduzir) um arquivo
@@ -406,8 +411,23 @@ Ainda não há pacote NuGet: referencie os projetos.
    services.Configure<OpcoesArquivo>(config.GetSection("Transcritor:Arquivo"));
    services.Configure<OpcoesTraducao>(config.GetSection("Transcritor:Traducao"));
    services.Configure<OpcoesTempoReal>(config.GetSection("Transcritor:TempoReal"));
+   services.Configure<OpcoesConteineres>(config.GetSection("Transcritor:Conteineres"));
    ```
    Ou direto no código: `services.AddTranscritorTraducao(o => o.OllamaUrl = new Uri("http://outra-maquina:11434"));`
+3. Descarte o `ServiceProvider` ao fechar o programa (`using`/`DisposeAsync`): os contêineres que ele ligou e ninguém
+   mais está usando são desligados na hora, em vez de ficarem no ar (o desligamento por tempo ocioso morre com o
+   programa).
+
+**Contêineres sob demanda.** Speaches, separador de voz e Ollama ficam parados até a lib precisar deles. O
+`GerenciadorConteineres` (singleton, `Transcritor.Core.Processos`, registrado pelo `AddTranscritorArquivo` e pelo
+`AddTranscritorTraducao`) liga o contêiner na primeira chamada ao serviço, espera ele responder e o desliga depois de
+5 min sem uso (`OpcoesConteineres.DesligarAposOcioso`, seção 6). A 1ª chamada depois de parado paga a subida (seção 8).
+Vários programas da máquina podem usar o mesmo contêiner: cada um deixa marcas de uso em
+`%LOCALAPPDATA%\Transcritor\conteineres`, e nenhum desliga o que outro está usando ou usou dentro do tempo ocioso. Se
+o serviço roda fora do docker (ex.: Ollama instalado no Windows), deixe o nome do contêiner vazio
+(`OpcoesTraducao.ConteinerOllama = ""`) ou desligue tudo com `OpcoesConteineres.Gerenciar = false`. Para um HttpClient
+seu falar com um desses serviços pelo mesmo controle, use `ConteinerSobDemanda` como handler
+(`.AddHttpMessageHandler(sp => new ConteinerSobDemanda(sp.GetRequiredService<GerenciadorConteineres>(), "ollama", "api/version"))`).
 
 ### 5.1 Arquivo
 ```csharp
@@ -599,6 +619,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | Chave | Padrão | O que é |
 |---|---|---|
 | `SpeachesUrl` | `http://localhost:8000` | Speaches |
+| `ConteinerSpeaches` | `speaches` | Contêiner do Speaches, ligado e desligado sob demanda (`Transcritor:Conteineres`); vazio: a lib só chama |
 | `ModeloTranscricao` | `Systran/faster-whisper-large-v3` | Whisper do arquivo |
 | `Idioma` | `null` (automático) | Força `pt` ou `en` |
 | `ConferirIdioma` | `true` | Sem `Idioma`, confere a detecção do Whisper: transcreve o começo do áudio também no outro idioma (português ↔ inglês) e fica com o que saiu com mais confiança por palavra. Evita a fala com sotaque voltar traduzida para o idioma errado. Custa uma transcrição curta a mais por arquivo (duas nos arquivos mais longos que a amostra). Só para pt/en: outro idioma detectado fica como veio |
@@ -615,6 +636,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | `SepararVoz` | `Filmes` | Separa a voz da música e dos efeitos antes de transcrever (serviço `separador`, Demucs). `Filmes`: só faixa com canal central (5.1/7.1); `Sempre`: tudo (não medido em fala limpa); `Nunca`. No filme de 2 h: 11,1% → 9,7–10,7% de erro, ~15 min a mais |
 | `PreencherLacunas` | `true` | Com a voz separada, transcreve de novo, sozinho, cada trecho em que a voz tem energia e não saiu palavra; só entra o que tiver chance de silêncio abaixo de 0,2 e não for frase inventada. No filme de 2 h: 10,7% → 9,5%, ~11 min a mais |
 | `SeparadorUrl` | `http://localhost:8002` | Separador de voz |
+| `ConteinerSeparador` | `separador` | Contêiner do separador de voz, ligado só quando um arquivo vai ser separado; vazio: a lib só chama |
 | `SegundosPorParteSeparacao` | `600` | Tamanho das partes mandadas ao separador (o Demucs carrega a parte inteira na memória; o filme inteiro derrubou a VM do WSL) |
 | `TimeoutSeparacao` | `00:15:00` | Tempo máximo por parte |
 | `UsarCanalCentral` | `true` | Faixa com canal central (5.1, 7.1…, pelo layout do ffprobe) vira só o canal central, onde fica o diálogo. No filme de 2 h: 15,5% → 11,1% de erro. Desligue se um filme tiver o diálogo fora do canal central |
@@ -633,6 +655,7 @@ Seções do `appsettings.json` (ou variáveis de ambiente `TRANSCRITOR_Transcrit
 | Chave | Padrão | O que é |
 |---|---|---|
 | `OllamaUrl` | `http://localhost:11434` | Ollama |
+| `ConteinerOllama` | `ollama` | Contêiner do Ollama, ligado na 1ª tradução, correção ou análise e desligado sem uso (`Transcritor:Conteineres`); vazio (Ollama fora do docker): a lib só chama |
 | `ModeloFrases` | `translategemma:12b` | Frases do arquivo |
 | `ModeloFrasesTempoReal` | `translategemma:4b` | Frases no tempo real e comando `traduzir` (vazio = `ModeloFrases`) |
 | `ModeloPalavras` | `gemma3:4b` | Palavra solta |
@@ -694,6 +717,16 @@ detecção escolhe (`TRANSCRITOR_IDIOMAS`, padrão `pt,en`; o WhisperLiveKit ori
 ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o arquivo
 `docker/whisperlivekit/align_att_base.py`, montado por cima do original da v0.2.27.
 
+**`Transcritor:Conteineres`** (Speaches, separador e Ollama; o WhisperLiveKit segue `Transcritor:TempoReal`)
+
+| Chave | Padrão | O que é |
+|---|---|---|
+| `Gerenciar` | `true` | Liga o contêiner parado na primeira chamada ao serviço e o desliga depois de `DesligarAposOcioso` sem uso; `false`: a lib só chama, e os serviços precisam estar no ar |
+| `CaminhoDocker` | `docker` | Executável do docker; sem ele a lib só chama os serviços |
+| `TempoMaximoSubida` | `00:03:00` | Quanto esperar o serviço ligado responder |
+| `DesligarAposOcioso` | `00:05:00` | Sem uso de nenhum programa por este tempo, desliga; `null` não desliga. Ao fechar o programa, o que ele usou e ninguém mais usa é desligado na hora |
+| `PastaUso` | `%LOCALAPPDATA%\Transcritor\conteineres` | Marcas de uso entre os programas da máquina |
+
 ## 7. Cache
 
 - Resultados de arquivo: um JSON por chave em `%LOCALAPPDATA%\Transcritor\cache`. A chave junta o hash do arquivo, o
@@ -743,6 +776,15 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
     `f = open(caminho, "a+b"); f.seek(1 << 20); msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)`; para soltar, fechar
     o arquivo (testado: o Cli esperou a vez até o script soltar). A linha 1 do arquivo diz quem está com a vez; o
     script pode escrever ali o nome dele depois de travar, senão o aviso mostra o último dono gravado.
+- **Contêineres sob demanda** (`Transcritor:Conteineres`): Speaches, separador e Ollama ficam parados, sem ocupar GPU
+  nem memória da VM do WSL (parados com o modelo fora da GPU, ocupavam ~0,8, ~0,3 e ~0,7 GB de RAM). A lib liga o
+  contêiner na primeira chamada ao serviço e espera ele responder: medido em 2026-11-25, 6–17 s o Speaches, 8–17 s o
+  Ollama e 4–6 s o separador (a 1ª subida depois de um tempo é a mais lenta), mais a carga do modelo. Depois de 5 min
+  sem uso de nenhum programa (`DesligarAposOcioso`) ele é desligado; o programa que fecha desliga na hora o que usou,
+  se ninguém mais estiver usando. Por isso cada comando do Cli paga a subida dos serviços que usa. Um programa só
+  desliga um contêiner se nenhum outro programa da máquina estiver usando nem tiver usado nos últimos 5 min (marcas em
+  `%LOCALAPPDATA%\Transcritor\conteineres`). Chamadas que só tiram o modelo da GPU não ligam o contêiner. Se alguém
+  parar o contêiner à mão no meio do uso, a próxima chamada o liga de novo;
 - O separador de voz (filmes) carrega o Demucs (~1,3 GB) na transcrição e a lib o tira da GPU antes do Whisper; no
   filme de 2 h o pico da GPU inteira foi 6,7 GB.
 - Ver o uso: `nvidia-smi` e `docker exec ollama ollama ps`.
@@ -767,7 +809,9 @@ ela espera antes de decidir (`TRANSCRITOR_SEGUNDOS_DETECCAO`, 2 s). Valem para o
 | Sessão de tempo real falha com "foi ligado mas o WhisperLiveKit não aceitou conexão" | O contêiner subiu mas não carregou o modelo a tempo | `docker logs whisperlivekit`; aumente `TempoMaximoSubida` na 1ª vez (baixa o modelo) |
 | Filme dublado transcrito na língua errada | A lib pega a 1ª faixa de áudio sem `--idioma` | `--idioma en` (ou `pt`) escolhe a faixa marcada com esse idioma |
 | Trecho longo de filme sem nenhuma fala no JSON, ou "no, no, no…" repetido | Loop do Whisper ou janela com música tratada como sem fala | Já tratado com `SegundosPorPedaco=30` (padrão); se aparecer com `0`, volte ao padrão |
-| Filme 5.1 falha com "O Separador de voz não respondeu" | Contêiner `separador` parado ou não instalado (`-SemSeparadorVoz`) | `docker compose up -d separador`, ou `"SepararVoz": "Nunca"` no `appsettings.json` |
+| Filme 5.1 falha com "O Separador de voz não respondeu" | Contêiner `separador` não instalado (`-SemSeparadorVoz`) ou `Transcritor:Conteineres:Gerenciar` desligado com ele parado | `docker compose up -d separador`, ou `"SepararVoz": "Nunca"` no `appsettings.json` |
+| "Não foi possível ligar o contêiner …" ou "foi ligado, mas o serviço não respondeu" | Contêiner não criado (o script não rodou), Docker Desktop fechado ou serviço lento na 1ª subida | `.\scripts\preparar-ambiente.ps1`; `docker logs <contêiner>`; aumente `TempoMaximoSubida` |
+| Primeira chamada demora 5–20 s a mais | O contêiner estava parado e a lib o ligou (seção 8) | Normal. Para deixar sempre no ar: `"DesligarAposOcioso": null` em `Transcritor:Conteineres` (nunca desliga) |
 | Filme 5.1 transcrito quase vazio | Diálogo fora do canal central (mixagem rara) | `UsarCanalCentral=false` |
 | Palavra repetida dezenas de vezes até o fim de um trecho ("peraí, peraí, …") e o resto da fala sumiu | O Whisper esticou uma repetição real (loop) | Já tratado: o pedaço é refeito com temperatura maior. Se sobrar, apague o cache do arquivo e rode de novo (sai diferente) |
 | Arquivo em inglês volta traduzido para o português (ou o contrário) | Detecção errada do Whisper com sotaque | Já tratado com `ConferirIdioma=true` (padrão); se sobrar, `--idioma en` |

@@ -7,6 +7,12 @@ public sealed class OpcoesTraducao
     public Uri OllamaUrl { get; set; } = new("http://localhost:11434");
 
     /// <summary>
+    /// Contêiner do Ollama, ligado na primeira tradução, correção ou análise e desligado depois de um tempo sem uso
+    /// (<see cref="Core.Processos.OpcoesConteineres"/>). Vazio (ex.: Ollama instalado fora do docker): a lib só chama.
+    /// </summary>
+    public string ConteinerOllama { get; set; } = "ollama";
+
+    /// <summary>
     /// Modelo para as frases de um arquivo (processado antes de assistir; qualidade vale mais que velocidade).
     /// No audiolivro de teste o 12b corrigiu erros de gramática e sentido do 4b, a ~6,7 s por frase.
     /// </summary>
