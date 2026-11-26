@@ -59,3 +59,5 @@ Diferença pequena (2–4 palavras em 51) e uma só gravação: não dá veredit
 - Próximo passo para decidir com dados: gravar 1–5 min de áudio real
   (`transcritor captura --segundos 60 --wav teste.wav`), transcrever à mão e medir `medium`, `large-v3-turbo`
   e Qwen3-ASR-1.7B no mesmo arquivo.
+- Medido em 2026-11-25 (detalhes em [modelos.md](modelos.md), tabela "Transcrição"): o Qwen3-ASR-1.7B ganhou do
+  Whisper large-v3 em frases curtas em inglês e no CORAA, mas perdeu no filme de 2 h (17,7% contra 10,1%). Não adotado.

@@ -256,8 +256,12 @@ não foram conferidos aqui, salvo onde dito.
   Medido aqui: acima.
 - **Modelos mais novos:** no inglês espontâneo (AMI), Cohere Transcribe 03-2026 (8,15) e Granite 4.0 1B Speech (8,44)
   contra 15,95 do Whisper large-v3, mas sem tempo por palavra (precisaria de alinhamento forçado depois). Em português
-  quase não há número publicado por idioma; o Whisper large-v3 empata em fala lida (FLEURS pt 3,9). Não medido aqui.
-- **Combinar sistemas (ROVER):** ~14–20% menos erro publicado com sistemas não-Whisper; 2–3× o tempo. Não medido.
+  quase não há número publicado por idioma; o Whisper large-v3 empata em fala lida (FLEURS pt 3,9). Medido aqui o
+  Qwen3-ASR-1.7B (tabela "Transcrição" em "Modelos testados"): melhor que o Whisper em frases curtas (AMI 14,5% contra
+  20,0%), mas pior no filme (erro por trecho 17,7–20,7% contra 10,1%; nomes 47–73% contra 88%). Não adotado.
+- **Combinar sistemas (ROVER):** ~14–20% menos erro publicado com sistemas não-Whisper; 2–3× o tempo. Não medido; o
+  único segundo modelo testado no filme (Qwen3-ASR) erra quase o dobro do Whisper, e o ROVER precisa de sistemas de
+  qualidade parecida para ganhar.
 - **Correção por LLM com N hipóteses:** ~30% relativo publicado, mas o Speaches não devolve N hipóteses e o LLM não
   recupera palavra que não foi ouvida. Não medido.
 - **Detecção de fala para gritos e falas curtas:** o Silero perde fala atípica (sussurro: 37% das janelas no limiar
@@ -417,7 +421,8 @@ Precisão = marcadas que estavam erradas; cobertura = erros que foram marcados.
 | `large-v3-turbo` | tempo real | gravação real: WER 25,5% (`pt`) / 29,4% (auto); atraso 3,3–3,6 s; inventou "Hello"/"Tchau" no silêncio do começo | **em uso** | [pesquisa-asr.md](pesquisa-asr.md) |
 | `faster-whisper-large-v3` no Speaches 0.9.0-rc.3 | arquivo | fala do usuário (20 frases, 2026-11-22): WER 7,5% (0.8: 8,0%), mas frases sem ponto final e começando com minúscula ("my aunt's life near the beach but they never swim in the sea"); não devolve a confiança das palavras. A 0.9 sempre corta o áudio por VAD e transcreve os pedaços em lote (`BatchedInferencePipeline`), sem o texto anterior como contexto; não dá para desligar | não usado: a montagem das frases depende da pontuação, e a correção da confiança | abaixo |
 | `large-v3-turbo` (`deepdml/faster-whisper-large-v3-turbo-ct2`, 1,5 GB) no Speaches | arquivo | 2026-11-23, opções padrão: 49 gravações do usuário WER **8,1%** contra 6,0% do large-v3 (37 trocas contra 26); audiolivro de 17 min transcrito em **58 s** contra 192 s (3,3× mais rápido), mas 37 palavras diferem do large-v3 e quase todas pioram: pulou uma frase inteira ("you disgusting little beast or you filthy nuisance or you miserable creature"), "murmured" → "and wermord", "Aunt" → "and"; acertou "aunts" onde o large-v3 ouviu "arts" | não adotado: nos arquivos a qualidade vale mais que a velocidade | recomendado em artigos de 2026 (Gladia, Google) pelo equilíbrio velocidade/precisão, sem números para português |
-| Qwen3-ASR-1.7B, Voxtral Mini Realtime, Parakeet TDT v3, Canary-1B-v2 | só pesquisa | números de benchmark coletados; não instalados | não testados aqui | [pesquisa-asr.md](pesquisa-asr.md) |
+| Qwen3-ASR-1.7B (`Qwen/Qwen3-ASR-1.7B`, ~2 bi de parâmetros, bf16) + Qwen3-ForcedAligner-0.6B para o tempo das palavras | arquivo | 2026-11-25, mesma normalização do texto nos dois. Frases curtas, contra o large-v3 do Speaches: FLEURS pt 4,10% (Whisper 3,82%), FLEURS en **4,50%** (6,83%), CORAA **16,48%** (19,60%), AMI **14,53%** (20,02%); 400 frases em 78 s, lote de 16, pico de 6,7 GB. No filme de 2 h (voz separada, contra a legenda SDH): erro por trecho 17,7% sem a lista de nomes e 20,7% com ela (Whisper 10,1%); nomes 47% / 73% (Whisper 88%); 850 / 347 palavras fora de qualquer legenda (Whisper 33): escreveu grunhidos como palavras. 10 min para o filme com lote de 4 (9,6 GB de pico); com lote de 8 encheu os 12 GB e não terminou em 6 h. Erros vistos: números por extenso, trecho repetido ("about forty of the about forty"), palavra inventada | não adotado: ganha nas frases curtas, mas perde feio no filme, que é o uso real. Imagem e modelos apagados do disco | para testar de novo: `docker pull qwenllm/qwen3-asr:latest` (42,9 GB; traz vLLM e PyTorch) e, dentro dele, `Qwen3ASRModel.from_pretrained("Qwen/Qwen3-ASR-1.7B", forced_aligner="Qwen/Qwen3-ForcedAligner-0.6B")` baixa os modelos do Hugging Face (4,7 + 1,7 GB) |
+| Voxtral Mini Realtime, Parakeet TDT v3, Canary-1B-v2 | só pesquisa | números de benchmark coletados; não instalados | não testados aqui | [pesquisa-asr.md](pesquisa-asr.md) |
 
 ### Tradução e análise
 
