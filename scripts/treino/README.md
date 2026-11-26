@@ -15,6 +15,7 @@ Speaches (`ModeloTranscricao`) depois de medido. Números e conclusões do teste
 | `preparar_episodios.sh` | Vídeos `.mkv` com legenda em inglês embutida → `en-sdh.srt` + voz separada (`voz16k.wav`) de cada um |
 | `treinar.py` | Treino LoRA com os pares de uma ou mais pastas (`pasta:metade1` usa só a 1ª metade dela); `--teste N` só mede memória e tempo |
 | `avaliar.py` | Erro do modelo original ou com o adaptador; `--metade2` mede só a metade que o treino não viu |
+| `converter.py` | Junta o adaptador ao modelo e converte para CTranslate2 fp16, para usar no Speaches |
 
 ## Passo a passo (um filme)
 
@@ -44,10 +45,27 @@ Vários vídeos: `bash scripts/treino/preparar_episodios.sh C:\treino\eps ep1.mk
 vídeos com a lib (`transcritor arquivo ... --idioma en --saida Ingles`), `montar_pares.py` em cada um e
 `treinar.py /treino/lora 2 /treino/eps/ep1/pares /treino/eps/ep2/pares ...`, deixando um vídeo de fora para medir.
 
-## Falta para virar algo útil
+## Usar no Speaches (para medir na lib)
 
-- **Mais títulos:** com um filme só o modelo decora as falas; com o filme e 3 episódios de uma série melhorou no
-  episódio de fora sem piorar as falas curtas, mas ainda é uma série só.
-- **Usar no Speaches:** juntar o adaptador ao modelo (`merge_and_unload`), converter com `ct2-transformers-converter`
-  (vai na imagem) e apontar `ModeloTranscricao` para ele — não testado.
-- Medir também no português e nas gravações do usuário antes de adotar.
+```powershell
+# Junta o adaptador ao modelo e converte para CTranslate2 fp16 (formato do faster-whisper)
+docker run --rm --gpus all -v transcritor-treino-hf:/root/.cache/huggingface -v C:\treino:/treino -v ${PWD}\scripts\treino:/s `
+  transcritor/treino:whisper-lora python /s/converter.py /treino/lora /treino/ct2
+```
+
+Para o Speaches enxergar o modelo, copie `C:\treino\ct2` para o volume `transcritor_hf-cache-speaches` imitando um
+repositório do Hugging Face: `models--transcritor--whisper-large-v3-lora-filmes/refs/main` com um hash qualquer e os
+arquivos em `snapshots/<hash>/`, mais um `README.md` com o cabeçalho do `Systran/faster-whisper-large-v3`
+(`library_name: ctranslate2`). Depois `transcritor arquivo video.mkv --modelo transcritor/whisper-large-v3-lora-filmes`.
+Ao terminar, apague a pasta do volume (3 GB).
+
+## Resultado (2026-11-26)
+
+Com o filme e 3 episódios, o LoRA melhorou os trechos com fala (episódio de fora 6,65% → 5,69%), mas **na lib piorou**:
+episódio 8,79% → 9,99% e filme 9,49% → 15,38%, porque escreve interjeições nos trechos sem fala que a lib manda — no
+treino só viu trechos com fala. Português e gravações do usuário não melhoraram. Números em
+[docs/modelos.md](../../docs/modelos.md). Para tentar de novo:
+
+- incluir trechos sem fala (música, briga, barulho) com texto vazio, tirados dos intervalos entre legendas;
+- muito mais títulos (10–20), de séries e filmes diferentes;
+- medir sempre na lib inteira, não só nos trechos da legenda.
