@@ -1,6 +1,7 @@
 # Treino LoRA do Whisper large-v3 nos pares de uma pasta (pares.json + WAVs). Roda na imagem de treino.
-# Uso: python treinar.py /pares /saida EPOCAS [--teste N]
-#   Treina na 1ª metade do filme (pela ordem de tempo) e deixa a 2ª para medir.
+# Uso: python treinar.py /saida EPOCAS /pares1[:metade1] [/pares2 ...] [--teste N]
+#   Treina com todos os pares das pastas; ":metade1" usa só a 1ª metade daquela pasta (pela ordem de tempo),
+#   deixando a 2ª para medir (avaliar.py --metade2).
 #   --teste N: só N passos de um trecho, com os trechos de texto mais longo (pior caso de memória), sem salvar.
 # Memória: modelo em fp16 congelado, LoRA em fp32 com autocast, recálculo na volta (gradient checkpointing),
 # 1 trecho por vez acumulando ACUMULAR. A GPU fica limitada a 11 GB para dar erro em vez de transbordar
@@ -10,7 +11,8 @@ import numpy as np, torch
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 from peft import LoraConfig, get_peft_model
 
-pasta, saida, epocas = sys.argv[1], sys.argv[2], int(sys.argv[3])
+saida, epocas = sys.argv[1], int(sys.argv[2])
+pastas = [a for a in sys.argv[3:] if a.startswith('/')]
 teste = int(sys.argv[sys.argv.index('--teste') + 1]) if '--teste' in sys.argv else 0
 ACUMULAR, LR = 8, 5e-4
 torch.cuda.set_per_process_memory_fraction(11 / torch.cuda.get_device_properties(0).total_memory * 2**30)
@@ -32,15 +34,20 @@ print('VRAM carregado (GB):', round(torch.cuda.memory_allocated() / 2**30, 2), f
 def ler(c):
     with wave.open(c) as w: return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
 
-pares = sorted(json.load(open(f'{pasta}/pares.json', encoding='utf-8')), key=lambda p: p['inicio'])
-treino = pares[:len(pares) // 2]
+treino = []
+for item in pastas:
+    pasta, _, parte = item.partition(':')
+    pares = sorted(json.load(open(f'{pasta}/pares.json', encoding='utf-8')), key=lambda p: p['inicio'])
+    if parte == 'metade1': pares = pares[:len(pares) // 2]
+    treino += [dict(p, audio=f'{pasta}/{p["audio"]}') for p in pares]
+    print(f'{item}: {len(pares)} trechos, {sum(p["fim"] - p["inicio"] for p in pares) / 60:.1f} min', flush=True)
 if teste:
     treino = sorted(treino, key=lambda p: -len(p['texto']))[:teste]
-print(f'treino: {len(treino)} trechos, até {treino[-1]["fim"] if not teste else "-"} s do filme', flush=True)
+print(f'treino: {len(treino)} trechos', flush=True)
 
 inicio_id = modelo.config.decoder_start_token_id
 def exemplo(p):
-    x = proc(ler(f'{pasta}/{p["audio"]}'), sampling_rate=16000, return_tensors='pt').input_features.to('cuda', torch.float16)
+    x = proc(ler(p['audio']), sampling_rate=16000, return_tensors='pt').input_features.to('cuda', torch.float16)
     ids = proc.tokenizer(p['texto']).input_ids
     if ids[0] == inicio_id: ids = ids[1:]
     return x, torch.tensor([ids], device='cuda')
