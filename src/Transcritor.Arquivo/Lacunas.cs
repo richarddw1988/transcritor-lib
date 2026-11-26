@@ -27,7 +27,10 @@ internal static class Lacunas
     /// <summary>Duração mínima de uma lacuna.</summary>
     public const double DuracaoMinima = 0.5;
 
-    /// <summary>Contexto de áudio em volta da lacuna mandado ao Whisper.</summary>
+    /// <summary>
+    /// Contexto de áudio em volta da lacuna mandado ao Whisper. Medido no filme: 0,5 s → 9,26%; 1,5 s → 9,40%;
+    /// 3,0 s → 9,55% (com mais contexto ele repete o que já estava transcrito e a fala curta some).
+    /// </summary>
     public const double Contexto = 0.5;
 
     /// <summary>

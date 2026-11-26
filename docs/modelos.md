@@ -1,6 +1,6 @@
 # Especificação: modelos de IA usados e testados
 
-Última atualização: 2026-11-25. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
+Última atualização: 2026-11-26. **Mantenha este arquivo em dia** sempre que um modelo, uma imagem, um padrão de
 configuração ou uma medição mudar (ver [CLAUDE.md](../CLAUDE.md)).
 
 Todos os modelos rodam **localmente**, em contêineres Docker, na GPU. Nenhum dado sai da máquina.
@@ -241,6 +241,14 @@ o vocabulário) e acrescenta as palavras que caem no trecho.
   0,3 → 9,4% (escolhido no mesmo filme; não há outro filme com legenda para conferir).
 - **Pela lib, mesma separação (semente fixa):** 10,7% → **9,5%**, nomes 88% → **91%**, 1.367 s → 2.059 s (476 trechos
   retranscritos, ~11 min a mais).
+- **Mais áudio em volta do trecho não ajuda (2026-11-26, protótipo, mesmo filme):** com 0,5 s de cada lado (o adotado)
+  9,26% e 90% dos nomes, 44 trechos aceitos; com 1,5 s, 9,40% e 88% (39 trechos); com 3,0 s, 9,55% e 88% (28). Com mais
+  contexto o Whisper repete o que já estava transcrito e a fala curta do meio some. Cada rodada levou ~23 min.
+- **O que sobrou (437 erros em 5.279 palavras, com a 2ª passada):** 146 trocas, 205 faltas, 86 sobras. Das trocas,
+  parte é estilo da legenda e não erro de escuta ("right"/"alright" 9 vezes, "going to"/"gonna"). Das faltas, 106 são
+  palavras soltas e 58 estão em sequências de 5 ou mais: coro de multidão, grito no meio de luta, fala por cima de
+  música. As sobras são quase todas risada e interjeição ("ha", "whoa") que a legenda não escreve. Trechos de até 3
+  palavras erram 45%; os de 11 ou mais, 6,5%.
 - Só com a voz separada: no áudio misturado a música também passa de −40 dB.
 - **Só filmes por padrão:** não medido em áudio limpo (audiolivro, FLEURS, CORAA). A pesquisa aponta que redutores de
   ruído de fala pioram o Whisper em fala limpa. Estéreo e mono não passam pelo separador (`SepararVoz = Filmes`);
